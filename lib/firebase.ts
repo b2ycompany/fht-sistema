@@ -5,15 +5,14 @@ import { getStorage } from "firebase/storage"
 
 // Firebase configuration
 const firebaseConfig = {
-  apiKey: "AIzaSyBMzel8YJ9l9puiOIHvKOKR7A1tGTGZB9M",
-  authDomain: "clinic-b51d7.firebaseapp.com",
-  projectId: "clinic-b51d7",
-  storageBucket: "clinic-b51d7.firebasestorage.app",
-  messagingSenderId: "735856020061",
-  appId: "1:735856020061:web:baf1218873a185d4dc5bb4",
-  measurementId: "G-FT4RYZCRH4"
+  apiKey: "AIzaSyAyoX1YqAdqHuIvSoj0Yw_FYnhCBv-KfEA",
+  authDomain: "fht-sistema.firebaseapp.com",
+  projectId: "fht-sistema",
+  storageBucket: "fht-sistema.firebasestorage.app",
+  messagingSenderId: "583837273524",
+  appId: "1:583837273524:web:1583addfce581e61ac76e1",
+  measurementId: "G-6FJ2H3G32N"
 };
-
 // Initialize Firebase
 const app = !getApps().length ? initializeApp(firebaseConfig) : getApp()
 const auth = getAuth(app)
