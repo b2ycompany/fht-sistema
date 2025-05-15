@@ -23,36 +23,30 @@ export interface ShiftRequirement {
   hospitalName?: string;
   publishedByUID: string;
   publishedByName?: string;
-
-  dates: Timestamp[]; // Array de Timestamps para todas as datas desta demanda
+  dates: Timestamp[];
   startTime: string;
   endTime: string;
   isOvernight: boolean;
-
   state: string;
   city: string;
-
   serviceType: string;
   specialtiesRequired: string[];
   offeredRate: number;
   numberOfVacancies: number;
   notes?: string;
-
-  status: 'OPEN' | 'PARTIALLY_FILLED' | 'FULLY_STAFFED' | 'CANCELLED_BY_HOSPITAL' | 'EXPIRED' | 'PENDING_MATCH_REVIEW' | 'MATCH_REJECTED' | 'PENDING_DOCTOR_ACCEPTANCE' | 'PENDING_CONTRACT_SIGNATURES' | 'CONFIRMED' | 'IN_PROGRESS' | 'COMPLETED';
-  // vacanciesFilled será calculado ou gerenciado separadamente.
-
+  // CORRIGIDO: Adicionado 'ACTIVE_SIGNED' e outros status do fluxo de contrato.
+  status: 'OPEN' | 'PARTIALLY_FILLED' | 'FULLY_STAFFED' | 'CANCELLED_BY_HOSPITAL' | 'EXPIRED' | 
+          'PENDING_MATCH_REVIEW' | 'MATCH_REJECTED' | 
+          'PENDING_DOCTOR_ACCEPTANCE' | 'PENDING_HOSPITAL_SIGNATURE' | 'PENDING_CONTRACT_SIGNATURES' | 
+          'CONFIRMED' | 'ACTIVE_SIGNED' | // <<< 'ACTIVE_SIGNED' ADICIONADO
+          'IN_PROGRESS' | 'COMPLETED';
   createdAt: Timestamp;
   updatedAt: Timestamp;
 }
 
 export type ShiftFormPayload = Omit<ShiftRequirement,
-  "id" |
-  "hospitalId" |
-  "hospitalName" |
-  "status" |
-  "createdAt" |
-  "updatedAt" |
-  "publishedByName"
+  "id" | "hospitalId" | "hospitalName" | "status" |
+  "createdAt" | "updatedAt" | "publishedByName"
 >;
 
 export type ShiftUpdatePayload = Partial<Omit<ShiftRequirement,
@@ -60,28 +54,25 @@ export type ShiftUpdatePayload = Partial<Omit<ShiftRequirement,
   "publishedByUID" | "publishedByName" | "status" | "dates"
 >>;
 
-// --- Tipos para Dashboard e outras listas (Placeholders) ---
+// Tipos para o Dashboard
 export interface HospitalKPIs { openShiftsCount: number | null; pendingActionCount?: number | null; totalDoctorsOnPlatform?: number | null; costLast30Days?: number | null; fillRateLast30Days?: number | null; avgTimeToFillHours?: number | null; topSpecialtyDemand?: string | null; }
 export interface MonthlyCostData { name: string; valor: number; }
 export interface SpecialtyDemandData { name: string; valor: number; }
 export interface DashboardData { kpis: HospitalKPIs | null; monthlyCosts: MonthlyCostData[]; specialtyDemand: SpecialtyDemandData[]; }
-export interface PendingMatch { id: string; date: Timestamp; startTime: string; endTime: string; specialty: string; status?: string; offeredRate?: number; doctorName?: string; }
-export interface ConfirmedShift { id: string; date: Timestamp; startTime: string; endTime: string; doctorName: string; specialty?: string; }
-export interface PastShift { id: string; date: Timestamp; startTime: string; endTime: string; doctorName: string; status: string; cost?: number; }
+
+// Tipos para listas (usarão ShiftRequirement agora, mas mantidos para referência se precisar de tipos diferentes)
+export interface PendingMatch { /* ... */ } // Pode ser substituído por ShiftRequirement com status específico
+export interface ConfirmedShift { /* ... */ } // Pode ser substituído por ShiftRequirement com status específico
+export interface PastShift { /* ... */ }      // Pode ser substituído por ShiftRequirement com status específico
+
 
 // --- FUNÇÕES DO SERVIÇO ---
-export const addShiftRequirement = async (
-  shiftPayload: ShiftFormPayload
-): Promise<string> => {
+export const addShiftRequirement = async ( shiftPayload: ShiftFormPayload ): Promise<string> => {
   const currentUser = auth.currentUser;
-  if (!currentUser) {
-    throw new Error("Usuário não autenticado.");
-  }
+  if (!currentUser) throw new Error("Usuário não autenticado.");
   const hospitalProfile = await getCurrentUserData() as HospitalProfile | null;
-  if (!hospitalProfile || hospitalProfile.role !== 'hospital') {
-    throw new Error("Perfil de hospital não encontrado ou inválido.");
-  }
-
+  if (!hospitalProfile || hospitalProfile.role !== 'hospital') throw new Error("Perfil de hospital não encontrado ou inválido.");
+  
   const fullShiftData: Omit<ShiftRequirement, "id"> = {
     ...shiftPayload,
     hospitalId: currentUser.uid,
@@ -92,113 +83,74 @@ export const addShiftRequirement = async (
     createdAt: serverTimestamp() as Timestamp,
     updatedAt: serverTimestamp() as Timestamp,
   };
-
   try {
     const docRef = await addDoc(collection(db, "shiftRequirements"), fullShiftData);
-    console.log("[addShiftRequirement] Nova Demanda de Plantão adicionada com ID: ", docRef.id);
     return docRef.id;
   } catch (error) {
-    console.error("[addShiftRequirement] Erro ao adicionar demanda ao Firestore: ", error);
-    if (error instanceof Error) {
-        throw new Error(`Falha ao publicar demanda: ${error.message}`);
-    }
-    throw new Error("Falha ao publicar demanda. Erro desconhecido.");
+    console.error("[addShiftRequirement] Erro:", error);
+    throw error;
   }
 };
 
-export const updateShiftRequirement = async (
-  demandId: string,
-  updateData: ShiftUpdatePayload
-): Promise<void> => {
+export const updateShiftRequirement = async ( demandId: string, updateData: ShiftUpdatePayload ): Promise<void> => {
   const currentUser = auth.currentUser;
-  if (!currentUser) {
-    throw new Error("Usuário não autenticado.");
-  }
+  if (!currentUser) throw new Error("Usuário não autenticado.");
   const demandDocRef = doc(db, "shiftRequirements", demandId);
   try {
-    // A 'dates' não está no ShiftUpdatePayload, então não será atualizada aqui.
-    await updateDoc(demandDocRef, {
-      ...updateData,
-      updatedAt: serverTimestamp() as Timestamp,
-    });
-    console.log("[updateShiftRequirement] Demanda ID:", demandId, "atualizada com sucesso.");
-  } catch (error) {
-    console.error("[updateShiftRequirement] Erro ao atualizar demanda:", error);
-    if (error instanceof Error) {
-      throw new Error(`Falha ao atualizar demanda: ${error.message}`);
-    }
-    throw new Error("Falha ao atualizar demanda. Erro desconhecido.");
-  }
+    await updateDoc(demandDocRef, { ...updateData, updatedAt: serverTimestamp() as Timestamp, });
+  } catch (error) { console.error("[updateShiftRequirement] Erro:", error); throw error; }
 };
 
 export const getHospitalShiftRequirements = async (): Promise<ShiftRequirement[]> => {
   const currentUser = auth.currentUser;
-  if (!currentUser) {
-    console.warn("[getHospitalShiftRequirements] Usuário não autenticado tentando buscar demandas.");
-    return [];
-  }
+  if (!currentUser) return [];
   try {
-    console.log("[getHospitalShiftRequirements] Buscando demandas para hospital UID:", currentUser.uid);
-    const q = query(
-        collection(db, "shiftRequirements"),
-        where("hospitalId", "==", currentUser.uid),
-        orderBy("createdAt", "desc") // Ordena pelas mais recentes para melhor UX na lista
-    );
+    const q = query( collection(db, "shiftRequirements"), where("hospitalId", "==", currentUser.uid), orderBy("createdAt", "desc"));
     const querySnapshot = await getDocs(q);
     const shifts: ShiftRequirement[] = [];
-    querySnapshot.forEach((docSnap) => {
-      const data = docSnap.data();
-      // Validação e transformação de dados
-      const datesArray = Array.isArray(data.dates) ? data.dates.map((d: any) => {
-        // Se d já for um Timestamp, retorne. Se for um objeto com seconds/nanoseconds, crie um Timestamp.
-        if (d instanceof Timestamp) return d;
-        if (d && typeof d.seconds === 'number' && typeof d.nanoseconds === 'number') {
-          return new Timestamp(d.seconds, d.nanoseconds);
-        }
-        console.warn(`[getHospitalShiftRequirements] Formato de data inesperado para ${docSnap.id}:`, d);
-        return Timestamp.now(); // Fallback, idealmente não deveria acontecer
-      }) : [];
-
-      shifts.push({
-        id: docSnap.id,
-        hospitalId: data.hospitalId || currentUser.uid, // Fallback
-        hospitalName: data.hospitalName || "Nome Indisponível",
-        publishedByUID: data.publishedByUID || currentUser.uid,
-        publishedByName: data.publishedByName,
-        dates: datesArray,
-        startTime: data.startTime || "00:00",
-        endTime: data.endTime || "00:00",
-        isOvernight: !!data.isOvernight,
-        state: data.state || "",
-        city: data.city || "",
-        serviceType: data.serviceType || "N/A",
-        specialtiesRequired: Array.isArray(data.specialtiesRequired) ? data.specialtiesRequired : [],
-        offeredRate: typeof data.offeredRate === 'number' ? data.offeredRate : 0,
-        numberOfVacancies: typeof data.numberOfVacancies === 'number' ? data.numberOfVacancies : 1,
-        notes: data.notes || "",
-        status: data.status || 'OPEN',
-        createdAt: data.createdAt instanceof Timestamp ? data.createdAt : Timestamp.now(),
-        updatedAt: data.updatedAt instanceof Timestamp ? data.updatedAt : Timestamp.now(),
-      } as ShiftRequirement);
-    });
-    console.log(`[getHospitalShiftRequirements] Encontradas ${shifts.length} demandas para o hospital.`);
+    querySnapshot.forEach((docSnap) => { shifts.push({ id: docSnap.id, ...docSnap.data() } as ShiftRequirement); });
     return shifts;
-  } catch (error) {
-    console.error("[getHospitalShiftRequirements] Erro crítico ao buscar demandas do Firestore:", error);
-    // Propagar o erro para a UI poder tratar
-    throw error;
-  }
+  } catch (error) { console.error("[getHospitalShiftRequirements] Erro:", error); throw error; }
 };
 
 export const deleteShiftRequirement = async (shiftId: string): Promise<void> => {
   const currentUser = auth.currentUser;
-  if (!currentUser) { throw new Error("Usuário não autenticado."); }
+  if (!currentUser) throw new Error("Usuário não autenticado.");
   try {
-    const shiftDocRef = doc(db, "shiftRequirements", shiftId);
-    await deleteDoc(shiftDocRef);
-    console.log("[deleteShiftRequirement] Demanda deletada com ID:", shiftId);
-  } catch (error) {
-    console.error("[deleteShiftRequirement] Erro ao deletar demanda:", error);
-    throw error;
-  }
+    await deleteDoc(doc(db, "shiftRequirements", shiftId));
+  } catch (error) { console.error("[deleteShiftRequirement] Erro:", error); throw error; }
+};
+
+
+// --- FUNÇÕES MOCADAS PARA ABAS (RETORNANDO ShiftRequirement[]) ---
+const createMockShiftRequirement = (idSuffix: string, status: ShiftRequirement['status'], daysOffset: number = 0): ShiftRequirement => {
+  const currentUser = auth.currentUser;
+  const date = new Date();
+  date.setDate(date.getDate() + daysOffset);
+  return {
+    id: `sr_mock_${idSuffix}_${Date.now()}`,
+    hospitalId: currentUser?.uid || "mockHospitalId",
+    hospitalName: "Hospital Mock Exemplo",
+    publishedByUID: currentUser?.uid || "mockPublisherUID",
+    dates: [Timestamp.fromDate(date)],
+    startTime: "08:00", endTime: "14:00", isOvernight: false,
+    state: "SP", city: "São Paulo",
+    serviceType: "consulta_ambulatorial", specialtiesRequired: ["Clínica Médica"],
+    offeredRate: 100, numberOfVacancies: 1,
+    status: status,
+    createdAt: Timestamp.now(), updatedAt: Timestamp.now(),
+  };
+};
+
+export const getPendingActionShifts = async (): Promise<ShiftRequirement[]> => {
+  await new Promise(resolve => setTimeout(resolve, 800));
+  return [ createMockShiftRequirement("pend1", "PENDING_MATCH_REVIEW", 2), createMockShiftRequirement("pend2", "PENDING_DOCTOR_ACCEPTANCE", 3), ];
+};
+export const getConfirmedShiftsForHospital = async (): Promise<ShiftRequirement[]> => {
+  await new Promise(resolve => setTimeout(resolve, 600));
+  return [ createMockShiftRequirement("conf1", "CONFIRMED", 5), createMockShiftRequirement("conf2", "ACTIVE_SIGNED", 7), ]; // <<< 'ACTIVE_SIGNED' agora é válido
+};
+export const getPastShiftsForHospital = async (): Promise<ShiftRequirement[]> => {
+  await new Promise(resolve => setTimeout(resolve, 1000));
+  return [ createMockShiftRequirement("past1", "COMPLETED", -7), createMockShiftRequirement("past2", "CANCELLED_BY_HOSPITAL", -14), ];
 };
