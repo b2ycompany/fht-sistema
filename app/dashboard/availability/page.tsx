@@ -1,466 +1,344 @@
 // app/dashboard/availability/page.tsx
 "use client";
 
-import { useState, useEffect, useMemo, useCallback } from "react";
+import React from "react";
+import { useState, useEffect, useMemo, useCallback, ChangeEvent } from "react";
 import { Button } from "@/components/ui/button";
+import type { VariantProps } from "class-variance-authority";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Calendar } from "@/components/ui/calendar";
-import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { type DayModifiers, type SelectSingleEventHandler, type SelectMultipleEventHandler } from "react-day-picker";
+import { // <<< CORREÇÃO AQUI: Adicionar todos os componentes Select
+    Select,
+    SelectContent,
+    SelectGroup,
+    SelectItem,
+    SelectLabel,
+    SelectTrigger,
+    SelectValue
+} from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { Badge } from "@/components/ui/badge";
-import { Clock, Plus, Trash2, X, RotateCcw, DollarSign, Briefcase, MapPin, Loader2 } from "lucide-react";
-import {
-    getTimeSlots,
-    addTimeSlot,
-    deleteTimeSlot,
-    medicalSpecialties,
-    ServiceTypeRates,
-    type TimeSlot,
-} from "@/lib/availability-service";
-import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { cn } from "@/lib/utils";
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
+import {
+    Dialog,
+    DialogClose,
+    DialogContent,
+    DialogDescription,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle,
+    DialogTrigger
+} from "@/components/ui/dialog";
 
-// --- Constants and Helpers ---
+import { cn, formatCurrency } from "@/lib/utils";
+import { Timestamp } from "firebase/firestore";
+import { auth } from "@/lib/firebase";
 
-// Service Types (using imported rates)
-const serviceTypesOptions = Object.entries(ServiceTypeRates).map(([value, rate]) => ({
-    value: value,
-    label: value.split('_').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' '),
-    rate: rate,
-}));
+import {
+  addTimeSlot,
+  getTimeSlots,
+  deleteTimeSlot,
+  updateTimeSlot,
+  medicalSpecialties,
+  ServiceTypeRates,
+  type TimeSlot,
+  type TimeSlotFormPayload,
+  type TimeSlotUpdatePayload
+} from "@/lib/availability-service";
 
-// Location Data (Replace with actual data source or API call)
-const brazilianStates = ["AC", "AL", "AP", "AM", "BA", "CE", "DF", "ES", "GO", "MA", "MT", "MS", "MG", "PA", "PB", "PR", "PE", "PI", "RJ", "RN", "RS", "RO", "RR", "SC", "SP", "SE", "TO"];
+import {
+  Plus, Loader2, AlertCircle, Users, DollarSign, Briefcase, ClipboardList, Info, Trash2, CheckCircle, History, X, CalendarDays, Edit3, FilePenLine, RotateCcw,
+  MapPin,
+  Clock
+} from "lucide-react";
+
+type ButtonVariant = VariantProps<typeof Button>["variant"];
+const timeOptions = Array.from({ length: 48 }, (_, i) => { const h = Math.floor(i/2); const m = i%2 === 0 ? "00" : "30"; return `${h.toString().padStart(2,"0")}:${m}`; });
+const brazilianStates = ["AC", "AL", "AP", "AM", "BA", "CE", "DF", "ES", "GO", "MA", "MT", "MS", "MG", "PA", "PB", "PR", "PE", "PI", "RJ", "RN", "RS", "RO", "RR", "SC", "SP", "SE", "TO" ];
 const citiesByState: { [key: string]: string[] } = {
-    "SP": ["São Paulo", "Campinas", "Guarulhos", "Santos", "São Bernardo do Campo", "Santo André", "Osasco", "Sorocaba", "Ribeirão Preto", "São José dos Campos", "Araçariguama"],
-    "RJ": ["Rio de Janeiro", "Niterói", "Duque de Caxias", "São Gonçalo", "Nova Iguaçu"],
-    // **TODO: Populate with more states and cities or fetch dynamically**
+  "SP": ["São Paulo", "Campinas", "Guarulhos", "Osasco", "Santo André", "São Bernardo do Campo", "Santos", "Ribeirão Preto", "Sorocaba", "Jundiaí", "Piracicaba", "Bauru", "Franca", "Taubaté", "Limeira", "Barueri", "Cotia", "Itapevi", "Araçariguama"],
+  "RJ": ["Rio de Janeiro", "São Gonçalo", "Duque de Caxias", "Nova Iguaçu", "Niterói", "Belford Roxo", "Campos dos Goytacazes", "São João de Meriti", "Petrópolis", "Volta Redonda"],
+  "MG": ["Belo Horizonte", "Uberlândia", "Contagem", "Juiz de Fora", "Betim", "Montes Claros", "Ribeirão das Neves", "Uberaba", "Governador Valadares", "Ipatinga"],
 };
+const serviceTypesOptions = Object.entries(ServiceTypeRates).map(([v, r]) => ({ value: v, label: v.split('_').map(w=>w[0].toUpperCase()+w.slice(1)).join(' '), rateExample: r }));
 
-const formatCurrency = (value: number | null | undefined): string => {
-    if (value == null) return "R$ -";
-    return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value);
-}
+// --- COMPONENTES DE ESTADO (Loading, Empty, Error) ---
+const LoadingState = React.memo(() => ( <div className="flex flex-col justify-center items-center text-center py-10 min-h-[150px] w-full"> <Loader2 className="h-8 w-8 animate-spin text-blue-600" /> <span className="ml-3 text-sm text-gray-600 mt-3">Carregando dados...</span> </div> ));
+LoadingState.displayName = 'LoadingState';
+const EmptyState = React.memo(({ message, actionButton }: { message: string; actionButton?: React.ReactNode }) => ( <div className="text-center text-sm text-gray-500 py-10 min-h-[150px] flex flex-col items-center justify-center bg-gray-50/70 rounded-md border border-dashed border-gray-300 w-full"> <ClipboardList className="w-12 h-12 text-gray-400 mb-4"/> <p className="font-medium text-gray-600 mb-1">Nada por aqui ainda!</p> <p className="max-w-xs">{message}</p> {actionButton && <div className="mt-4">{actionButton}</div>} </div> ));
+EmptyState.displayName = 'EmptyState';
+const ErrorState = React.memo(({ message, onRetry }: { message: string; onRetry?: () => void }) => ( <div className="text-center text-sm text-red-600 py-10 min-h-[150px] flex flex-col items-center justify-center bg-red-50/70 rounded-md border border-dashed border-red-300 w-full"> <AlertCircle className="w-12 h-12 text-red-400 mb-4"/> <p className="font-semibold text-red-700 mb-1 text-base">Oops! Algo deu errado.</p> <p className="max-w-md text-red-600">{message || "Não foi possível carregar os dados. Por favor, tente novamente."}</p> {onRetry && ( <Button variant="destructive" size="sm" onClick={onRetry} className="mt-4 bg-red-600 hover:bg-red-700 text-white"> <RotateCcw className="mr-2 h-4 w-4" /> Tentar Novamente </Button> )} </div> ));
+ErrorState.displayName = 'ErrorState';
 
-// --- Component ---
+// --- Componente Principal da Página ---
 export default function AvailabilityPage() {
-    const { toast } = useToast();
-    const [dates, setDates] = useState<Date[]>([]);
-    const [startTime, setStartTime] = useState("08:00");
-    const [endTime, setEndTime] = useState("18:00");
-    const [timeSlots, setTimeSlots] = useState<TimeSlot[]>([]);
-    const [isLoadingAdd, setIsLoadingAdd] = useState(false);
-    const [isLoadingDelete, setIsLoadingDelete] = useState<string | null>(null);
-    const [isLoadingTimeSlots, setIsLoadingTimeSlots] = useState(true);
-    const [fetchError, setFetchError] = useState<string | null>(null);
-    const [specialtyPopoverOpen, setSpecialtyPopoverOpen] = useState(false);
-    const [selectedSpecialties, setSelectedSpecialties] = useState<string[]>([]);
-    const [specialtySearchValue, setSpecialtySearchValue] = useState("");
-    const [timeError, setTimeError] = useState<string | null>(null);
-    const [selectedState, setSelectedState] = useState<string>("");
-    const [selectedCity, setSelectedCity] = useState<string>("");
-    const [availableCities, setAvailableCities] = useState<string[]>([]);
-    const [selectedServiceType, setSelectedServiceType] = useState<string>("");
-    const [selectedHourlyRate, setSelectedHourlyRate] = useState<number | null>(null);
+  const { toast } = useToast();
+  const [isFormDialogOpen, setIsFormDialogOpen] = useState(false);
+  const [editingTimeSlot, setEditingTimeSlot] = useState<TimeSlot | null>(null);
+  const [timeSlots, setTimeSlots] = useState<TimeSlot[]>([]);
+  const [isLoadingList, setIsLoadingList] = useState(true);
+  const [fetchErrorList, setFetchErrorList] = useState<string | null>(null);
 
-    const fetchTimeSlots = useCallback(async () => {
-        console.log("Fetching time slots...");
-        setIsLoadingTimeSlots(true);
-        setFetchError(null); // Reset error before fetching
-        try {
-            const slots = await getTimeSlots();
-            setTimeSlots(slots);
-            console.log("Fetched slots:", slots);
-        } catch (error: any) {
-            console.error("Error fetching time slots:", error);
-            // Display the specific Firestore index error if present
-            const description = error.message || "Não foi possível carregar sua disponibilidade.";
-             // Check if it's the index error to provide a more specific message potentially
-             if (error.message && error.message.includes("query requires an index")) {
-                 setFetchError(`Falha ao buscar: Índice do Firestore necessário. ${error.message}`);
-             } else {
-                setFetchError(description);
-             }
-            toast({
-                title: "Erro ao Carregar Dados",
-                description: description, // Show the raw error message in toast
-                variant: "destructive",
-            });
-        } finally {
-            setIsLoadingTimeSlots(false);
-            console.log("Finished fetching time slots.");
-        }
-    }, [toast]);
-
-    useEffect(() => {
-        fetchTimeSlots();
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []);
-
-    const timeOptions = useMemo(() => {
-        return Array.from({ length: 48 }, (_, i) => {
-            const hour = Math.floor(i / 2);
-            const minute = i % 2 === 0 ? "00" : "30";
-            return `${hour.toString().padStart(2, "0")}:${minute}`;
-        });
-    }, []);
-
-    const filteredSpecialties = useMemo(() => {
-        if (!Array.isArray(medicalSpecialties)) return [];
-        return medicalSpecialties.filter(
-            (specialty) =>
-                typeof specialty === 'string' &&
-                specialty.toLowerCase().includes(specialtySearchValue.toLowerCase()) &&
-                !selectedSpecialties.includes(specialty)
-        );
-    }, [specialtySearchValue, selectedSpecialties]);
-
-    useEffect(() => {
-        if (selectedState) {
-            setAvailableCities(citiesByState[selectedState] || []);
-        } else {
-            setAvailableCities([]);
-        }
-        setSelectedCity("");
-    }, [selectedState]);
-
-    const checkTimeConflict = useCallback((newDate: Date, newStart: string, newEnd: string): boolean => {
-        return timeSlots.some((slot) => {
-            const slotDateStr = slot.date.toDateString();
-            const newDateStr = newDate.toDateString();
-            if (slotDateStr !== newDateStr) return false;
-            const newStartsBeforeSlotEnds = newStart < slot.endTime;
-            const newEndsAfterSlotStarts = newEnd > slot.startTime;
-            return newStartsBeforeSlotEnds && newEndsAfterSlotStarts;
-        });
-    }, [timeSlots]);
-
-    const handleSelectDate = (newDates: Date[] | undefined) => {
-        setDates(newDates || []);
+  const fetchDoctorTimeSlots = useCallback(async () => {
+    console.log("[AvailabilityPage] fetchDoctorTimeSlots: Buscando disponibilidades...");
+    setIsLoadingList(true);
+    setFetchErrorList(null);
+    try {
+      const slots = await getTimeSlots();
+      setTimeSlots(slots.sort((a,b) => (a.date.toDate().getTime() - b.date.toDate().getTime()) || a.startTime.localeCompare(b.startTime) ));
+      console.log("[AvailabilityPage] fetchDoctorTimeSlots: Encontradas", slots.length, "disponibilidades.");
+    } catch (error: any) {
+      console.error("[AvailabilityPage] fetchDoctorTimeSlots: Erro -", error);
+      const errorMsg = error.message?.includes("query requires an index")
+        ? `Falha ao buscar: Índice do Firestore necessário. ${error.message}`
+        : error.message || "Não foi possível carregar suas disponibilidades.";
+      setFetchErrorList(errorMsg);
+    } finally {
+      setIsLoadingList(false);
     }
+  }, []);
 
-    const handleRemoveTimeSlot = async (id: string | undefined) => {
-        if (!id || isLoadingDelete) return;
-        setIsLoadingDelete(id);
-        try {
-            await deleteTimeSlot(id);
-            setTimeSlots(prevSlots => prevSlots.filter((slot) => slot.id !== id));
-            toast({ title: "Disponibilidade removida", description: "Removida com sucesso.", variant: "default" });
-        } catch (error: any) {
-            console.error("Error removing time slot:", error);
-            toast({ title: "Erro ao remover", description: error.message || "Falha ao remover disponibilidade.", variant: "destructive" });
-        } finally {
-            setIsLoadingDelete(null);
-        }
-    }
+  useEffect(() => { fetchDoctorTimeSlots(); }, [fetchDoctorTimeSlots]);
+  const handleOpenAddDialog = () => { setEditingTimeSlot(null); setIsFormDialogOpen(true); };
+  const handleOpenEditDialog = (slot: TimeSlot) => { setEditingTimeSlot(slot); setIsFormDialogOpen(true); };
+  const onFormSubmitted = () => { setIsFormDialogOpen(false); setEditingTimeSlot(null); fetchDoctorTimeSlots(); };
+  const handleDeleteTimeSlot = async (slotId: string | undefined) => { if (!slotId) return; try { await deleteTimeSlot(slotId); toast({ title: "Disponibilidade Removida", variant: "default" }); fetchDoctorTimeSlots(); } catch (error: any) { toast({ title: "Erro ao Remover", description: error.message, variant: "destructive" }); } };
 
-    const handleSelectSpecialty = (specialty: string) => {
-        if (!selectedSpecialties.includes(specialty)) {
-            setSelectedSpecialties([...selectedSpecialties, specialty]);
-        }
-        setSpecialtySearchValue("");
-        setSpecialtyPopoverOpen(false);
-    }
-
-    const handleRemoveSpecialty = (specialtyToRemove: string) => {
-        setSelectedSpecialties(prevSpecialties => prevSpecialties.filter((s) => s !== specialtyToRemove));
-    }
-
-    const handleServiceTypeChange = (value: string) => {
-        const selectedOption = serviceTypesOptions.find(option => option.value === value);
-        setSelectedServiceType(value);
-        setSelectedHourlyRate(selectedOption ? selectedOption.rate : null);
-    }
-
-    const validateTimes = useCallback((start: string, end: string) => {
-        if (start && end && start >= end) {
-            const isOvernight = end < start;
-            if (!isOvernight) {
-                 setTimeError("O horário de início deve ser anterior ao horário de término para horários no mesmo dia.");
-            } else {
-                setTimeError(null); // Allow overnight
-            }
-        } else {
-            setTimeError(null);
-        }
-    }, []);
-
-    useEffect(() => {
-        validateTimes(startTime, endTime);
-    }, [startTime, endTime, validateTimes]);
-
-    const applyQuickTime = (start: string, end: string) => {
-        setStartTime(start);
-        setEndTime(end);
-        // validateTimes(start, end); // Validation runs via useEffect
-    }
-
-    const resetForm = useCallback(() => {
-        setDates([]);
-        setStartTime("08:00");
-        setEndTime("18:00");
-        setSelectedSpecialties([]);
-        setSpecialtySearchValue("");
-        setTimeError(null);
-        setSelectedServiceType("");
-        setSelectedHourlyRate(null);
-        setSelectedState("");
-        setSelectedCity("");
-        setAvailableCities([]);
-    }, []);
-
-    const handleAddAvailability = async () => {
-        if (dates.length === 0) { toast({ title: "Datas não selecionadas", description: "Selecione pelo menos uma data.", variant: "destructive" }); return; }
-        if (timeError) { toast({ title: "Erro no Horário", description: timeError, variant: "destructive" }); return; }
-        if (!selectedServiceType || selectedHourlyRate === null || selectedHourlyRate < 0) { toast({ title: "Tipo de Atendimento inválido", description: "Selecione o tipo de atendimento e verifique o valor hora.", variant: "destructive" }); return; }
-        if (!selectedState || !selectedCity) { toast({ title: "Localização não selecionada", description: "Selecione o estado e a cidade.", variant: "destructive" }); return; }
-
-        setIsLoadingAdd(true);
-        let successfulAddCount = 0, conflictDetectedCount = 0, errorOccurredCount = 0;
-        const processedDates = new Set<string>();
-
-        const addPromises = dates.map(async (date) => {
-            const dateString = date.toLocaleDateString("pt-BR");
-            const slotIdentifier = `${dateString}-${startTime}-${endTime}`;
-            if (processedDates.has(slotIdentifier)) return;
-
-            if (checkTimeConflict(date, startTime, endTime)) {
-                const conflictMsgIdentifier = `conflict-${dateString}`;
-                if (!processedDates.has(conflictMsgIdentifier)) {
-                    toast({ title: "Conflito de Horário", description: `Horário conflitante: ${dateString} ${startTime}-${endTime}.`, variant: "warning" });
-                    conflictDetectedCount++;
-                    processedDates.add(conflictMsgIdentifier);
-                } return;
-            }
-
-            try {
-                const newSlotData: Omit<TimeSlot, "id" | "doctorId" | "createdAt" | "updatedAt"> = { date, startTime, endTime, specialties: selectedSpecialties, serviceType: selectedServiceType, hourlyRate: selectedHourlyRate, city: selectedCity, state: selectedState };
-                await addTimeSlot(newSlotData);
-                successfulAddCount++;
-                processedDates.add(slotIdentifier);
-            } catch (error: any) {
-                 const errorMsgIdentifier = `error-${dateString}`;
-                 if (!processedDates.has(errorMsgIdentifier)) {
-                    console.error(`Error adding time slot for ${date.toISOString()}:`, error);
-                    toast({ title: "Erro ao Adicionar", description: error.message || `Falha ao adicionar para ${dateString}.`, variant: "destructive" });
-                    errorOccurredCount++;
-                    processedDates.add(errorMsgIdentifier);
-                }
-            }
-        });
-
-        await Promise.all(addPromises);
-        setIsLoadingAdd(false);
-
-        if (successfulAddCount > 0) {
-            toast({ title: "Operação Concluída", description: `${successfulAddCount} período(s) adicionado(s). Atualizando lista...`, variant: "success" });
-            resetForm();
-            await fetchTimeSlots();
-        } else if (errorOccurredCount === 0 && conflictDetectedCount > 0) {
-            // Only show if no other errors happened, as conflicts were already toasted
-            toast({ title: "Disponibilidade não adicionada", description: "Conflitos de horário detectados.", variant: "warning" });
-        }
-    };
-
-    // --- JSX ---
-    return (
-        <div className="space-y-6 p-4 sm:p-6 bg-gray-50 min-h-screen">
-            {/* Header */}
-            <div>
-                <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">Disponibilidade</h1>
-                <p className="text-gray-600 text-sm sm:text-base">Gerencie seus horários, tipos de atendimento, valores e locais para propostas.</p>
-            </div>
-
-            {/* Error/Loading States */}
-            {fetchError && !isLoadingTimeSlots && (
-                 <Card className="border-destructive bg-destructive/10">
-                    <CardHeader>
-                        <CardTitle className="text-destructive text-lg">Erro ao Carregar Dados</CardTitle>
-                        <CardDescription className="text-destructive/90 break-words"> {/* Added break-words */}
-                            {fetchError}
-                            {fetchError.includes("query requires an index") && (
-                                <span className="block mt-2 text-xs"> (A criação do índice no Firestore pode levar alguns minutos após clicar no link.)</span>
-                            )}
-                            <br/> Por favor, tente
-                            <Button variant="link" className="p-0 h-auto ml-1 text-destructive/90 underline" onClick={fetchTimeSlots} disabled={isLoadingTimeSlots}>
-                                {isLoadingTimeSlots ? 'Recarregando...' : 'recarregar a lista'}
-                            </Button>.
-                        </CardDescription>
-                    </CardHeader>
-                </Card>
-            )}
-            {isLoadingTimeSlots && !fetchError && (
-                 <div className="flex justify-center items-center py-10 bg-white rounded-lg shadow-sm border border-blue-100">
-                    <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
-                    <p className="ml-4 text-gray-600">Carregando sua disponibilidade...</p>
-                </div>
-            )}
-
-            {/* Main Content */}
-            {!isLoadingTimeSlots && ( // Render form/list only when not loading initially
-                <div className="grid gap-6 md:grid-cols-2">
-                    {/* Add Availability Card */}
-                    <Card className={cn("border-blue-100 shadow-sm", fetchError && "opacity-50 pointer-events-none")}> {/* Dim form if fetch failed */}
-                        <CardHeader>
-                            <CardTitle className="text-gray-900 text-lg sm:text-xl">Adicionar Disponibilidade</CardTitle>
-                            <CardDescription className="text-gray-600 text-sm">
-                                Escolha datas, horários, tipo, valor, local e especialidades (opcional).
-                            </CardDescription>
-                        </CardHeader>
-                        <CardContent className="space-y-4">
-                            {/* Date Selection */}
-                            <div>
-                                <Label className="text-gray-700 text-sm sm:text-base font-medium">Datas</Label>
-                                <p className="text-xs text-gray-500 mb-1">Clique nas datas desejadas.</p>
-                                <div className="rounded-md border border-blue-200 bg-white p-1 inline-block">
-                                    <Calendar mode="multiple" min={0} selected={dates} onSelect={handleSelectDate} disabled={(date) => date < new Date(new Date().setHours(0, 0, 0, 0))} className="p-2 text-sm" footer={dates.length > 0 ? <p className="text-xs mt-2 text-blue-700 px-2">{dates.length} data(s) selecionada(s).</p> : <p className="text-xs mt-2 text-gray-500 px-2">Nenhuma data.</p>} />
-                                </div>
-                            </div>
-                            {/* Quick Time Buttons */}
-                            <div className="space-y-2">
-                                <Label className="text-gray-700 text-sm sm:text-base font-medium">Horários Rápidos</Label>
-                                <div className="flex flex-wrap gap-2">
-                                     <Button variant="outline" size="sm" onClick={() => applyQuickTime("08:00", "12:00")} className="border-blue-200 text-blue-600 hover:bg-blue-50 text-xs sm:text-sm">Manhã (08-12)</Button>
-                                     <Button variant="outline" size="sm" onClick={() => applyQuickTime("14:00", "18:00")} className="border-blue-200 text-blue-600 hover:bg-blue-50 text-xs sm:text-sm">Tarde (14-18)</Button>
-                                     <Button variant="outline" size="sm" onClick={() => applyQuickTime("19:00", "07:00")} className="border-blue-200 text-blue-600 hover:bg-blue-50 text-xs sm:text-sm">Noite (19-07)</Button>
-                                     <Button variant="outline" size="sm" onClick={() => applyQuickTime("07:00", "19:00")} className="border-blue-200 text-blue-600 hover:bg-blue-50 text-xs sm:text-sm">Dia (07-19)</Button>
-                                </div>
-                            </div>
-                            {/* Time Selection */}
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                                <div className="space-y-1.5">
-                                    <Label htmlFor="start-time" className="text-gray-700 text-sm sm:text-base font-medium">Início</Label>
-                                    <Select value={startTime} onValueChange={setStartTime}>
-                                        {/* CORRECTED className logic */}
-                                        <SelectTrigger id="start-time" className={cn("border-blue-200 focus:ring-blue-500 text-sm h-9", timeError && "border-red-500 ring-red-500 focus:ring-red-500")}>
-                                            <SelectValue placeholder="Selecione" />
-                                        </SelectTrigger>
-                                        <SelectContent>{timeOptions.map((time) => (<SelectItem key={`start-${time}`} value={time} className="text-sm">{time}</SelectItem>))}</SelectContent>
-                                    </Select>
-                                </div>
-                                <div className="space-y-1.5">
-                                    <Label htmlFor="end-time" className="text-gray-700 text-sm sm:text-base font-medium">Término</Label>
-                                    <Select value={endTime} onValueChange={setEndTime}>
-                                        {/* CORRECTED className logic */}
-                                        <SelectTrigger id="end-time" className={cn("border-blue-200 focus:ring-blue-500 text-sm h-9", timeError && "border-red-500 ring-red-500 focus:ring-red-500")}>
-                                            <SelectValue placeholder="Selecione" />
-                                        </SelectTrigger>
-                                        <SelectContent>{timeOptions.map((time) => (<SelectItem key={`end-${time}`} value={time} className="text-sm">{time}</SelectItem>))}</SelectContent>
-                                    </Select>
-                                </div>
-                                {timeError && <p className="text-red-600 text-xs sm:text-sm col-span-1 sm:col-span-2 pt-1">{timeError}</p>}
-                            </div>
-                            {/* Service Type Selection */}
-                            <div className="space-y-1.5">
-                                 <Label htmlFor="service-type" className="text-gray-700 text-sm sm:text-base font-medium flex items-center">
-                                     <Briefcase className="h-4 w-4 mr-1.5 text-blue-600"/> Tipo de Atendimento <span className="text-red-500 ml-1">*</span>
-                                  </Label>
-                                 <Select value={selectedServiceType} onValueChange={handleServiceTypeChange}>
-                                     <SelectTrigger id="service-type" className={cn("border-blue-200 focus:ring-blue-500 text-sm h-9", !selectedServiceType && "text-gray-500")}>
-                                         <SelectValue placeholder="Selecione o tipo..." />
-                                     </SelectTrigger>
-                                     <SelectContent>
-                                         <SelectGroup>
-                                             <SelectLabel>Tipos Disponíveis</SelectLabel>
-                                             {serviceTypesOptions.map((option) => (<SelectItem key={option.value} value={option.value} className="text-sm">{option.label} ({formatCurrency(option.rate)}/hora)</SelectItem>))}
-                                              {serviceTypesOptions.length === 0 && <p className="text-xs text-gray-500 p-2">Nenhum tipo.</p>}
-                                         </SelectGroup>
-                                     </SelectContent>
-                                 </Select>
-                                 {selectedHourlyRate !== null && (<p className="text-xs text-gray-600 mt-1 flex items-center gap-1"><DollarSign className="h-3.5 w-3.5 text-green-600"/> Valor/hora: <span className="font-medium text-green-700">{formatCurrency(selectedHourlyRate)}</span></p>)}
-                            </div>
-                            {/* Location Selection */}
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                                <div className="space-y-1.5">
-                                     <Label htmlFor="state-select" className="text-gray-700 text-sm sm:text-base font-medium flex items-center">
-                                          <MapPin className="h-4 w-4 mr-1.5 text-blue-600"/> Estado <span className="text-red-500 ml-1">*</span>
-                                     </Label>
-                                     <Select value={selectedState} onValueChange={setSelectedState}>
-                                         <SelectTrigger id="state-select" className={cn("border-blue-200 focus:ring-blue-500 text-sm h-9", !selectedState && "text-gray-500")}>
-                                             <SelectValue placeholder="Selecione..." />
-                                         </SelectTrigger>
-                                         <SelectContent>
-                                             <SelectGroup><SelectLabel>Estados</SelectLabel>{brazilianStates.map((state) => (<SelectItem key={state} value={state} className="text-sm">{state}</SelectItem>))}</SelectGroup>
-                                         </SelectContent>
-                                     </Select>
-                                </div>
-                                <div className="space-y-1.5">
-                                     <Label htmlFor="city-select" className="text-gray-700 text-sm sm:text-base font-medium"> Cidade <span className="text-red-500 ml-1">*</span> </Label>
-                                     <Select value={selectedCity} onValueChange={setSelectedCity} disabled={!selectedState || availableCities.length === 0}>
-                                         <SelectTrigger id="city-select" className={cn("border-blue-200 focus:ring-blue-500 text-sm h-9", !selectedCity && "text-gray-500", (!selectedState || availableCities.length === 0) && "bg-gray-100 cursor-not-allowed")}>
-                                             <SelectValue placeholder={!selectedState ? "Escolha Estado" : (availableCities.length === 0 ? "Sem cidades" : "Selecione...")} />
-                                         </SelectTrigger>
-                                         <SelectContent><SelectGroup><SelectLabel>Cidades em {selectedState}</SelectLabel>{availableCities.map((city) => (<SelectItem key={city} value={city} className="text-sm">{city}</SelectItem>))} {selectedState && availableCities.length === 0 && (<p className="text-xs text-gray-500 p-2">Nenhuma cidade.</p>)}</SelectGroup></SelectContent>
-                                     </Select>
-                                </div>
-                            </div>
-                            {/* Specialty Selection */}
-                            <div className="space-y-1.5">
-                                 <Label className="text-gray-700 text-sm sm:text-base font-medium">Especialidades (Opcional)</Label>
-                                 <Popover open={specialtyPopoverOpen} onOpenChange={setSpecialtyPopoverOpen}>
-                                      <PopoverTrigger asChild>
-                                         <Button variant="outline" className="w-full justify-between border-blue-200 text-gray-700 hover:bg-blue-50 text-sm font-normal h-9">
-                                             <span className="truncate pr-2">{selectedSpecialties.length > 0 ? selectedSpecialties.join(', ') : "Selecione..."}</span>
-                                             <Plus className="ml-2 h-4 w-4 text-blue-600 shrink-0" />
-                                         </Button>
-                                     </PopoverTrigger>
-                                      <PopoverContent className="w-[--radix-popover-trigger-width] p-0 max-h-60 overflow-y-auto"><Command><CommandInput placeholder="Buscar..." value={specialtySearchValue} onValueChange={setSpecialtySearchValue} className="text-sm" /><CommandList><CommandEmpty className="text-sm p-2">Nenhuma encontrada.</CommandEmpty><CommandGroup>{filteredSpecialties.map((specialty) => (<CommandItem key={specialty} value={specialty} onSelect={() => handleSelectSpecialty(specialty)} className="text-sm flex items-center cursor-pointer">{specialty}</CommandItem>))}</CommandGroup></CommandList></Command></PopoverContent>
-                                  </Popover>
-                                 {selectedSpecialties.length > 0 && (
-                                      <div className="flex flex-wrap gap-1 sm:gap-2 mt-2">{selectedSpecialties.map((specialty) => (<Badge key={specialty} variant="secondary" className="bg-blue-100 text-blue-800 hover:bg-blue-200 border border-blue-200 flex items-center gap-1 text-xs sm:text-sm whitespace-nowrap pl-2 pr-1 py-0.5"><span className="">{specialty}</span><button type="button" onClick={() => handleRemoveSpecialty(specialty)} className="rounded-full hover:bg-blue-300 p-0.5" aria-label={`Remover ${specialty}`}><X className="h-3 w-3" /></button></Badge>))}</div>
-                                 )}
-                             </div>
-                            {/* Action Buttons */}
-                            <div className="flex flex-col sm:flex-row gap-2 pt-2">
-                                <Button type="button" className="w-full bg-blue-600 hover:bg-blue-700 text-white flex items-center justify-center gap-2 text-sm sm:text-base h-9" disabled={isLoadingAdd || !!timeError || dates.length === 0 || !selectedServiceType || selectedHourlyRate === null || !selectedState || !selectedCity} onClick={handleAddAvailability}>
-                                     {isLoadingAdd ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />} {isLoadingAdd ? "Adicionando..." : "Adicionar"}
-                                 </Button>
-                                <Button type="button" variant="outline" className="w-full sm:w-auto border-gray-300 text-gray-700 hover:bg-gray-100 text-sm sm:text-base flex items-center justify-center gap-2 h-9" onClick={resetForm} disabled={isLoadingAdd}>
-                                     <RotateCcw className="h-4 w-4" /> <span className="sm:ml-1">Limpar</span>
-                                 </Button>
-                            </div>
-                        </CardContent>
-                    </Card>
-
-                    {/* Registered Availability List Card */}
-                    <Card className="border-blue-100 shadow-sm">
-                        <CardHeader>
-                            <CardTitle className="text-gray-900 text-lg sm:text-xl">Disponibilidade Cadastrada</CardTitle>
-                            <CardDescription className="text-gray-600 text-sm">
-                                Seus horários, tipos, valores e locais registrados.
-                            </CardDescription>
-                        </CardHeader>
-                        <CardContent>
-                            <div className="space-y-3 max-h-[400px] sm:max-h-[500px] md:max-h-[650px] overflow-y-auto pr-2 border-t border-blue-100 pt-3">
-                                {!isLoadingTimeSlots && timeSlots.length === 0 && !fetchError ? ( // Show only if not loading, no error, and list is empty
-                                    <p className="text-center text-gray-600 py-6 text-sm">Nenhuma disponibilidade cadastrada.</p>
-                                ) : (
-                                    timeSlots.map((slot) => {
-                                        const serviceTypeLabel = serviceTypesOptions.find(opt => opt.value === slot.serviceType)?.label || slot.serviceType;
-                                        const isDeleting = isLoadingDelete === slot.id;
-                                        return (
-                                             <div key={slot.id} className={cn("flex flex-col sm:flex-row items-start sm:items-center justify-between border-b border-blue-100 pb-3 last:border-0 last:pb-0 gap-2 transition-opacity duration-300", isDeleting && "opacity-50 pointer-events-none")}>
-                                                <div className="flex-1 space-y-1.5">
-                                                    <p className="font-medium text-gray-900 text-sm sm:text-base" suppressHydrationWarning>{slot.date ? slot.date.toLocaleDateString("pt-BR", { weekday: "short", day: "2-digit", month: "short" }) : "Inválida"}</p>
-                                                    <div className="flex items-center gap-1.5 text-xs sm:text-sm text-gray-600"><Clock className="h-3.5 w-3.5 shrink-0" /><span>{slot.startTime} - {slot.endTime}</span></div>
-                                                    <div className="flex items-center gap-1.5 text-xs sm:text-sm text-gray-600"><MapPin className="h-3.5 w-3.5 shrink-0 text-purple-600" /><span>{slot.city}, {slot.state}</span></div>
-                                                    <div className="flex items-center gap-1.5 text-xs sm:text-sm text-gray-600"><Briefcase className="h-3.5 w-3.5 shrink-0 text-blue-600" /><span>{serviceTypeLabel}</span></div>
-                                                    <div className="flex items-center gap-1.5 text-xs sm:text-sm text-gray-600"><DollarSign className="h-3.5 w-3.5 shrink-0 text-green-600" /><span className="font-medium text-green-700">{formatCurrency(slot.hourlyRate)}/hora</span></div>
-                                                    {slot.specialties && slot.specialties.length > 0 && (<div className="flex flex-wrap gap-1 pt-1">{slot.specialties.map((specialty) => (<Badge key={specialty} variant="secondary" className="bg-blue-100 text-blue-800 text-xs px-1.5 py-0.5 font-normal">{specialty}</Badge>))}</div>)}
-                                                </div>
-                                                <Button variant="ghost" size="icon" onClick={() => handleRemoveTimeSlot(slot.id)} disabled={!!isLoadingDelete} className="text-gray-400 hover:text-red-600 hover:bg-red-50 mt-2 sm:mt-0 shrink-0 rounded-full h-8 w-8" aria-label="Remover">{isDeleting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}</Button>
-                                             </div>
-                                        );
-                                    })
-                                )}
-                                {/* Loading indicator inside list area is removed, handled by the top-level one */}
-                            </div>
-                        </CardContent>
-                    </Card>
-                </div>
-            )}
+  return (
+    <div className="space-y-6 p-1">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+        <div>
+          <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">Minha Disponibilidade</h1>
+          <p className="text-gray-600 text-sm sm:text-base mt-1">Cadastre os dias, horários, locais e valores que você está disponível para atender.</p>
         </div>
-    )
+        <Dialog open={isFormDialogOpen} onOpenChange={(isOpen) => { setIsFormDialogOpen(isOpen); if (!isOpen) setEditingTimeSlot(null); }}>
+          <DialogTrigger asChild>
+            <Button size="sm" className="w-full sm:w-auto bg-blue-600 hover:bg-blue-700" onClick={handleOpenAddDialog}>
+              <Plus className="mr-1.5 h-4 w-4" /> Adicionar Disponibilidade
+            </Button>
+          </DialogTrigger>
+          <TimeSlotFormDialog key={editingTimeSlot ? `edit-${editingTimeSlot.id}` : 'new'} onFormSubmitted={onFormSubmitted} initialData={editingTimeSlot} />
+        </Dialog>
+      </div>
+      <Card>
+        <CardHeader> <CardTitle>Disponibilidades Cadastradas</CardTitle> <CardDescription>Seus horários disponíveis para propostas de plantão.</CardDescription> </CardHeader>
+        <CardContent>
+          {isLoadingList ? ( <LoadingState /> )
+          : fetchErrorList ? ( <ErrorState message={fetchErrorList} onRetry={fetchDoctorTimeSlots} /> )
+          : timeSlots.length === 0 ? ( <EmptyState message="Você ainda não cadastrou nenhuma disponibilidade." actionButton={<Button size="sm" onClick={handleOpenAddDialog} className="bg-blue-600 hover:bg-blue-700"><Plus className="mr-1.5 h-4 w-4"/>Cadastrar Primeira Disponibilidade</Button>} /> )
+          : ( <div className="space-y-3"> {timeSlots.map(slot => ( <TimeSlotListItem key={slot.id} slot={slot} onEdit={() => handleOpenEditDialog(slot)} onDelete={() => handleDeleteTimeSlot(slot.id)} /> ))} </div> )}
+        </CardContent>
+      </Card>
+    </div>
+  );
 }
+
+// --- COMPONENTE TimeSlotListItem ---
+interface TimeSlotListItemProps { slot: TimeSlot; onEdit: () => void; onDelete: () => void; }
+const TimeSlotListItem: React.FC<TimeSlotListItemProps> = ({ slot, onEdit, onDelete }) => {
+  const slotDate = slot.date instanceof Timestamp ? slot.date.toDate() : null;
+  const serviceTypeObj = serviceTypesOptions.find(opt => opt.value === slot.serviceType);
+  const serviceTypeLabel = serviceTypeObj?.label || slot.serviceType;
+  const canEdit = slot.status === 'AVAILABLE';
+  const statusBadgeVariant = (status?: string): VariantProps<typeof Badge>["variant"] => { switch (status) { case 'AVAILABLE': return 'default'; case 'BOOKED': case 'COMPLETED': return 'default'; default: return 'outline'; } };
+  const statusBadgeColorClasses = (status?: string): string => { switch (status) { case 'AVAILABLE': return 'bg-blue-100 text-blue-800'; case 'BOOKED': case 'COMPLETED': return 'bg-green-100 text-green-800'; default: return 'bg-gray-100 text-gray-800'; } }
+
+  return ( <div className={cn("flex flex-col sm:flex-row items-start sm:justify-between border rounded-lg p-4 gap-x-4 gap-y-3 bg-white shadow-xs hover:shadow-sm", !canEdit && "opacity-70")}> <div className="flex-1 space-y-1.5 min-w-0"> <div className="flex items-center justify-between gap-2"> <div className="flex items-center gap-2 text-sm font-semibold text-gray-800"> <CalendarDays className="h-4 w-4 shrink-0 text-blue-600" /> <span suppressHydrationWarning>{slotDate ? slotDate.toLocaleDateString("pt-BR", { day: "2-digit", month: "short", year: "numeric" }) : "Data Inválida"}</span> <span className="text-gray-500 font-normal">({slot.startTime} - {slot.endTime})</span> </div> <Badge variant={statusBadgeVariant(slot.status)} className={cn(statusBadgeColorClasses(slot.status), "capitalize")}> {slot.status?.replace(/_/g, ' ').toUpperCase()} </Badge> </div> <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1 text-xs text-gray-600 mt-1 pl-1"> <div className="flex items-center gap-1.5 truncate"><MapPin className="h-3.5 w-3.5 shrink-0 text-purple-500" /><span>{slot.city}, {slot.state}</span></div> <div className="flex items-center gap-1.5 truncate"><Briefcase className="h-3.5 w-3.5 shrink-0 text-cyan-500" /><span>{serviceTypeLabel}</span></div> <div className="flex items-center gap-1.5 text-green-600 font-medium sm:col-span-2"><DollarSign className="h-3.5 w-3.5 shrink-0" /><span>{formatCurrency(slot.desiredHourlyRate)}/hora (pretendido)</span></div> </div> {slot.specialties && slot.specialties.length > 0 && ( <div className="flex flex-wrap items-center gap-1.5 pt-1.5 pl-1"> <span className="text-xs text-gray-500 mr-1 font-medium shrink-0">Especialidades:</span> {slot.specialties.map((s) => (<Badge key={s} variant="outline" className="text-gray-700 text-[11px] px-1.5 py-0.5 font-normal border-blue-200 bg-blue-50">{s}</Badge>))} </div> )} {slot.notes && ( <p className="text-xs text-gray-500 pt-1.5 pl-1 italic flex items-start gap-1.5"> <Info className="inline h-3.5 w-3.5 mr-0.5 shrink-0 relative top-0.5"/> <span className="truncate">{slot.notes}</span> </p> )} </div> <div className="flex items-center space-x-1 shrink-0 mt-2 sm:mt-0 self-end sm:self-center"> <Button variant="ghost" size="icon" onClick={onEdit} disabled={!canEdit} className="text-blue-600 hover:text-blue-700 hover:bg-blue-50 rounded-full w-8 h-8" aria-label="Editar Disponibilidade"><FilePenLine className="h-4 w-4"/></Button> <Button variant="ghost" size="icon" onClick={onDelete} className="text-red-600 hover:text-red-700 hover:bg-red-50 rounded-full w-8 h-8" aria-label="Cancelar Disponibilidade"><Trash2 className="h-4 w-4"/></Button> </div> </div> );
+};
+TimeSlotListItem.displayName = 'TimeSlotListItem';
+
+// --- COMPONENTE TimeSlotFormDialog (para Adicionar/Editar Disponibilidade) ---
+interface TimeSlotFormDialogProps {
+  onFormSubmitted: () => void;
+  initialData?: TimeSlot | null;
+}
+const TimeSlotFormDialog: React.FC<TimeSlotFormDialogProps> = ({ onFormSubmitted, initialData }) => {
+  const { toast } = useToast();
+  const isEditing = !!initialData && !!initialData.id;
+
+  const [dates, setDates] = useState<Date[]>(() => isEditing && initialData?.date ? [initialData.date.toDate()] : []);
+  const [startTime, setStartTime] = useState(initialData?.startTime || "07:00");
+  const [endTime, setEndTime] = useState(initialData?.endTime || "19:00");
+  const [desiredRateInput, setDesiredRateInput] = useState<string>(String(initialData?.desiredHourlyRate || ""));
+  const [selectedSpecialties, setSelectedSpecialties] = useState<string[]>(initialData?.specialties || []);
+  const [selectedState, setSelectedState] = useState<string>(initialData?.state || "");
+  const [selectedCity, setSelectedCity] = useState<string>(initialData?.city || "");
+  const [selectedServiceType, setSelectedServiceType] = useState<string>(initialData?.serviceType || "");
+  const [notes, setNotes] = useState<string>(initialData?.notes || "");
+
+  const [isLoadingSubmit, setIsLoadingSubmit] = useState(false);
+  const [specialtyPopoverOpen, setSpecialtyPopoverOpen] = useState(false);
+  const [specialtySearchValue, setSpecialtySearchValue] = useState("");
+  const [timeError, setTimeError] = useState<string | null>(null);
+  const [availableCities, setAvailableCities] = useState<string[]>([]);
+
+  useEffect(() => { if (initialData?.state) { setAvailableCities(citiesByState[initialData.state] || []); } }, [initialData?.state]);
+  const resetFormFields = useCallback(() => { setDates([]); setStartTime("07:00"); setEndTime("19:00"); setDesiredRateInput(""); setSelectedSpecialties([]); setSelectedState(""); setSelectedCity(""); setSelectedServiceType(""); setNotes(""); setTimeError(null); }, []);
+  const validateTimes = useCallback((start: string, end: string) => { if (start && end && start === end) { setTimeError("Horário de início não pode ser igual ao de término."); } else { setTimeError(null); } }, []);
+  useEffect(() => { validateTimes(startTime, endTime); }, [startTime, endTime, validateTimes]);
+  useEffect(() => { if (selectedState) { if (!initialData || selectedState !== initialData.state) { setAvailableCities(citiesByState[selectedState] || []); setSelectedCity(""); } else if (initialData && selectedState === initialData.state && !selectedCity) { if (citiesByState[selectedState]?.includes(initialData.city)) { setSelectedCity(initialData.city); } } } else { setAvailableCities([]); setSelectedCity(""); } }, [selectedState, initialData]);
+  const handleSelectSpecialty = (specialty: string) => { if (!selectedSpecialties.includes(specialty)) setSelectedSpecialties(prev => [...prev, specialty]); setSpecialtySearchValue(""); setSpecialtyPopoverOpen(false); };
+  const handleRemoveSpecialty = (specialtyToRemove: string) => { setSelectedSpecialties(prev => prev.filter(s => s !== specialtyToRemove)); };
+  const filteredSpecialties = useMemo(() => medicalSpecialties.filter(s => typeof s === 'string' && s.toLowerCase().includes(specialtySearchValue.toLowerCase()) && !selectedSpecialties.includes(s)), [specialtySearchValue, selectedSpecialties]);
+  const applyQuickTime = (start: string, end: string) => { setStartTime(start); setEndTime(end); };
+
+  const handleSubmit = async () => {
+    const desiredHourlyRate = parseFloat(desiredRateInput.replace(',', '.'));
+    if (dates.length === 0) { toast({ title: "Data é obrigatória", variant: "destructive" }); return; }
+    if (timeError) { toast({ title: "Horário Inválido", variant: "destructive" }); return; }
+    if (!selectedServiceType) { toast({ title: "Tipo de Atendimento Obrigatório", variant: "destructive" }); return; }
+    if (isNaN(desiredHourlyRate) || desiredHourlyRate <= 0) { toast({ title: "Valor Hora Inválido", variant: "destructive" }); return; }
+    if (!selectedState || !selectedCity) { toast({ title: "Localização Obrigatória", variant: "destructive" }); return; }
+    if (selectedSpecialties.length === 0) { toast({ title: "Especialidade Obrigatória", description: "Selecione ao menos uma especialidade.", variant: "destructive" }); return; }
+
+    setIsLoadingSubmit(true);
+    const currentUser = auth.currentUser;
+    if (!currentUser) { toast({ title: "Usuário não autenticado", variant: "destructive" }); setIsLoadingSubmit(false); return; }
+
+    const isOvernight = startTime > endTime;
+    const finalNotes = notes.trim();
+
+    try {
+      if (isEditing && initialData?.id) {
+        const payload: TimeSlotUpdatePayload = {
+          startTime, endTime, isOvernight,
+          state: selectedState, city: selectedCity,
+          serviceType: selectedServiceType, specialties: selectedSpecialties,
+          desiredHourlyRate,
+          ...(finalNotes && { notes: finalNotes }),
+        };
+        await updateTimeSlot(initialData.id, payload);
+        toast({ title: "Disponibilidade Atualizada", variant: "default" });
+      } else {
+        const creationPromises = dates.map(singleDate => {
+          const slotTimestamp = Timestamp.fromDate(singleDate);
+          const payload: TimeSlotFormPayload = {
+            date: slotTimestamp, startTime, endTime, isOvernight,
+            state: selectedState, city: selectedCity,
+            serviceType: selectedServiceType, specialties: selectedSpecialties,
+            desiredHourlyRate,
+            ...(finalNotes && { notes: finalNotes }),
+          };
+          return addTimeSlot(payload);
+        });
+        await Promise.all(creationPromises);
+        toast({ title: "Disponibilidade(s) Adicionada(s)!", description: `${dates.length} horário(s) foram salvos.`, variant: "default" });
+        if(!isEditing) resetFormFields();
+      }
+      onFormSubmitted();
+    } catch (error: any) { toast({ title: `Erro ao ${isEditing ? 'Atualizar' : 'Salvar'}`, description: error.message, variant: "destructive"}); }
+    finally { setIsLoadingSubmit(false); }
+  };
+
+  // Lógica do Calendário para modo de edição vs criação
+  const calendarMode = isEditing ? "single" : "multiple";
+  const selectedCalendarDate: Date | Date[] | undefined = isEditing ? (dates[0] || undefined) : dates;
+  
+  // CORRIGIDO: Tipagem explícita para onSelect do Calendar
+  const handleCalendarSelect = (day: Date | undefined, selected: Date, modifiers: DayModifiers, e: React.MouseEvent<Element, MouseEvent>) => {
+    if (isEditing) {
+        // No modo de edição, não permitimos mudar a data principal (o calendário é desabilitado)
+        return;
+    }
+    // Modo de criação (multiple) - o DayPicker lida com o array 'selected' e 'day' é o dia clicado
+    // A prop onSelect do Calendar com mode="multiple" recebe (Date[] | undefined)
+    // Esta função específica onDayClick (se usada em vez de onSelect direto) precisaria de lógica diferente.
+    // Simplificando e usando onSelect direto no Calendar.
+  };
+
+  const onCalendarOnSelectMultiple = (selectedDays: Date[] | undefined) => {
+    if (!isEditing) {
+        setDates(selectedDays || []);
+    }
+  };
+  const onCalendarOnSelectSingle = (selectedDay: Date | undefined) => {
+    if (isEditing && selectedDay) { // Teoricamente não deveria ser chamado se disabled
+        setDates([selectedDay]);
+    }
+  };
+
+
+  return (
+    <DialogContent className="sm:max-w-lg md:max-w-xl">
+      <DialogHeader>
+        <DialogTitle className="text-xl">{isEditing ? "Editar Disponibilidade" : "Adicionar Nova Disponibilidade"}</DialogTitle>
+        <DialogDescription>
+          {isEditing ? "Altere os detalhes da sua disponibilidade. A data original não pode ser alterada." : "Selecione as datas e preencha os detalhes. Uma entrada de disponibilidade será criada para cada data selecionada."}
+        </DialogDescription>
+      </DialogHeader>
+      <div className="grid gap-5 py-4 max-h-[70vh] overflow-y-auto px-1 pr-3 md:pr-4 custom-scrollbar">
+         <div className="space-y-2">
+          <Label className="font-semibold text-gray-800 flex items-center"><CalendarDays className="h-4 w-4 mr-2 text-blue-600"/>Data(s) da Disponibilidade*</Label>
+          <p className="text-xs text-gray-500">
+            {isEditing ? "Data original (não pode ser alterada)." : "Selecione um ou mais dias no calendário."}
+          </p>
+          <div className="flex flex-col sm:flex-row gap-2 items-start">
+            {isEditing ? (
+                <Calendar
+                    mode="single"
+                    selected={dates[0]} // Mostra a data única
+                    disabled // Desabilita interação no modo de edição
+                    className="p-0 border rounded-md shadow-sm bg-white w-full sm:w-auto"
+                    footer={<p className="text-xs text-gray-700 font-medium p-2 border-t">Data: {dates[0]?.toLocaleDateString('pt-BR')}</p>}
+                />
+            ) : (
+                <Calendar
+                    mode="multiple"
+                    selected={dates}
+                    onSelect={onCalendarOnSelectMultiple} // CORRIGIDO: Usando o handler tipado
+                    disabled={{ before: new Date(new Date().setHours(0, 0, 0, 0)) }}
+                    className="p-0 border rounded-md shadow-sm bg-white w-full sm:w-auto"
+                    footer={ dates.length > 0 ? <p className="text-xs text-blue-700 font-medium p-2 border-t">{dates.length} dia(s) selecionado(s).</p> : <p className="text-xs text-gray-500 p-2 border-t">Nenhum dia selecionado.</p>}
+                />
+            )}
+            {dates.length > 0 && !isEditing && <Button variant="outline" size="sm" onClick={() => setDates([])} className="text-xs self-start sm:self-end w-full sm:w-auto"><X className="h-3 w-3 mr-1"/> Limpar Datas</Button>}
+          </div>
+        </div>
+         <div className="space-y-2">
+            <Label className="font-semibold text-gray-800 flex items-center"><Clock className="h-4 w-4 mr-2 text-blue-600"/>Horário da Disponibilidade*</Label>
+            <div className="flex flex-wrap gap-2 mb-3">
+                <Button variant="outline" size="sm" onClick={() => applyQuickTime("07:00", "19:00")} className="text-xs">Diurno (07-19h)</Button>
+                <Button variant="outline" size="sm" onClick={() => applyQuickTime("19:00", "07:00")} className="text-xs">Noturno (19-07h)</Button>
+                <Button variant="outline" size="sm" onClick={() => applyQuickTime("08:00", "12:00")} className="text-xs">Manhã (08-12h)</Button>
+                <Button variant="outline" size="sm" onClick={() => applyQuickTime("13:00", "18:00")} className="text-xs">Tarde (13-18h)</Button>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="space-y-1.5"><Label htmlFor="doc-start-time">Horário de Início*</Label><Select value={startTime} onValueChange={setStartTime}><SelectTrigger id="doc-start-time" className={cn("h-9", timeError && "border-red-500 ring-1 ring-red-500")}><SelectValue/></SelectTrigger><SelectContent>{timeOptions.map(t=><SelectItem key={"dst"+t} value={t}>{t}</SelectItem>)}</SelectContent></Select></div>
+                <div className="space-y-1.5"><Label htmlFor="doc-end-time">Horário de Término*</Label><Select value={endTime} onValueChange={setEndTime}><SelectTrigger id="doc-end-time" className={cn("h-9", timeError && "border-red-500 ring-1 ring-red-500")}><SelectValue/></SelectTrigger><SelectContent>{timeOptions.map(t=><SelectItem key={"det"+t} value={t}>{t}</SelectItem>)}</SelectContent></Select></div>
+                {timeError && <p className="text-red-600 text-xs col-span-1 sm:col-span-2">{timeError}</p>}
+            </div>
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="space-y-1.5"><Label htmlFor="doc-state" className="font-semibold text-gray-800 flex items-center"><MapPin className="h-4 w-4 mr-2 text-blue-600"/>Estado de Atuação*</Label><Select value={selectedState} onValueChange={setSelectedState}><SelectTrigger id="doc-state" className="h-9"><SelectValue placeholder="Selecione o UF..."/></SelectTrigger><SelectContent>{brazilianStates.map(s=><SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent></Select></div>
+            <div className="space-y-1.5"><Label htmlFor="doc-city" className="font-semibold text-gray-800">Cidade de Atuação*</Label><Select value={selectedCity} onValueChange={setSelectedCity} disabled={!selectedState||availableCities.length === 0}><SelectTrigger id="doc-city" className="h-9"><SelectValue placeholder={!selectedState?"Primeiro escolha o UF":(!availableCities.length?"Nenhuma cidade":"Selecione...")}/></SelectTrigger><SelectContent>{availableCities.map(c=><SelectItem key={c} value={c}>{c}</SelectItem>)} {selectedState && availableCities.length === 0 && <p className="p-2 text-xs text-gray-500">Nenhuma cidade.</p>}</SelectContent></Select></div>
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="space-y-1.5"><Label htmlFor="doc-service-type" className="font-semibold text-gray-800 flex items-center"><Briefcase className="h-4 w-4 mr-2 text-blue-600"/>Tipo de Atendimento*</Label><Select value={selectedServiceType} onValueChange={setSelectedServiceType}><SelectTrigger id="doc-service-type" className="h-9"><SelectValue placeholder="Selecione..."/></SelectTrigger><SelectContent>{serviceTypesOptions.map(o=><SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}</SelectContent></Select></div>
+            <div className="space-y-1.5"><Label htmlFor="doc-desired-rate" className="font-semibold text-gray-800 flex items-center"><DollarSign className="h-4 w-4 mr-2 text-green-600"/>Valor Hora Pretendido (R$)*</Label><Input id="doc-desired-rate" type="number" min="0.01" step="0.01" placeholder="Ex: 100.00" value={desiredRateInput} onChange={(e)=>setDesiredRateInput(e.target.value)} className="h-9"/></div>
+        </div>
+        <div className="space-y-2">
+            <Label className="font-semibold text-gray-800 flex items-center"><ClipboardList className="h-4 w-4 mr-2 text-blue-600"/>Especialidades Atendidas* <span className="text-xs text-gray-500 ml-1 font-normal">(Selecione ao menos uma)</span></Label>
+            <Popover open={specialtyPopoverOpen} onOpenChange={setSpecialtyPopoverOpen}><PopoverTrigger asChild><Button variant="outline" className="w-full justify-start font-normal text-muted-foreground h-9 border-dashed hover:border-solid">{selectedSpecialties.length > 0 ? `Selecionadas: ${selectedSpecialties.length}` : "Clique para selecionar especialidades..."}</Button></PopoverTrigger><PopoverContent className="w-[--radix-popover-trigger-width] p-0"><Command filter={(value, search) => medicalSpecialties.find(s => s.toLowerCase() === value.toLowerCase())?.toLowerCase().includes(search.toLowerCase()) ? 1 : 0}><CommandInput placeholder="Buscar especialidade..." value={specialtySearchValue} onValueChange={setSpecialtySearchValue}/><CommandList><CommandEmpty>Nenhuma.</CommandEmpty><CommandGroup heading={`${filteredSpecialties.length} encontradas`}>{filteredSpecialties.map((s) => (<CommandItem key={s} value={s} onSelect={() => handleSelectSpecialty(s)} className="cursor-pointer hover:bg-accent">{s}</CommandItem>))}</CommandGroup></CommandList></Command></PopoverContent></Popover>
+            {selectedSpecialties.length > 0 && ( <div className="flex flex-wrap gap-1.5 mt-2 pt-2 border-t border-dashed"> {selectedSpecialties.map((s) => ( <Badge key={s} variant="secondary" className="bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100 font-normal"> {s} <button type="button" onClick={()=>handleRemoveSpecialty(s)} className="ml-1.5 p-0.5 rounded-full outline-none focus:ring-1 focus:ring-blue-500 hover:bg-blue-200"> <X className="h-3 w-3 text-blue-600 hover:text-blue-800" /> </button> </Badge> ))} </div> )}
+        </div>
+        <div className="space-y-1.5">
+            <Label htmlFor="doc-notes" className="font-semibold text-gray-800 flex items-center"><Info className="h-4 w-4 mr-2 text-blue-600"/>Notas Adicionais <span className="text-xs text-gray-500 ml-1 font-normal">(Opcional)</span></Label>
+            <Textarea id="doc-notes" placeholder="Ex: Preferência por plantões mais tranquilos, etc." value={notes} onChange={(e) => setNotes(e.target.value)} className="min-h-[80px]"/>
+        </div>
+      </div>
+      <DialogFooter className="mt-2 pt-4 border-t bg-slate-50 -m-6 px-6 pb-4 rounded-b-lg">
+        <DialogClose asChild><Button type="button" variant="outline" disabled={isLoadingSubmit}>Cancelar</Button></DialogClose>
+        <Button type="button" onClick={handleSubmit} disabled={isLoadingSubmit || (dates.length === 0 && !isEditing)} className="bg-blue-600 hover:bg-blue-700">
+            {isLoadingSubmit && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+            {isLoadingSubmit ? (isEditing ? "Salvando..." : "Adicionando...") : (isEditing ? "Salvar Alterações" : `Adicionar Disponibilidade (${dates.length || 0} Dia(s))`)}
+        </Button>
+      </DialogFooter>
+    </DialogContent>
+  );
+};
+// --- FIM DOS COMPONENTES AUXILIARES ---

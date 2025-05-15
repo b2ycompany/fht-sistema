@@ -50,8 +50,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     { href: "/dashboard/profile", label: "Meu Perfil", icon: <User className="h-5 w-5" /> },
     { href: "/dashboard/availability", label: "Disponibilidade", icon: <Calendar className="h-5 w-5" /> },
     { href: "/dashboard/proposals", label: "Propostas", icon: <MessageSquare className="h-5 w-5" /> },
-    { href: "/dashboard/contracts", label: "Contratos", icon: <FileText className="h-5 w-5" /> },
+    { href: "/dashboard/contracts", label: "Meus Contratos", icon: <FileText className="h-5 w-5" /> },
     { href: "/dashboard/checkin", label: "Check-in/out", icon: <Clock className="h-5 w-5" /> },
+    
+    
   ]
 
   if (loading) {

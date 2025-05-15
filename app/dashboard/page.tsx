@@ -1,240 +1,233 @@
-"use client"
+// app/dashboard/page.tsx
+"use client";
 
-import { useState, useEffect } from "react"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Calendar, Clock, FileText, MessageSquare } from "lucide-react"
-import { useToast } from "@/hooks/use-toast"
-import { getTimeSlots } from "@/lib/availability-service"
-import { getProposals } from "@/lib/proposal-service"
-import { getContracts } from "@/lib/contract-service"
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts"
+import React, { useState, useEffect, useCallback } from 'react';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card"; // <<< ADICIONADO CardFooter
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import Link from 'next/link';
+import { 
+    ArrowRight, 
+    CalendarCheck, 
+    FileClock, 
+    BellDot, 
+    Briefcase, 
+    Clock, 
+    DollarSign, 
+    MapPinIcon,
+    MessageSquare, // <<< ADICIONADO
+    CalendarDays  // <<< ADICIONADO
+} from 'lucide-react';
+import { Timestamp } from 'firebase/firestore';
+
+// Serviços
+import { getPendingProposalsForDoctor, type ShiftProposal } from '@/lib/proposal-service';
+import { getContractsForDoctor, type Contract } from '@/lib/contract-service';
+import { getTimeSlots, type TimeSlot } from '@/lib/availability-service';
+import { useAuth } from '@/components/auth-provider';
+import { formatCurrency, cn } from '@/lib/utils';
+import { useToast } from "@/hooks/use-toast"; // <<< ADICIONADO
+// Assumindo que você tem esses componentes de estado globais ou definidos em outro lugar
+// Se não, precisaremos defini-los aqui ou ajustar.
+import { LoadingState, ErrorState, EmptyState } from '@/components/ui/state-indicators'; 
+
+interface DashboardStats {
+  pendingProposals: number;
+  upcomingShifts: number;
+  totalAvailabilitySlots: number;
+}
+
+interface UpcomingShiftDisplay extends Contract {
+    displayDate: string;
+    displayTime: string;
+}
+interface PendingProposalDisplay extends ShiftProposal {
+    displayDate: string;
+    displayTime: string;
+}
 
 export default function DashboardPage() {
-  const [isLoading, setIsLoading] = useState(true)
-  const [dashboardData, setDashboardData] = useState({
-    availableDays: 0,
-    newProposals: 0,
-    activeContracts: 0,
-    hoursWorked: 0,
-    upcomingShifts: [],
-    recentProposals: [],
-    monthlyHours: [] // Dados para o gráfico
-  })
-  const { toast } = useToast()
+  const { user } = useAuth();
+  const { toast } = useToast(); // Inicializado
+
+  const [stats, setStats] = useState<DashboardStats>({ pendingProposals: 0, upcomingShifts: 0, totalAvailabilitySlots: 0 });
+  const [upcomingShifts, setUpcomingShifts] = useState<UpcomingShiftDisplay[]>([]);
+  const [pendingProposals, setPendingProposals] = useState<PendingProposalDisplay[]>([]);
+  
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const fetchDashboardData = useCallback(async () => {
+    setIsLoading(true);
+    setError(null);
+    console.log("[DashboardPage] Fetching dashboard data...");
+    try {
+      // Para getContractsForDoctor, precisamos passar um array de status
+      // Para "próximos plantões", geralmente seriam os 'ACTIVE_SIGNED'
+      const activeContracts = await getContractsForDoctor(['ACTIVE_SIGNED']);
+      const proposals = await getPendingProposalsForDoctor();
+      const availabilities = await getTimeSlots();
+
+      setStats({
+        pendingProposals: proposals.length,
+        upcomingShifts: activeContracts.length, // Contagem de contratos ativos
+        totalAvailabilitySlots: availabilities.length,
+      });
+
+      const formattedUpcomingShifts = activeContracts
+        .sort((a, b) => (a.shiftDates?.[0]?.toDate()?.getTime() || 0) - (b.shiftDates?.[0]?.toDate()?.getTime() || 0))
+        .slice(0, 3)
+        .map(contract => ({
+          ...contract,
+          displayDate: contract.shiftDates?.[0] instanceof Timestamp ? contract.shiftDates[0].toDate().toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' }) : 'N/A',
+          displayTime: `${contract.startTime} - ${contract.endTime}`,
+        }));
+      setUpcomingShifts(formattedUpcomingShifts);
+
+      const formattedPendingProposals = proposals
+        .sort((a,b) => (a.createdAt?.toDate()?.getTime() || 0) - (b.createdAt?.toDate()?.getTime() || 0)) // Ordenar por data de criação
+        .slice(0, 3)
+        .map(proposal => ({
+            ...proposal,
+            displayDate: proposal.shiftDates?.[0] instanceof Timestamp ? proposal.shiftDates[0].toDate().toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' }) : 'N/A',
+            displayTime: `${proposal.startTime} - ${proposal.endTime}`,
+        }));
+      setPendingProposals(formattedPendingProposals);
+
+      console.log("[DashboardPage] Dashboard data fetched/processed. Upcoming shifts:", formattedUpcomingShifts.length, "Pending proposals:", formattedPendingProposals.length);
+
+    } catch (err: any) {
+      console.error("[DashboardPage] Error fetching dashboard data:", err);
+      setError("Falha ao carregar dados do dashboard. Tente recarregar a página.");
+      toast({ title: "Erro no Dashboard", description: err.message || "Não foi possível buscar os dados.", variant: "destructive" });
+    } finally {
+      setIsLoading(false);
+    }
+  // Adicione user?.uid às dependências se as funções de serviço dependem implicitamente do usuário logado via `auth.currentUser`
+  // e você quer re-buscar se o usuário mudar (embora o layout já deva lidar com logout).
+  }, [toast, user]); 
 
   useEffect(() => {
-    const fetchDashboardData = async () => {
-      try {
-        const [timeSlots, proposals, contracts] = await Promise.all([getTimeSlots(), getProposals(), getContracts()])
-
-        // Métricas do dashboard
-        const availableDays = timeSlots.length
-        const newProposals = proposals.filter((p) => p.status === "pending").length
-        const activeContracts = contracts.filter((c) => c.status === "upcoming").length
-
-        // Horas trabalhadas
-        let hoursWorked = 0
-        const monthlyHoursMap = new Map<string, number>()
-        contracts
-          .filter((c) => c.status === "completed")
-          .forEach((contract) => {
-            const hours = Number.parseInt(contract.duration) || 0
-            if (!isNaN(hours)) {
-              hoursWorked += hours
-              const month = contract.date.toLocaleString("default", { month: "short", year: "numeric" })
-              monthlyHoursMap.set(month, (monthlyHoursMap.get(month) || 0) + hours)
-            }
-          })
-
-        // Dados para o gráfico (últimos 6 meses como exemplo)
-        const monthlyHours = Array.from(monthlyHoursMap, ([name, value]) => ({ name, hours: value }))
-
-        // Próximos plantões
-        const upcomingShifts = contracts
-          .filter((c) => c.status === "upcoming")
-          .sort((a, b) => a.date.getTime() - b.date.getTime())
-          .slice(0, 2)
-
-        // Propostas recentes
-        const recentProposals = proposals
-          .filter((p) => p.status === "pending")
-          .sort((a, b) => b.date.getTime() - a.date.getTime())
-          .slice(0, 3)
-
-        setDashboardData({
-          availableDays,
-          newProposals,
-          activeContracts,
-          hoursWorked,
-          upcomingShifts,
-          recentProposals,
-          monthlyHours,
-        })
-      } catch (error) {
-        console.error("Error fetching dashboard data:", error)
-        toast({
-          title: "Erro ao carregar dados",
-          description: "Não foi possível carregar os dados do dashboard. Tente novamente.",
-          variant: "destructive",
-        })
-      } finally {
-        setIsLoading(false)
-      }
+    if (user) { // Só busca dados se o usuário (do AuthProvider) estiver carregado
+        console.log("[DashboardPage] User detected, calling fetchDashboardData.");
+        fetchDashboardData();
+    } else {
+        console.log("[DashboardPage] No user from AuthProvider yet, or user is null.");
+        // Se for o caso de usuário null e authLoading for false, o layout já deve ter redirecionado.
+        // Mas se chegou aqui sem usuário, não busca os dados.
+        setIsLoading(false); // Para de carregar se não houver usuário
     }
-
-    fetchDashboardData()
-  }, [toast])
+  }, [user, fetchDashboardData]);
 
   if (isLoading) {
-    return (
-      <div className="space-y-6 p-6 bg-gray-50 min-h-screen">
-        <h1 className="text-3xl font-bold text-gray-900">Dashboard</h1>
-        <div className="flex justify-center items-center h-64">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
-        </div>
-      </div>
-    )
+    return <div className="p-6"><LoadingState message="Carregando seu dashboard..." /></div>;
+  }
+  if (error && !isLoading) { // Mostra erro apenas se não estiver mais carregando
+    return <div className="p-6"><ErrorState message={error} onRetry={fetchDashboardData} /></div>;
   }
 
   return (
-    <div className="space-y-6 p-6 bg-gray-50 min-h-screen">
-      <h1 className="text-3xl font-bold text-gray-900">Dashboard FHT</h1>
+    <div className="container mx-auto p-4 sm:p-6 space-y-6">
+      <h1 className="text-3xl font-bold text-gray-800">Bem-vindo(a) de volta, {user?.displayName || 'Doutor(a)'}!</h1>
 
-      {/* Cards de Métricas */}
-      <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
-        <Card className="border-blue-100">
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-gray-700">Disponibilidade</CardTitle>
-            <Calendar className="h-4 w-4 text-blue-600" />
+      {pendingProposals.length > 0 && (
+        <Card className="bg-amber-50 border-amber-200 shadow-lg">
+          <CardHeader>
+            <CardTitle className="text-lg text-amber-800 flex items-center"><BellDot className="mr-2 h-5 w-5"/> Você tem Novas Propostas!</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-gray-900">{dashboardData.availableDays}</div>
-            <p className="text-xs text-gray-600">Dias disponíveis este mês</p>
+            <p className="text-sm text-amber-700">Há {stats.pendingProposals} proposta(s) de plantão aguardando sua avaliação.</p>
+          </CardContent>
+          <CardFooter>
+            <Button asChild size="sm" className="bg-amber-500 hover:bg-amber-600 text-white">
+                <Link href="/dashboard/proposals">Ver Propostas <ArrowRight className="ml-2 h-4 w-4" /></Link>
+            </Button>
+          </CardFooter>
+        </Card>
+      )}
+
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Propostas Pendentes</CardTitle>
+            <MessageSquare className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{stats.pendingProposals}</div>
+            <p className="text-xs text-muted-foreground">Aguardando sua resposta</p>
           </CardContent>
         </Card>
-
-        <Card className="border-blue-100">
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-gray-700">Propostas</CardTitle>
-            <MessageSquare className="h-4 w-4 text-blue-600" />
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Próximos Plantões Confirmados</CardTitle>
+            <CalendarCheck className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-gray-900">{dashboardData.newProposals}</div>
-            <p className="text-xs text-gray-600">Novas propostas</p>
+            <div className="text-2xl font-bold">{stats.upcomingShifts}</div>
+            <p className="text-xs text-muted-foreground">Contratos ativos</p>
           </CardContent>
         </Card>
-
-        <Card className="border-blue-100">
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-gray-700">Contratos</CardTitle>
-            <FileText className="h-4 w-4 text-blue-600" />
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Horários Disponíveis</CardTitle>
+            <FileClock className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-gray-900">{dashboardData.activeContracts}</div>
-            <p className="text-xs text-gray-600">Contratos ativos</p>
-          </CardContent>
-        </Card>
-
-        <Card className="border-blue-100">
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-gray-700">Horas</CardTitle>
-            <Clock className="h-4 w-4 text-blue-600" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-gray-900">{dashboardData.hoursWorked}h</div>
-            <p className="text-xs text-gray-600">Horas trabalhadas este mês</p>
+            <div className="text-2xl font-bold">{stats.totalAvailabilitySlots}</div>
+            <p className="text-xs text-muted-foreground">Cadastrados por você</p>
           </CardContent>
         </Card>
       </div>
 
-      {/* Gráfico e Listas */}
       <div className="grid gap-6 md:grid-cols-2">
-        {/* Gráfico de Horas Trabalhadas */}
         <Card>
           <CardHeader>
-            <CardTitle className="text-gray-900">Horas Trabalhadas por Mês</CardTitle>
-            <CardDescription>Evolução das suas horas ao longo do tempo</CardDescription>
+            <CardTitle>Seus Próximos Plantões</CardTitle>
+            <CardDescription>Plantões confirmados e agendados.</CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="h-[300px]">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={dashboardData.monthlyHours}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                  <XAxis dataKey="name" stroke="#6b7280" />
-                  <YAxis stroke="#6b7280" />
-                  <Tooltip 
-                    contentStyle={{ backgroundColor: "#fff", borderColor: "#e5e7eb" }} 
-                    labelStyle={{ color: "#1f2937" }}
-                  />
-                  <Bar dataKey="hours" fill="#2563eb" />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
+            {upcomingShifts.length > 0 ? (
+              <ul className="space-y-3">
+                {upcomingShifts.map(shift => (
+                  <li key={shift.id} className="p-3 border rounded-md hover:bg-gray-50 text-sm">
+                    <p className="font-semibold text-blue-700">{shift.hospitalName}</p>
+                    <p className="text-xs text-gray-600 flex items-center"><MapPinIcon size={12} className="mr-1"/>{shift.locationCity}, {shift.locationState}</p>
+                    <p className="text-xs text-gray-600 flex items-center"><CalendarDays size={12} className="mr-1"/>{shift.displayDate}</p>
+                    <p className="text-xs text-gray-600 flex items-center"><Clock size={12} className="mr-1"/>{shift.displayTime}</p>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="text-sm text-muted-foreground">Nenhum plantão confirmado agendado.</p>
+            )}
+             <Button variant="link" asChild className="p-0 h-auto mt-3 text-sm"><Link href="/dashboard/contracts?tab=active">Ver todos os contratos ativos</Link></Button>
           </CardContent>
         </Card>
 
-        {/* Próximos Plantões */}
         <Card>
           <CardHeader>
-            <CardTitle className="text-gray-900">Próximos Plantões</CardTitle>
-            <CardDescription>Seus plantões agendados</CardDescription>
+            <CardTitle>Propostas Aguardando Sua Resposta</CardTitle>
+            <CardDescription>Avalie e responda às oportunidades.</CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="space-y-4">
-              {dashboardData.upcomingShifts.length > 0 ? (
-                dashboardData.upcomingShifts.map((shift, index) => (
-                  <div
-                    key={shift.id}
-                    className={`flex items-center justify-between ${index < dashboardData.upcomingShifts.length - 1 ? "border-b pb-4" : ""}`}
-                  >
-                    <div>
-                      <p className="font-medium text-gray-900">{shift.hospital}</p>
-                      <p className="text-sm text-gray-600">{shift.specialty}</p>
-                    </div>
-                    <div className="text-right">
-                      <p className="font-medium text-gray-900">{shift.date.toLocaleDateString()}</p>
-                      <p className="text-sm text-gray-600">{shift.time}</p>
-                    </div>
-                  </div>
-                ))
-              ) : (
-                <p className="text-center text-gray-600 py-4">Nenhum plantão agendado</p>
-              )}
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Propostas Recentes */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-gray-900">Propostas Recentes</CardTitle>
-            <CardDescription>Últimas propostas recebidas</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-4">
-              {dashboardData.recentProposals.length > 0 ? (
-                dashboardData.recentProposals.map((proposal, index) => (
-                  <div
-                    key={proposal.id}
-                    className={`flex items-center justify-between ${index < dashboardData.recentProposals.length - 1 ? "border-b pb-4" : ""}`}
-                  >
-                    <div>
-                      <p className="font-medium text-gray-900">{proposal.hospital}</p>
-                      <p className="text-sm text-gray-600">{proposal.specialty}</p>
-                    </div>
-                    <div className="text-right">
-                      <p className="font-medium text-gray-900">{proposal.date.toLocaleDateString()}</p>
-                      <p className="text-sm text-gray-600">{proposal.duration} (plantão)</p>
-                    </div>
-                  </div>
-                ))
-              ) : (
-                <p className="text-center text-gray-600 py-4">Nenhuma proposta recente</p>
-              )}
-            </div>
+            {pendingProposals.length > 0 ? (
+              <ul className="space-y-3">
+                {pendingProposals.map(proposal => (
+                  <li key={proposal.id} className="p-3 border rounded-md hover:bg-gray-50 text-sm">
+                    <p className="font-semibold text-amber-700">{proposal.hospitalName}</p>
+                    <p className="text-xs text-gray-600 flex items-center"><MapPinIcon size={12} className="mr-1"/>{proposal.hospitalCity}, {proposal.hospitalState}</p>
+                    <p className="text-xs text-gray-600 flex items-center"><CalendarDays size={12} className="mr-1"/>{proposal.displayDate}</p>
+                    <p className="text-xs text-gray-600 flex items-center"><Briefcase size={12} className="mr-1"/>{proposal.specialties.join(', ')}</p>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="text-sm text-muted-foreground">Nenhuma proposta pendente no momento.</p>
+            )}
+             <Button variant="link" asChild className="p-0 h-auto mt-3 text-sm"><Link href="/dashboard/proposals">Ver todas as propostas</Link></Button>
           </CardContent>
         </Card>
       </div>
     </div>
-  )
+  );
 }

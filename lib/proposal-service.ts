@@ -1,163 +1,164 @@
-import { collection, doc, getDoc, getDocs, query, where, updateDoc, serverTimestamp } from "firebase/firestore"
-import { db, auth } from "./firebase"
+// lib/proposal-service.ts
+import {
+  doc,
+  collection,
+  query,
+  where,
+  getDocs,
+  updateDoc,
+  serverTimestamp,
+  Timestamp
+} from "firebase/firestore";
+import { db, auth } from "./firebase";
 
-export type ProposalStatus = "pending" | "accepted" | "rejected"
+export interface ShiftProposal {
+  id: string; // ID do documento da proposta (ex: ID do potentialMatch ou de um novo doc de proposta)
+  originalShiftRequirementId: string; // ID da Demanda Mestra do Hospital
+  hospitalId: string;
+  hospitalName: string;
+  hospitalCity: string;
+  hospitalState: string;
 
-export interface HospitalProfile {
-  name: string
-  description: string
-  founded: string
-  employees: string
-  specialties: string[]
+  // As datas e horários específicos que foram oferecidos ao médico para ESTA proposta
+  // Pode ser um subconjunto das datas da Demanda Mestra original
+  shiftDates: Timestamp[];
+  startTime: string;
+  endTime: string;
+  isOvernight: boolean;
+
+  serviceType: string;
+  specialties: string[]; // Especialidades relevantes para esta proposta
+  offeredRateToDoctor: number; // Valor/hora que o médico receberá (definido pelo backoffice)
+  notesFromHospital?: string; // Observações do hospital para esta demanda
+  notesFromBackoffice?: string; // Observações do backoffice para o médico sobre esta proposta
+
+  status: 'AWAITING_DOCTOR_ACCEPTANCE' | 'DOCTOR_ACCEPTED' | 'DOCTOR_REJECTED' | 'EXPIRED';
+  // Adicionar mais status conforme o fluxo evolui (ex: PENDING_CONTRACT, CONFIRMED)
+
+  deadlineForDoctorResponse?: Timestamp;
+  doctorResponseAt?: Timestamp;
+  doctorRejectionReason?: string;
+
+  createdAt: Timestamp; // Quando a proposta foi feita ao médico
+  updatedAt: Timestamp;
 }
 
-export interface Proposal {
-  id?: string
-  doctorId: string
-  hospitalId: string
-  hospital: string
-  specialty: string
-  date: Date
-  time: string
-  duration: string
-  location: string
-  description: string
-  requirements: string
-  value: number
-  status: ProposalStatus
-  hospitalProfile: HospitalProfile
-  createdAt?: Date
-  updatedAt?: Date
-}
-
-// Get all proposals for the current doctor
-export const getProposals = async (): Promise<Proposal[]> => {
-  try {
-    const uid = auth.currentUser?.uid
-    if (!uid) throw new Error("User not authenticated")
-
-    // Buscar todas as propostas para o médico atual
-    const q = query(collection(db, "proposals"), where("doctorId", "==", uid))
-    const querySnapshot = await getDocs(q)
-
-    const proposals: Proposal[] = []
-    querySnapshot.forEach((doc) => {
-      const data = doc.data()
-      proposals.push({
-        id: doc.id,
-        doctorId: data.doctorId,
-        hospitalId: data.hospitalId,
-        hospital: data.hospital,
-        specialty: data.specialty,
-        date: data.date.toDate(),
-        time: data.time,
-        duration: data.duration,
-        location: data.location,
-        description: data.description,
-        requirements: data.requirements,
-        value: data.value,
-        status: data.status,
-        hospitalProfile: data.hospitalProfile,
-        createdAt: data.createdAt?.toDate(),
-        updatedAt: data.updatedAt?.toDate(),
-      })
-    })
-
-    return proposals
-  } catch (error) {
-    console.error("Error getting proposals:", error)
-    throw error
+// Função para buscar propostas pendentes para o médico logado
+export const getPendingProposalsForDoctor = async (): Promise<ShiftProposal[]> => {
+  const currentUser = auth.currentUser;
+  if (!currentUser) {
+    console.warn("[getPendingProposalsForDoctor] Usuário não autenticado.");
+    return [];
   }
-}
 
-// Get a specific proposal
-export const getProposal = async (id: string): Promise<Proposal | null> => {
-  try {
-    const proposalDoc = await getDoc(doc(db, "proposals", id))
+  console.log("[getPendingProposalsForDoctor] Buscando propostas para médico UID:", currentUser.uid);
+  // Simulação de dados mocados por enquanto
+  await new Promise(resolve => setTimeout(resolve, 1000)); // Simula delay da API
 
-    if (proposalDoc.exists()) {
-      const data = proposalDoc.data()
-      return {
-        id: proposalDoc.id,
-        doctorId: data.doctorId,
-        hospitalId: data.hospitalId,
-        hospital: data.hospital,
-        specialty: data.specialty,
-        date: data.date.toDate(),
-        time: data.time,
-        duration: data.duration,
-        location: data.location,
-        description: data.description,
-        requirements: data.requirements,
-        value: data.value,
-        status: data.status,
-        hospitalProfile: data.hospitalProfile,
-        createdAt: data.createdAt?.toDate(),
-        updatedAt: data.updatedAt?.toDate(),
-      }
+  // TODO: Substituir por uma query real ao Firestore
+  // Exemplo de query:
+  // const q = query(
+  //   collection(db, "shiftProposals"), // Ou "potentialMatches"
+  //   where("doctorId", "==", currentUser.uid),
+  //   where("status", "==", "AWAITING_DOCTOR_ACCEPTANCE"),
+  //   orderBy("createdAt", "desc")
+  // );
+  // const querySnapshot = await getDocs(q);
+  // const proposals: ShiftProposal[] = [];
+  // querySnapshot.forEach((docSnap) => {
+  //   proposals.push({ id: docSnap.id, ...docSnap.data() } as ShiftProposal);
+  // });
+  // return proposals;
+
+  // Dados mocados para UI:
+  const mockProposals: ShiftProposal[] = [
+    {
+      id: "prop123",
+      originalShiftRequirementId: "reqABC",
+      hospitalId: "hospXYZ",
+      hospitalName: "Hospital Central da Cidade",
+      hospitalCity: "São Paulo",
+      hospitalState: "SP",
+      shiftDates: [Timestamp.fromDate(new Date(2025, 5, 20)), Timestamp.fromDate(new Date(2025, 5, 21))], // Ex: 20 e 21 de Junho de 2025
+      startTime: "07:00",
+      endTime: "19:00",
+      isOvernight: false,
+      serviceType: "plantao_12h_diurno",
+      specialties: ["Clínica Médica"],
+      offeredRateToDoctor: 110,
+      notesFromHospital: "Plantão com boa movimentação, equipe de apoio completa.",
+      status: 'AWAITING_DOCTOR_ACCEPTANCE',
+      createdAt: Timestamp.now(),
+      updatedAt: Timestamp.now(),
+    },
+    {
+      id: "prop456",
+      originalShiftRequirementId: "reqDEF",
+      hospitalId: "hospQRS",
+      hospitalName: "Clínica Saúde & Bem Estar",
+      hospitalCity: "Campinas",
+      hospitalState: "SP",
+      shiftDates: [Timestamp.fromDate(new Date(2025, 5, 25))], // Ex: 25 de Junho de 2025
+      startTime: "19:00",
+      endTime: "07:00",
+      isOvernight: true,
+      serviceType: "plantao_12h_noturno",
+      specialties: ["Pediatria", "Neonatologia"],
+      offeredRateToDoctor: 135,
+      notesFromBackoffice: "Excelente oportunidade em unidade de referência.",
+      status: 'AWAITING_DOCTOR_ACCEPTANCE',
+      createdAt: Timestamp.fromDate(new Date(Date.now() - 86400000)), // Ontem
+      updatedAt: Timestamp.fromDate(new Date(Date.now() - 86400000)),
+      deadlineForDoctorResponse: Timestamp.fromDate(new Date(Date.now() + 3 * 86400000)) // Daqui a 3 dias
     }
+  ];
+  return mockProposals;
+};
 
-    return null
-  } catch (error) {
-    console.error("Error getting proposal:", error)
-    throw error
-  }
-}
+// Função para o médico aceitar uma proposta
+export const acceptProposal = async (proposalId: string): Promise<void> => {
+  const currentUser = auth.currentUser;
+  if (!currentUser) throw new Error("Usuário não autenticado.");
 
-// Update proposal status
-export const updateProposalStatus = async (id: string, status: ProposalStatus): Promise<void> => {
+  console.log(`[acceptProposal] Médico ${currentUser.uid} aceitando proposta ${proposalId}`);
+  const proposalRef = doc(db, "shiftProposals", proposalId); // Ajuste a coleção se necessário
+  
+  // TODO: Adicionar validação para garantir que o médico só aceite suas próprias propostas
+  // e que o status permita aceitação.
+
   try {
-    await updateDoc(doc(db, "proposals", id), {
-      status,
-      updatedAt: serverTimestamp(),
-    })
+    await updateDoc(proposalRef, {
+      status: 'DOCTOR_ACCEPTED',
+      doctorResponseAt: serverTimestamp()
+    });
+    console.log(`[acceptProposal] Proposta ${proposalId} aceita.`);
+    // TODO: Aqui você pode disparar uma notificação para o hospital/backoffice
+    // ou criar/atualizar um documento de "Contrato"
   } catch (error) {
-    console.error("Error updating proposal status:", error)
-    throw error
+    console.error(`[acceptProposal] Erro ao aceitar proposta ${proposalId}:`, error);
+    throw error;
   }
-}
+};
 
-// Buscar propostas compatíveis com as especialidades do médico
-export const getMatchingProposals = async (specialty: string): Promise<Proposal[]> => {
+// Função para o médico recusar uma proposta
+export const rejectProposal = async (proposalId: string, reason?: string): Promise<void> => {
+  const currentUser = auth.currentUser;
+  if (!currentUser) throw new Error("Usuário não autenticado.");
+
+  console.log(`[rejectProposal] Médico ${currentUser.uid} recusando proposta ${proposalId} com motivo: ${reason}`);
+  const proposalRef = doc(db, "shiftProposals", proposalId); // Ajuste a coleção
+  
+  // TODO: Validações
+  
   try {
-    const uid = auth.currentUser?.uid
-    if (!uid) throw new Error("User not authenticated")
-
-    // Buscar propostas que correspondam à especialidade
-    const q = query(collection(db, "proposals"), where("specialty", "==", specialty), where("status", "==", "pending"))
-
-    const querySnapshot = await getDocs(q)
-
-    const proposals: Proposal[] = []
-    querySnapshot.forEach((doc) => {
-      const data = doc.data()
-      // Verificar se a proposta já não foi atribuída a outro médico
-      if (!data.doctorId || data.doctorId === uid) {
-        proposals.push({
-          id: doc.id,
-          doctorId: uid, // Atribuir ao médico atual
-          hospitalId: data.hospitalId,
-          hospital: data.hospital,
-          specialty: data.specialty,
-          date: data.date.toDate(),
-          time: data.time,
-          duration: data.duration,
-          location: data.location,
-          description: data.description,
-          requirements: data.requirements,
-          value: data.value,
-          status: "pending",
-          hospitalProfile: data.hospitalProfile,
-          createdAt: data.createdAt?.toDate(),
-          updatedAt: data.updatedAt?.toDate(),
-        })
-      }
-    })
-
-    return proposals
+    await updateDoc(proposalRef, {
+      status: 'DOCTOR_REJECTED',
+      doctorResponseAt: serverTimestamp(),
+      doctorRejectionReason: reason || "Não especificado"
+    });
+    console.log(`[rejectProposal] Proposta ${proposalId} recusada.`);
   } catch (error) {
-    console.error("Error getting matching proposals:", error)
-    throw error
+    console.error(`[rejectProposal] Erro ao recusar proposta ${proposalId}:`, error);
+    throw error;
   }
-}
-
+};

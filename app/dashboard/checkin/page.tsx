@@ -1,350 +1,276 @@
-"use client"
+// app/dashboard/checkin/page.tsx
+"use client";
 
-import { useState, useRef, useEffect } from "react"
-import { useRouter, useSearchParams } from "next/navigation"
-import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
-import { useToast } from "@/hooks/use-toast"
-import { Camera, Check, MapPin } from "lucide-react"
-import { getContract, recordCheckIn, recordCheckOut } from "@/lib/contract-service"
-import { verifyFacialRecognition } from "@/lib/facial-recognition-service"
+import React, { useState, useEffect, useCallback } from "react";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
+import { useToast } from "@/hooks/use-toast";
+import { Timestamp } from "firebase/firestore";
+import { 
+    MapPinIcon, LogIn, LogOut, CalendarDays, ClockIcon, AlertTriangle, VideoIcon, Loader2, InfoIcon,
+    ClipboardList, // Para EmptyState
+    RotateCcw // Para ErrorState
+} from "lucide-react"; // Ícones necessários
+import {
+  getActiveShiftsForCheckin,
+  performCheckin,
+  performCheckout,
+  type CheckinRecord
+} from "@/lib/checkin-service";
+import { cn, formatCurrency } from "@/lib/utils";
+import {
+    AlertDialog,
+    // AlertDialogAction, // Não usado diretamente
+    AlertDialogCancel,
+    AlertDialogContent,
+    AlertDialogDescription,
+    AlertDialogFooter,
+    AlertDialogHeader,
+    AlertDialogTitle,
+    AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
+// import { Textarea } from "@/components/ui/textarea"; // Não usado neste arquivo
+import { Badge, type BadgeProps } from "@/components/ui/badge"; // <<< ADICIONADO Badge e BadgeProps
 
-export default function CheckinPage() {
-  const router = useRouter()
-  const searchParams = useSearchParams()
-  const contractId = searchParams.get("contract")
-  const { toast } = useToast()
-  const [isLoading, setIsLoading] = useState(false)
-  const [isLoadingContract, setIsLoadingContract] = useState(true)
-  const [step, setStep] = useState<"camera" | "location" | "success">("camera")
-  const [stream, setStream] = useState<MediaStream | null>(null)
-  const videoRef = useRef<HTMLVideoElement>(null)
-  const canvasRef = useRef<HTMLCanvasElement>(null)
-  const [location, setLocation] = useState<{ latitude: number; longitude: number } | null>(null)
-  const [locationError, setLocationError] = useState<string | null>(null)
-  const [contract, setContract] = useState<any>(null)
-  const [isCheckIn, setIsCheckIn] = useState(true)
+// --- COMPONENTES DE ESTADO (Loading, Empty, Error) ---
+// (Como definidos anteriormente, mantidos aqui para completude do arquivo)
+const LoadingState = React.memo(({ message = "Carregando dados..." }: { message?: string }) => (
+    <div className="flex flex-col justify-center items-center text-center py-10 min-h-[150px] w-full">
+        <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
+        <span className="ml-3 text-sm text-gray-600 mt-3">{message}</span>
+    </div>
+));
+LoadingState.displayName = 'LoadingState';
 
-  useEffect(() => {
-    const fetchContract = async () => {
-      if (!contractId) {
-        setIsLoadingContract(false)
-        return
-      }
+const EmptyState = React.memo(({ message, actionButton }: { message: string; actionButton?: React.ReactNode }) => (
+    <div className="text-center text-sm text-gray-500 py-10 min-h-[150px] flex flex-col items-center justify-center bg-gray-50/70 rounded-md border border-dashed border-gray-300 w-full">
+        <ClipboardList className="w-12 h-12 text-gray-400 mb-4"/>
+        <p className="font-medium text-gray-600 mb-1">Nada por aqui ainda!</p>
+        <p className="max-w-xs">{message}</p>
+        {actionButton && <div className="mt-4">{actionButton}</div>}
+    </div>
+));
+EmptyState.displayName = 'EmptyState';
 
-      try {
-        const fetchedContract = await getContract(contractId)
-        setContract(fetchedContract)
+const ErrorState = React.memo(({ message, onRetry }: { message: string; onRetry?: () => void }) => (
+    <div className="text-center text-sm text-red-600 py-10 min-h-[150px] flex flex-col items-center justify-center bg-red-50/70 rounded-md border border-dashed border-red-300 w-full">
+        <AlertTriangle className="w-12 h-12 text-red-400 mb-4"/> {/* AlertTriangle já estava importado */}
+        <p className="font-semibold text-red-700 mb-1 text-base">Oops! Algo deu errado.</p>
+        <p className="max-w-md text-red-600">{message || "Não foi possível carregar os dados. Por favor, tente novamente."}</p>
+        {onRetry && (
+            <Button variant="destructive" size="sm" onClick={onRetry} className="mt-4 bg-red-600 hover:bg-red-700 text-white">
+                <RotateCcw className="mr-2 h-4 w-4" /> Tentar Novamente
+            </Button>
+        )}
+    </div>
+));
+ErrorState.displayName = 'ErrorState';
 
-        // Determine if this is a check-in or check-out
-        if (fetchedContract && fetchedContract.checkInTime && !fetchedContract.checkOutTime) {
-          setIsCheckIn(false)
-        }
-      } catch (error) {
-        console.error("Error fetching contract:", error)
-        toast({
-          title: "Erro ao carregar contrato",
-          description: "Não foi possível carregar os detalhes do contrato. Tente novamente.",
-          variant: "destructive",
-        })
-      } finally {
-        setIsLoadingContract(false)
-      }
-    }
 
-    fetchContract()
-  }, [contractId, toast])
+interface ShiftCheckinItemProps {
+  record: CheckinRecord;
+  onAction: (recordId: string, actionType: 'checkin' | 'checkout', location: GeolocationPosition) => Promise<void>;
+  isActionLoading: string | null;
+}
 
-  useEffect(() => {
-    if (step === "camera") {
-      startCamera()
-    } else {
-      stopCamera()
-    }
+const ShiftCheckinItem: React.FC<ShiftCheckinItemProps> = ({ record, onAction, isActionLoading }) => {
+  const { toast } = useToast();
+  const shiftDate = record.shiftDate.toDate();
+  const isCurrentlyLoading = isActionLoading === record.id;
 
-    return () => {
-      stopCamera()
-    }
-  }, [step])
-
-  const startCamera = async () => {
-    try {
-      const mediaStream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: "user" },
-      })
-      setStream(mediaStream)
-      if (videoRef.current) {
-        videoRef.current.srcObject = mediaStream
-      }
-    } catch (error) {
-      console.error("Error accessing camera:", error)
-      toast({
-        title: "Erro ao acessar câmera",
-        description: "Verifique se você concedeu permissão para acessar a câmera.",
-        variant: "destructive",
-      })
-    }
-  }
-
-  const stopCamera = () => {
-    if (stream) {
-      stream.getTracks().forEach((track) => track.stop())
-      setStream(null)
-    }
-  }
-
-  const captureImage = async () => {
-    if (videoRef.current && canvasRef.current) {
-      const video = videoRef.current
-      const canvas = canvasRef.current
-      const context = canvas.getContext("2d")
-
-      if (context) {
-        canvas.width = video.videoWidth
-        canvas.height = video.videoHeight
-        context.drawImage(video, 0, 0, canvas.width, canvas.height)
-
-        try {
-          // Convert canvas to blob
-          const blob = await new Promise<Blob>((resolve) => {
-            canvas.toBlob((blob) => {
-              if (blob) {
-                resolve(blob)
-              } else {
-                throw new Error("Failed to create blob from canvas")
-              }
-            }, "image/png")
-          })
-
-          // Verify facial recognition
-          const isVerified = await verifyFacialRecognition(blob)
-
-          if (isVerified) {
-            setStep("location")
-          } else {
-            toast({
-              title: "Verificação facial falhou",
-              description: "Não foi possível verificar sua identidade. Tente novamente.",
-              variant: "destructive",
-            })
-          }
-        } catch (error) {
-          console.error("Error processing image:", error)
-          toast({
-            title: "Erro ao processar imagem",
-            description: "Ocorreu um erro ao processar sua imagem. Tente novamente.",
-            variant: "destructive",
-          })
-        }
-      }
-    }
-  }
-
-  const getLocation = () => {
-    setLocationError(null)
-
+  const handleAction = async (actionType: 'checkin' | 'checkout') => {
+    if (isCurrentlyLoading) return;
     if (!navigator.geolocation) {
-      setLocationError("Geolocalização não é suportada pelo seu navegador.")
-      return
+      toast({ title: "Erro de Geolocalização", description: "Seu navegador não suporta geolocalização.", variant: "destructive" });
+      return;
     }
-
     navigator.geolocation.getCurrentPosition(
-      (position) => {
-        setLocation({
-          latitude: position.coords.latitude,
-          longitude: position.coords.longitude,
-        })
-
-        // In a real app, you would validate if the location is close to the hospital
-        // For this demo, we'll just proceed to the next step
-        handleCheckin()
+      async (position) => {
+        console.log("Localização obtida:", position.coords.latitude, position.coords.longitude);
+        await onAction(record.id, actionType, position);
       },
       (error) => {
-        console.error("Error getting location:", error)
-        setLocationError("Não foi possível obter sua localização. Verifique se você concedeu permissão.")
+        console.error("Erro ao obter geolocalização:", error);
+        let message = "Não foi possível obter sua localização. ";
+        switch(error.code) {
+            case error.PERMISSION_DENIED: message += "Você negou a permissão."; break;
+            case error.POSITION_UNAVAILABLE: message += "Informação de localização indisponível."; break;
+            case error.TIMEOUT: message += "Tempo esgotado ao buscar localização."; break;
+            default: message += "Erro desconhecido."; break;
+        }
+        toast({ title: "Falha na Geolocalização", description: message, variant: "destructive" });
       },
-    )
-  }
+      { timeout: 10000, enableHighAccuracy: true }
+    );
+  };
 
-  const handleCheckin = async () => {
-    if (!contractId) return
+  const canCheckin = record.status === 'SCHEDULED';
+  const now = new Date();
+  const startTime = new Date(shiftDate); // Começa com a data do plantão
+  const [startH, startM] = record.expectedStartTime.split(':').map(Number);
+  startTime.setHours(startH, startM, 0, 0); // Define hora e minuto do início esperado
+  
+  const checkinWindowStart = new Date(startTime.getTime() - 30 * 60000); 
+  const checkinWindowEnd = new Date(startTime.getTime() + 60 * 60000);   
+  const isWithinCheckinWindow = now >= checkinWindowStart && now <= checkinWindowEnd;
 
-    setIsLoading(true)
+  const canCheckout = record.status === 'CHECKED_IN';
 
-    try {
-      if (isCheckIn) {
-        await recordCheckIn(contractId)
-        toast({
-          title: "Check-in realizado com sucesso",
-          description: "Seu check-in foi registrado com sucesso.",
-        })
-      } else {
-        await recordCheckOut(contractId)
-        toast({
-          title: "Check-out realizado com sucesso",
-          description: "Seu check-out foi registrado com sucesso.",
-        })
-      }
-
-      setStep("success")
-    } catch (error) {
-      console.error("Error recording check-in/out:", error)
-      toast({
-        title: `Erro ao realizar ${isCheckIn ? "check-in" : "check-out"}`,
-        description: `Ocorreu um erro ao realizar o ${isCheckIn ? "check-in" : "check-out"}.`,
-        variant: "destructive",
-      })
-    } finally {
-      setIsLoading(false)
+  // CORRIGIDO: Lógica de variante e classes de cor para Badge
+  const getStatusBadgeProps = (status?: CheckinRecord['status']): { variant: BadgeProps["variant"], className: string } => {
+    switch (status) {
+      case 'SCHEDULED':
+        return { variant: 'outline', className: 'border-blue-300 text-blue-700' };
+      case 'CHECKED_IN':
+        return { variant: 'default', className: 'bg-green-100 text-green-800 border-green-300' };
+      case 'CHECKED_OUT':
+        return { variant: 'secondary', className: 'bg-gray-200 text-gray-700' };
+      case 'MISSED':
+      case 'CANCELLED_CONFIRMED_SHIFT':
+        return { variant: 'destructive', className: '' };
+      default:
+        return { variant: 'outline', className: '' };
     }
-  }
+  };
+  const statusBadgeInfo = getStatusBadgeProps(record.status);
 
-  const handleFinish = () => {
-    router.push("/dashboard/contracts")
-  }
 
-  if (isLoadingContract) {
-    return (
-      <div className="space-y-6">
-        <div>
-          <h1 className="text-3xl font-bold">Check-in/out</h1>
-          <p className="text-muted-foreground">Realize o check-in/out para seu plantão</p>
+  return (
+    <Card className={cn("shadow-sm", record.status === 'CHECKED_IN' && "border-green-500 ring-1 ring-green-500")}>
+      <CardHeader>
+        <div className="flex justify-between items-start">
+            <CardTitle className="text-md mb-1">{record.hospitalName}</CardTitle>
+            {/* CORRIGIDO: Uso do Badge */}
+            <Badge variant={statusBadgeInfo.variant} className={cn("capitalize", statusBadgeInfo.className)}>
+                {record.status.replace(/_/g, ' ').toLowerCase()}
+            </Badge>
         </div>
-        <div className="flex justify-center items-center h-64">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
-        </div>
-      </div>
-    )
-  }
+        <CardDescription className="text-xs">
+            <MapPinIcon className="inline h-3 w-3 mr-1 text-gray-500" />
+            {/* Adicionar local se disponível no CheckinRecord */}
+            Local do Plantão (a ser definido)
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="text-sm space-y-1">
+        <div className="flex items-center"><CalendarDays size={14} className="mr-2 text-blue-600"/> <strong>Data:</strong><span className="ml-1">{shiftDate.toLocaleDateString('pt-BR', {day:'2-digit', month:'long'})}</span></div>
+        <div className="flex items-center"><ClockIcon size={14} className="mr-2 text-blue-600"/> <strong>Horário Esperado:</strong><span className="ml-1">{record.expectedStartTime} - {record.expectedEndTime}</span></div>
+        {record.checkinAt && <div className="text-xs text-green-700 flex items-center"><LogIn size={13} className="mr-1.5"/>Check-in: {record.checkinAt.toDate().toLocaleTimeString('pt-BR', {hour: '2-digit', minute: '2-digit'})}</div>}
+        {record.checkoutAt && <div className="text-xs text-red-700 flex items-center"><LogOut size={13} className="mr-1.5"/>Check-out: {record.checkoutAt.toDate().toLocaleTimeString('pt-BR', {hour: '2-digit', minute: '2-digit'})}</div>}
+      </CardContent>
+      <CardFooter className="flex justify-end gap-2 border-t pt-4">
+        {canCheckin && (
+          <Button onClick={() => handleAction('checkin')} size="sm" className="bg-blue-600 hover:bg-blue-700" disabled={isCurrentlyLoading || !isWithinCheckinWindow}>
+            {isCurrentlyLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+            <LogIn className="mr-2 h-4 w-4" /> Fazer Check-in
+          </Button>
+        )}
+        {!isWithinCheckinWindow && canCheckin && <p className="text-xs text-amber-600">Check-in disponível 30min antes do início.</p>}
 
-  if (!contract) {
-    return (
-      <div className="space-y-6">
-        <div>
-          <h1 className="text-3xl font-bold">Check-in/out</h1>
-          <p className="text-muted-foreground">Realize o check-in/out para seu plantão</p>
-        </div>
+        {canCheckout && (
+          <Button onClick={() => handleAction('checkout')} size="sm" variant="outline" disabled={isCurrentlyLoading}>
+            {isCurrentlyLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+            <LogOut className="mr-2 h-4 w-4" /> Fazer Check-out
+          </Button>
+        )}
+        {record.status === 'CHECKED_OUT' && <Badge variant="default" className="bg-green-100 text-green-800">Plantão Finalizado</Badge>}
+      </CardFooter>
+    </Card>
+  );
+};
+ShiftCheckinItem.displayName = "ShiftCheckinItem";
 
-        <Card>
-          <CardContent className="flex flex-col items-center justify-center py-10">
-            <p className="text-muted-foreground mb-4">Nenhum contrato selecionado para check-in/out.</p>
-            <Button onClick={() => router.push("/dashboard/contracts")}>Ver contratos</Button>
-          </CardContent>
-        </Card>
-      </div>
-    )
-  }
+
+export default function DoctorCheckinPage() {
+  const { toast } = useToast();
+  const [activeShifts, setActiveShifts] = useState<CheckinRecord[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
+
+  const fetchActiveShifts = useCallback(async () => {
+    setIsLoading(true);
+    setError(null);
+    try {
+      const data = await getActiveShiftsForCheckin();
+      setActiveShifts(data);
+      console.log("[DoctorCheckinPage] Plantões ativos/agendados recebidos:", data.length);
+    } catch (err: any) {
+      console.error("[DoctorCheckinPage] Erro ao buscar plantões ativos:", err);
+      setError(err.message || "Falha ao carregar plantões para check-in.");
+      toast({ title: "Erro ao Carregar Plantões", description: err.message, variant: "destructive" });
+    } finally {
+      setIsLoading(false);
+    }
+  }, [toast]);
+
+  useEffect(() => {
+    fetchActiveShifts();
+  }, [fetchActiveShifts]);
+
+  const handleShiftAction = async (recordId: string, actionType: 'checkin' | 'checkout', location: GeolocationPosition) => {
+    setActionLoadingId(recordId);
+    try {
+      const { latitude, longitude } = location.coords;
+      if (actionType === 'checkin') {
+        await performCheckin(recordId, latitude, longitude);
+        toast({ title: "Check-in Realizado!", description: "Seu início de plantão foi registrado.", variant: "default" });
+      } else {
+        await performCheckout(recordId, latitude, longitude);
+        toast({ title: "Check-out Realizado!", description: "Seu fim de plantão foi registrado.", variant: "default" });
+      }
+      fetchActiveShifts();
+    } catch (err: any) {
+      toast({ title: `Erro ao realizar ${actionType}`, description: err.message, variant: "destructive" });
+    } finally {
+      setActionLoadingId(null);
+    }
+  };
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold">{isCheckIn ? "Check-in" : "Check-out"}</h1>
-        <p className="text-muted-foreground">
-          Realize o {isCheckIn ? "check-in" : "check-out"} para seu plantão no {contract.hospital}
-        </p>
+      <div className="flex items-center justify-between">
+        <h1 className="text-2xl md:text-3xl font-bold tracking-tight text-gray-800 flex items-center gap-2">
+            <ClockIcon size={28}/> Check-in / Check-out de Plantões
+        </h1>
       </div>
-
       <Card>
         <CardHeader>
-          <CardTitle>
-            {step === "camera" &&
-              (isCheckIn ? "Reconhecimento facial para Check-in" : "Reconhecimento facial para Check-out")}
-            {step === "location" && "Verificação de localização"}
-            {step === "success" && (isCheckIn ? "Check-in realizado" : "Check-out realizado")}
-          </CardTitle>
-          <CardDescription>
-            {step === "camera" && "Posicione seu rosto na câmera para verificação"}
-            {step === "location" && "Verificando sua localização"}
-            {step === "success" && `Seu ${isCheckIn ? "check-in" : "check-out"} foi registrado com sucesso`}
-          </CardDescription>
+            <CardTitle>Plantões Agendados/Ativos</CardTitle>
+            <CardDescription>Realize o check-in ao iniciar e o check-out ao finalizar seus plantões.</CardDescription>
         </CardHeader>
         <CardContent>
-          {step === "camera" && (
-            <div className="flex flex-col items-center">
-              <div className="relative w-full max-w-md h-64 bg-gray-100 rounded-lg overflow-hidden mb-4">
-                <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-cover" />
-              </div>
-              <canvas ref={canvasRef} className="hidden" />
-              <div className="text-center text-sm text-muted-foreground mb-4">
-                <p>Plantão: {contract.hospital}</p>
-                <p>Data: {contract.date.toLocaleDateString()}</p>
-                <p>Horário: {contract.time}</p>
-              </div>
-            </div>
-          )}
-
-          {step === "location" && (
-            <div className="flex flex-col items-center">
-              <div className="bg-primary/10 p-6 rounded-full mb-6">
-                <MapPin className="h-12 w-12 text-primary" />
-              </div>
-
-              {locationError && <div className="bg-red-50 text-red-700 p-3 rounded-md mb-4">{locationError}</div>}
-
-              <div className="text-center mb-4">
-                <p className="font-medium">Verificando sua localização</p>
-                <p className="text-sm text-muted-foreground">Precisamos verificar se você está no local do plantão</p>
-              </div>
-
-              <div className="text-center text-sm text-muted-foreground mb-4">
-                <p>Local do plantão:</p>
-                <p className="font-medium">{contract.location}</p>
-              </div>
-            </div>
-          )}
-
-          {step === "success" && (
-            <div className="flex flex-col items-center">
-              <div className="bg-green-100 p-6 rounded-full mb-6">
-                <Check className="h-12 w-12 text-green-600" />
-              </div>
-
-              <div className="text-center mb-6">
-                <p className="font-medium text-lg">{isCheckIn ? "Check-in" : "Check-out"} realizado com sucesso!</p>
-                <p className="text-sm text-muted-foreground">
-                  Seu {isCheckIn ? "check-in" : "check-out"} foi registrado às {new Date().toLocaleTimeString()}
-                </p>
-              </div>
-
-              <div className="w-full max-w-md border rounded-md p-4">
-                <div className="flex justify-between mb-2">
-                  <span className="text-sm text-muted-foreground">Hospital:</span>
-                  <span className="font-medium">{contract.hospital}</span>
+            {isLoading && <LoadingState message="Buscando seus próximos plantões..." />}
+            {!isLoading && error && <ErrorState message={error} onRetry={fetchActiveShifts} />}
+            {!isLoading && !error && activeShifts.length === 0 && (
+                <EmptyState message="Você não tem plantões agendados ou em andamento que requerem check-in/out." />
+            )}
+            {!isLoading && !error && activeShifts.length > 0 && (
+                <div className="space-y-4">
+                {activeShifts.map(record => (
+                    <ShiftCheckinItem
+                        key={record.id}
+                        record={record}
+                        onAction={handleShiftAction}
+                        isActionLoading={actionLoadingId}
+                    />
+                ))}
                 </div>
-                <div className="flex justify-between mb-2">
-                  <span className="text-sm text-muted-foreground">Data:</span>
-                  <span className="font-medium">{contract.date.toLocaleDateString()}</span>
-                </div>
-                <div className="flex justify-between mb-2">
-                  <span className="text-sm text-muted-foreground">Horário:</span>
-                  <span className="font-medium">{contract.time}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-sm text-muted-foreground">{isCheckIn ? "Check-in" : "Check-out"}:</span>
-                  <span className="font-medium">{new Date().toLocaleTimeString()}</span>
-                </div>
-              </div>
-            </div>
-          )}
+            )}
         </CardContent>
-        <CardFooter className="flex justify-center">
-          {step === "camera" && (
-            <Button onClick={captureImage} className="gap-2">
-              <Camera className="h-4 w-4" />
-              Capturar imagem
-            </Button>
-          )}
-
-          {step === "location" && (
-            <Button onClick={getLocation} disabled={isLoading} className="gap-2">
-              {isLoading ? "Verificando..." : "Verificar localização"}
-            </Button>
-          )}
-
-          {step === "success" && <Button onClick={handleFinish}>Concluir</Button>}
-        </CardFooter>
       </Card>
+        <div className="mt-6 p-4 border rounded-lg bg-amber-50 border-amber-200 text-amber-800">
+            <div className="flex items-start">
+                <AlertTriangle className="h-5 w-5 mr-3 mt-0.5 text-amber-600" />
+                <div>
+                    <h3 className="font-semibold">Importante sobre Geolocalização e Câmera</h3>
+                    <p className="text-xs mt-1">
+                        Para realizar o check-in e check-out, seu navegador solicitará permissão para acessar sua localização.
+                        No futuro, também poderemos solicitar acesso à câmera para verificação facial.
+                        Certifique-se de que essas permissões estão habilitadas para o site nas configurações do seu navegador.
+                    </p>
+                </div>
+            </div>
+        </div>
     </div>
-  )
+  );
 }
-
