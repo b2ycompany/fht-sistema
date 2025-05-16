@@ -1,63 +1,79 @@
 // app/hospital/layout.tsx
 "use client";
 
-import type React from "react";
-import { useEffect, useState } from "react";
+import React, { useEffect, useState, type ReactNode, type FC, type SVGProps } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { Building, LogOut, Menu, ClipboardList, BarChart3, Users, X } from "lucide-react"; // Ícones de exemplo
+import {
+  LayoutDashboard, CalendarClock, Users as UsersIconLucide, // Renomeado para evitar conflito
+  UserCircle, LogOut, Menu, X as IconX, Settings, Hospital as HospitalIcon, DollarSign as DollarSignIcon,
+  Loader2
+} from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import { useMobile } from "@/hooks/use-mobile";
+// import { useMobile } from "@/hooks/use-mobile"; // Se você tem um hook global
 import { useAuth } from "@/components/auth-provider";
-import { logoutUser, getCurrentUserData, type UserProfile } from "@/lib/auth-service"; // Importar getCurrentUserData e UserProfile
+import { logoutUser, getCurrentUserData, type UserProfile, type HospitalProfile } from "@/lib/auth-service";
 import Image from "next/image";
-import Logo from "@/public/logo-fht.svg"; // Seu logo
+import Logo from "@/public/logo-fht.svg";
 import { cn } from "@/lib/utils";
-import { Loader2 } from "lucide-react"; // Importar Loader2
+import { Button } from "@/components/ui/button";
 
-export default function HospitalLayout({ children }: { children: React.ReactNode }) {
+// Hook useMobile (exemplo simples, se não tiver um global)
+const useIsMobileHook = (breakpoint = 768): boolean => {
+  const [isMobileView, setIsMobileView] = useState(false); // Default para false SSR
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const checkScreenSize = () => setIsMobileView(window.innerWidth < breakpoint);
+    checkScreenSize();
+    window.addEventListener('resize', checkScreenSize);
+    return () => window.removeEventListener('resize', checkScreenSize);
+  }, [breakpoint]);
+  return isMobileView;
+};
+
+type LucideIconType = FC<SVGProps<SVGSVGElement> & { className?: string; size?: number | string }>;
+
+export default function HospitalLayout({ children }: { children: ReactNode }) {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const pathname = usePathname();
   const router = useRouter();
   const { toast } = useToast();
-  const isMobile = useMobile();
-  const { user: authUser, loading: authLoading } = useAuth(); // Usuário do Firebase Auth
-  const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
-  const [profileLoading, setProfileLoading] = useState(true); // Loading para o perfil do Firestore
+  const isMobile = useIsMobileHook(768);
+  const { user: authUser, loading: authLoading } = useAuth();
+  const [userProfile, setUserProfile] = useState<HospitalProfile | null>(null);
+  const [profileLoading, setProfileLoading] = useState(true);
+  const [accessDenied, setAccessDenied] = useState(false);
 
   useEffect(() => {
     console.log("[HospitalLayout] Auth state - AuthLoading:", authLoading, "AuthUser:", authUser ? authUser.uid : null);
     if (!authLoading) {
       if (!authUser) {
-        // Se não há usuário autenticado no Firebase, redireciona para login
         console.log("[HospitalLayout] No authUser found, redirecting to /login");
-        router.push("/login");
+        router.push("/login?redirectUrl=" + pathname);
+        setProfileLoading(false);
       } else {
-        // Se há usuário Firebase, busca o perfil no Firestore para verificar o role
         console.log("[HospitalLayout] AuthUser found. Fetching user profile from Firestore...");
+        setProfileLoading(true);
         getCurrentUserData()
           .then(profile => {
-            if (profile) {
-              console.log("[HospitalLayout] Profile fetched:", profile);
-              if (profile.role === 'hospital') {
-                setUserProfile(profile);
-              } else {
-                // Usuário logado, mas não é hospital
-                console.warn("[HospitalLayout] User is not a hospital. Role:", profile.role, ". Redirecting to /login (or an 'access-denied' page).");
-                toast({ title: "Acesso Negado", description: "Esta área é restrita a hospitais.", variant: "destructive" });
-                router.push("/login"); // Ou uma página específica de acesso negado
-              }
+            console.log("[HospitalLayout] Profile fetched:", profile);
+            if (profile && profile.role === 'hospital') {
+              setUserProfile(profile as HospitalProfile);
+              setAccessDenied(false);
+              console.log("[HospitalLayout] Profile is for a HOSPITAL. Access GRANTED.");
             } else {
-              // Usuário logado no Firebase, mas sem perfil no Firestore (situação de erro)
-              console.error("[HospitalLayout] AuthUser exists, but profile not found in Firestore. UID:", authUser.uid);
-              toast({ title: "Erro de Perfil", description: "Seu perfil não foi encontrado. Contate o suporte.", variant: "destructive" });
-              router.push("/login");
+              setAccessDenied(true); setUserProfile(null);
+              const deniedRole = profile ? profile.role : "N/A (sem perfil)";
+              console.warn("[HospitalLayout] Access DENIED. User role is not 'hospital'. Role:", deniedRole);
+              toast({ title: "Acesso Negado", description: "Esta área é restrita a hospitais.", variant: "destructive" });
+              router.push(profile?.role === 'doctor' ? "/dashboard" : "/");
             }
           })
           .catch(error => {
             console.error("[HospitalLayout] Error fetching user profile:", error);
-            toast({ title: "Erro ao Carregar Perfil", description: "Não foi possível carregar seus dados de perfil.", variant: "destructive" });
-            router.push("/login");
+            setAccessDenied(true);
+            toast({ title: "Erro de Acesso", description: "Não foi possível verificar suas permissões.", variant: "destructive" });
+            router.push("/");
           })
           .finally(() => {
             setProfileLoading(false);
@@ -65,118 +81,62 @@ export default function HospitalLayout({ children }: { children: React.ReactNode
           });
       }
     }
-  }, [authUser, authLoading, router, toast]);
+  }, [authUser, authLoading, router, toast, pathname]);
 
-  const handleLogout = async () => {
-    console.log("[HospitalLayout] handleLogout called");
-    try {
-      await logoutUser();
-      toast({
-        title: "Logout realizado",
-        description: "Você foi desconectado com sucesso.",
-      });
-      router.push("/"); // Redireciona para a home page após logout
-    } catch (error) {
-      console.error("[HospitalLayout] Logout error:", error);
-      toast({
-        title: "Erro ao sair",
-        description: "Ocorreu um erro ao fazer logout. Tente novamente.",
-        variant: "destructive",
-      });
-    }
-  };
-
-  // Itens de navegação específicos para o Hospital (EXEMPLO)
-  const navItems = [
-    { href: "/hospital/dashboard", label: "Painel Hospital", icon: <BarChart3 className="h-5 w-5" /> },
-    { href: "/hospital/shifts", label: "Plantões", icon: <ClipboardList className="h-5 w-5" /> },
-    { href: "/hospital/doctors", label: "Médicos", icon: <Users className="h-5 w-5" /> },
-    { href: "/hospital/profile", label: "Perfil Empresa", icon: <Building className="h-5 w-5" /> },
+  const handleLogout = async () => { try { await logoutUser(); toast({ title: "Logout!" }); router.push('/login'); } catch (e:any) { toast({ title: "Erro Logout", description: e.message, variant: "destructive" });}};
+  
+  const navItems: Array<{ href: string; label: string; icon: React.ReactElement }> = [
+    { href: "/hospital/dashboard", label: "Painel Hospital", icon: <LayoutDashboard className="h-5 w-5" /> },
+    { href: "/hospital/shifts", label: "Plantões", icon: <CalendarClock className="h-5 w-5" /> },
+    { href: "/hospital/doctors", label: "Médicos", icon: <UsersIconLucide className="h-5 w-5" /> },
+    { href: "/hospital/profile", label: "Perfil Empresa", icon: <HospitalIcon className="h-5 w-5" /> },
   ];
 
-  // Se authLoading (do Firebase) ou profileLoading (do Firestore) estiverem ativos, mostra um loader.
   if (authLoading || profileLoading) {
-    console.log("[HospitalLayout] Showing loader - AuthLoading:", authLoading, "ProfileLoading:", profileLoading);
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-gray-50">
-        <Loader2 className="animate-spin rounded-full h-12 w-12 text-blue-600" />
-        <p className="ml-3 text-gray-700">Carregando dados do hospital...</p>
-      </div>
-    );
+    return ( <div className="flex min-h-screen items-center justify-center bg-gray-100"> <Loader2 className="h-12 w-12 animate-spin text-blue-600" /> <p className="ml-3">Carregando painel do hospital...</p></div> );
   }
-
-  // Se após os loadings, não houver perfil de hospital (ou authUser), não renderiza nada.
-  // O useEffect já deve ter cuidado do redirecionamento.
-  if (!authUser || !userProfile || userProfile.role !== 'hospital') {
-    console.log("[HospitalLayout] Conditions not met to render layout - AuthUser:", authUser ? authUser.uid : null, "UserProfile Role:", userProfile ? userProfile.role : null);
-    // Retornar null é importante para evitar flash de conteúdo se o redirecionamento estiver ocorrendo.
+  if (accessDenied || !userProfile) {
     return null;
   }
 
   console.log("[HospitalLayout] Rendering hospital layout for user:", userProfile.displayName);
   return (
-    <div className="flex min-h-screen bg-gray-50">
-      <button
-        className="md:hidden fixed top-4 right-4 z-50 p-2 bg-white rounded-full shadow-md text-blue-600 hover:bg-blue-50 transition-colors"
-        onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
-        aria-label={isMobileMenuOpen ? "Fechar menu" : "Abrir menu"}
-      >
-        {isMobileMenuOpen ? <X className="h-6 w-6" /> : <Menu className="h-6 w-6" />}
-      </button>
-
-      <aside
-        className={cn(
-          "bg-gradient-to-b from-white to-blue-50 border-r border-blue-100 shadow-lg",
-          "fixed inset-y-0 left-0 z-40 w-64 transition-transform duration-300 ease-in-out",
-          isMobile && !isMobileMenuOpen ? "-translate-x-full" : "translate-x-0",
-          "md:static md:translate-x-0 md:shadow-md"
-        )}
-      >
-        <div className="p-6 border-b border-blue-100">
-          <Image src={Logo} alt="FHT Soluções Hospitalares" width={150} height={50} className="w-auto h-10" />
+    <div className="flex min-h-screen bg-slate-100">
+      <button className="md:hidden fixed top-4 right-4 z-50 p-2 bg-white rounded-full shadow-lg text-slate-700 hover:bg-slate-100" onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}> {isMobileMenuOpen ? <IconX size={20}/> : <Menu size={20}/>} </button>
+      <aside className={cn("bg-slate-800 text-slate-100 fixed inset-y-0 left-0 z-40 w-60 lg:w-64 transition-transform duration-300 ease-in-out md:static md:translate-x-0", isMobile && !isMobileMenuOpen ? "-translate-x-full" : "translate-x-0" )}>
+        <div className="p-5 border-b border-slate-700 flex justify-center">
+          <Link href="/hospital/dashboard" onClick={() => isMobile && setIsMobileMenuOpen(false)}>
+            <Image src={Logo} alt="FHT Hospital Panel" width={130} priority />
+          </Link>
         </div>
+        <div className="p-3 mt-2 text-center text-sm"> <p className="truncate">Bem-vindo(a),</p> <p className="font-semibold truncate">{userProfile.displayName}</p> </div>
         <nav className="px-3 py-4 flex-1">
-          <ul className="space-y-1">
-            {navItems.map((item) => (
-              <li key={item.href}>
-                <Link
-                  href={item.href}
-                  className={cn(
-                    "flex items-center gap-3 px-4 py-3 rounded-md text-sm font-medium transition-all duration-200",
-                    pathname === item.href
-                      ? "bg-blue-600 text-white shadow-sm hover:bg-blue-700"
-                      : "text-gray-700 hover:bg-blue-100 hover:text-blue-600"
-                  )}
-                  onClick={() => isMobile && setIsMobileMenuOpen(false)}
-                >
-                  {item.icon}
-                  <span>{item.label}</span>
-                </Link>
-              </li>
-            ))}
+          <ul className="space-y-1.5">
+            {navItems.map((item) => {
+              const IconComponent = item.icon.type as LucideIconType;
+              return (
+                <li key={item.href}>
+                  <Link
+                    href={item.href}
+                    className={cn( "flex items-center gap-3 px-3 py-2.5 rounded-md text-sm font-medium transition-all", pathname === item.href ? "bg-blue-600 text-white" : "hover:bg-slate-700 hover:text-blue-300" )}
+                    onClick={() => isMobile && setIsMobileMenuOpen(false)}
+                  > 
+                    {React.cloneElement(item.icon, { className: cn("h-5 w-5", item.icon.props.className)})}
+                    <span>{item.label}</span>
+                  </Link>
+                </li>
+              );
+            })}
           </ul>
         </nav>
-        <div className="p-4 border-t border-blue-100">
-          <button
-            onClick={handleLogout}
-            className="w-full flex items-center justify-center gap-2 py-2 px-4 rounded-md border border-blue-600 text-blue-600 hover:bg-blue-50 hover:text-blue-700 transition-colors text-sm font-medium"
-          >
-            <LogOut className="h-4 w-4" />
-            <span>Sair</span>
-          </button>
+        <div className="p-3 border-t border-slate-700"> 
+          <Button variant="ghost" onClick={handleLogout} className="w-full justify-start text-slate-300 hover:bg-slate-700 hover:text-white"> 
+            <LogOut className="mr-2 h-4 w-4" /> Sair 
+          </Button> 
         </div>
       </aside>
-
-      {isMobile && isMobileMenuOpen && (
-        <div
-          className="fixed inset-0 bg-black/50 z-30 md:hidden"
-          onClick={() => setIsMobileMenuOpen(false)}
-        />
-      )}
-
-      <main className="flex-1 p-4 sm:p-6 md:p-8">
-        <div className="max-w-7xl mx-auto">{children}</div>
-      </main>
+      {isMobile && isMobileMenuOpen && (<div className="fixed inset-0 bg-black/50 z-30 md:hidden" onClick={() => setIsMobileMenuOpen(false)} /> )}
+      <main className="flex-1 p-4 sm:p-6 lg:p-8 overflow-auto"> {children} </main>
     </div>
   );
 }
