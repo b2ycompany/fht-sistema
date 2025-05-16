@@ -1,7 +1,7 @@
 // app/login/page.tsx
 "use client";
 
-import React, { useState, useEffect, useCallback, ChangeEvent, Suspense } from "react"; // <<< ADICIONADO Suspense
+import React, { useState, useEffect, useCallback, ChangeEvent, Suspense } from "react"; // Suspense importado
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import Image from 'next/image';
@@ -16,23 +16,25 @@ import LogoPath from '@/public/logo-fht.svg';
 import { Loader2, LogInIcon } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
-// Componente de Loading para a página inteira
-const LoadingPage = () => (
+// Componente de Loading para a página inteira e para Suspense
+const LoadingPage = ({ message = "Carregando..." }: { message?: string }) => (
     <div className="flex min-h-screen flex-col items-center justify-center bg-gray-100 p-6">
         <Loader2 className="h-12 w-12 animate-spin text-blue-600 mb-4" />
-        <p className="text-gray-700">Carregando...</p>
+        <p className="text-gray-700">{message}</p>
     </div>
 );
+LoadingPage.displayName = "LoadingPage";
 
-// Componente interno para lidar com searchParams e lógica de redirecionamento
+// ====================================================================================
+// Componente LoginLogic (MOVIMENTO PARA FORA E ANTES DE LoginPage)
+// ====================================================================================
 function LoginLogic() {
   const router = useRouter();
   const { user: authUser, loading: authLoading } = useAuth();
-  const searchParams = useSearchParams(); // <<< useSearchParams AQUI DENTRO
+  const searchParams = useSearchParams(); // useSearchParams usado aqui
   const { toast } = useToast();
-  const [isLoading, setIsLoading] = useState(false); // Loading específico para busca de perfil no useEffect
-  const [initialCheckDone, setInitialCheckDone] = useState(false);
-
+  const [profileCheckLoading, setProfileCheckLoading] = useState(false);
+  const [initialAuthCheckDone, setInitialAuthCheckDone] = useState(false);
 
   const getRedirectPath = useCallback((role?: UserProfile['role']) => {
     const explicitRedirect = searchParams.get('redirectUrl');
@@ -44,73 +46,67 @@ function LoginLogic() {
   }, [searchParams]);
 
   useEffect(() => {
-    console.log("[LoginLogic] useEffect for auth check - AuthLoading:", authLoading, "AuthUser:", authUser ? authUser.uid : null);
-    if (!authLoading && authUser && !initialCheckDone) {
-      setIsLoading(true);
-      console.log("[LoginLogic] User is already authenticated. Attempting to fetch profile for redirection...");
-      getCurrentUserData()
-        .then(profile => {
-          if (profile) {
-            const redirectPath = getRedirectPath(profile.role);
-            console.log("[LoginLogic] Profile found. Role:", profile.role, "Redirecting to:", redirectPath);
-            router.push(redirectPath);
-          } else {
-            console.warn("[LoginLogic] AuthUser exists but no profile found. Staying.");
-            setIsLoading(false);
-          }
-        })
-        .catch(err => {
-          console.error("[LoginLogic] Error fetching profile for already authenticated user:", err);
-          toast({ title: "Erro ao Verificar Sessão", description: err.message, variant: "destructive" });
-          setIsLoading(false);
-        })
-        .finally(() => {
-            setInitialCheckDone(true); // Marca que a verificação inicial foi feita
-            // Não setar isLoading(false) aqui se o redirecionamento ocorreu
-        });
-    } else if (!authLoading && !authUser) {
-        setIsLoading(false);
-        setInitialCheckDone(true);
+    console.log("[LoginLogic] Auth State - AuthLoading:", authLoading, "AuthUser:", authUser ? authUser.uid : null);
+    if (!authLoading) {
+        if (authUser && !initialAuthCheckDone) {
+            setProfileCheckLoading(true);
+            console.log("[LoginLogic] User already authenticated. Attempting to fetch profile...");
+            getCurrentUserData()
+            .then(profile => {
+                if (profile) {
+                    const redirectPath = getRedirectPath(profile.role);
+                    console.log("[LoginLogic] Profile found. Role:", profile.role, "Redirecting to:", redirectPath);
+                    router.push(redirectPath);
+                } else {
+                    console.warn("[LoginLogic] AuthUser exists but no profile found. User might need to complete registration or an error occurred.");
+                    setProfileCheckLoading(false); // Permite que o formulário de login seja mostrado
+                }
+            })
+            .catch(err => {
+                console.error("[LoginLogic] Error fetching profile for already authenticated user:", err);
+                toast({ title: "Erro ao Verificar Sessão", description: err.message || "Tente novamente.", variant: "destructive" });
+                setProfileCheckLoading(false);
+            })
+            .finally(() => {
+                setInitialAuthCheckDone(true);
+            });
+        } else if (!authUser) {
+            setProfileCheckLoading(false);
+            setInitialAuthCheckDone(true);
+        }
     }
-  }, [authUser, authLoading, router, getRedirectPath, toast, initialCheckDone]);
+  }, [authUser, authLoading, router, getRedirectPath, toast, initialAuthCheckDone]);
 
-  // Se ainda estiver carregando o estado de auth ou o perfil do usuário já logado
-  if (authLoading || (authUser && isLoading && !initialCheckDone) ) {
-      return <LoadingPage />;
+  // Se AuthProvider ainda está carregando ou se estamos buscando perfil de usuário já logado
+  if (authLoading || (authUser && profileCheckLoading && !initialAuthCheckDone)) {
+      return <LoadingPage message="Verificando sua sessão..." />;
   }
-  
-  // Se o usuário está logado e o perfil foi carregado (ou falhou), o redirecionamento já deveria ter acontecido.
-  // Este é um fallback caso o useEffect não redirecione por algum motivo (ex: erro no profile fetch)
-  // e o usuário não deveria ver o formulário.
-  if (authUser && initialCheckDone && !isLoading) {
-      console.log("[LoginLogic] Fallback: AuthUser exists, initial check done, should have redirected.");
-      return <div className="flex min-h-screen items-center justify-center"><p>Redirecionando...</p></div>;
-  }
-
-  return null; // Este componente não renderiza o formulário, apenas a lógica
+  // Este componente não renderiza o formulário de login diretamente.
+  // Ele lida com a lógica de redirecionamento e o estado de loading inicial.
+  return null;
 }
+// ====================================================================================
+// FIM do Componente LoginLogic
+// ====================================================================================
 
 
 export default function LoginPage() {
-  const { toast } = useToast(); // toast para handleSubmit
+  const { toast } = useToast();
   const router = useRouter();
-  const { user: authUser, loading: authLoading } = useAuth();
+  const { user: authUser, loading: authLoading } = useAuth(); // Usado para decidir se mostra o formulário
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
-  const [isSubmitting, setIsSubmitting] = useState(false); // Renomeado de isLoading para evitar conflito
+  const [isSubmitting, setIsSubmitting] = useState(false); // Para o loader do botão de submit
 
-  // Função getRedirectPath duplicada aqui ou passada como prop se preferir
-   const getRedirectPath = (role?: UserProfile['role']) => {
-    // Não podemos usar useSearchParams aqui diretamente se LoginPage não está em Suspense
-    // A lógica de redirectUrl via searchParams está agora em LoginLogic
+  // getRedirectPath agora é local para handleSubmit, pois searchParams está em LoginLogic
+  const getRedirectPathForSubmit = (role?: UserProfile['role']) => {
     if (role === 'doctor') return '/dashboard';
     if (role === 'hospital') return '/hospital/dashboard';
     if (role === 'admin' || role === 'backoffice') return '/admin/matches';
     return '/';
   };
-
 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -118,67 +114,71 @@ export default function LoginPage() {
     setIsSubmitting(true);
     try {
       await loginUser(email, password);
-      const profile = await getCurrentUserData();
+      // O AuthProvider vai detectar a mudança de authUser.
+      // O componente LoginLogic, que é renderizado quando authUser existe,
+      // cuidará da busca de perfil e redirecionamento.
+      // Para feedback imediato, poderíamos tentar o redirecionamento aqui também,
+      // mas a lógica principal já está no LoginLogic.
+      const profile = await getCurrentUserData(); // Re-buscar perfil após login
       if (profile) {
         toast({ title: "Login bem-sucedido!", description: `Bem-vindo(a) de volta, ${profile.displayName}!`});
-        const redirectPath = getRedirectPath(profile.role);
+        const redirectPath = getRedirectPathForSubmit(profile.role);
         router.push(redirectPath);
       } else {
-        setError("Perfil do usuário não encontrado. Contate o suporte.");
+        setError("Perfil do usuário não encontrado após o login. Contate o suporte.");
         setIsSubmitting(false);
       }
     } catch (err: any) {
-      let errorMessage = "Falha no login.";
-      if (err.code) { /* ... (seu switch case de erros) ... */ 
-          switch (err.code) {
-            case 'auth/user-not-found':
-            case 'auth/wrong-password':
-            case 'auth/invalid-credential':
-              errorMessage = "Email ou senha inválidos."; break;
-            case 'auth/invalid-email':
-              errorMessage = "O formato do email é inválido."; break;
-            case 'auth/too-many-requests':
-              errorMessage = "Muitas tentativas de login. Tente novamente mais tarde."; break;
-            default: errorMessage = "Ocorreu um erro inesperado durante o login.";
-          }
+      let errorMessage = "Falha no login. Verifique suas credenciais.";
+      if (err.code) {
+        switch (err.code) {
+          case 'auth/user-not-found': case 'auth/wrong-password': case 'auth/invalid-credential':
+            errorMessage = "Email ou senha inválidos."; break;
+          case 'auth/invalid-email':
+            errorMessage = "O formato do email é inválido."; break;
+          case 'auth/too-many-requests':
+            errorMessage = "Muitas tentativas de login. Tente novamente mais tarde."; break;
+          default: errorMessage = "Ocorreu um erro inesperado durante o login.";
+        }
       }
       setError(errorMessage);
       toast({ title: "Erro no Login", description: errorMessage, variant: "destructive" });
       setIsSubmitting(false);
     }
+    // Não resetar isLoadingSubmit se o redirecionamento for ocorrer, mas sim se falhar.
   };
 
-  // Se o AuthProvider ainda está carregando, mostre um loader global.
-  // A lógica de redirecionamento para usuário já logado está no LoginLogic
+  // Se o AuthProvider ainda está carregando o estado inicial do usuário.
   if (authLoading) {
     return <LoadingPage />;
   }
 
-
-  // Se o usuário já está logado (detectado pelo AuthProvider, e não estamos mais em authLoading),
-  // o componente LoginLogic dentro do Suspense cuidará da busca de perfil e redirecionamento.
-  // Não mostre o formulário de login se authUser já existe.
+  // Se o usuário JÁ ESTÁ LOGADO (authUser existe), renderiza LoginLogic dentro de Suspense
+  // LoginLogic cuidará da busca de perfil e redirecionamento.
+  // Não mostramos o formulário de login neste caso.
   if (authUser) {
       return (
-          <Suspense fallback={<LoadingPage />}>
+          <Suspense fallback={<LoadingPage message="Redirecionando..." />}>
               <LoginLogic />
           </Suspense>
       );
   }
-
-  // Se não está autenticado e authLoading é false, mostra o formulário de login
+  
+  // Se chegou aqui, authLoading é false e authUser é null, então mostramos o formulário de login.
   return (
     <div className="flex min-h-screen flex-col items-center justify-center bg-gray-100 p-4">
-        <Suspense fallback={<LoadingPage />}> {/* Envolve qualquer uso de useSearchParams */}
-            <LoginLogic /> {/* Renderiza a lógica que pode redirecionar */}
+        {/* O Suspense com LoginLogic pode não ser necessário aqui se authUser já é null,
+            mas mantê-lo não prejudica e garante que a lógica de redirectUrl seja pega se o usuário
+            chegar aqui de alguma forma com searchParams e sem authUser ainda. */}
+        <Suspense fallback={<LoadingPage />}>
+            <LoginLogic /> 
         </Suspense>
 
-        {/* Só renderiza o formulário se não houver usuário autenticado E o authProvider não estiver carregando */}
-        {!authUser && !authLoading && (
-            <Card className="w-full max-w-md shadow-xl">
+        {!authUser && ( // Garante que o formulário só aparece se não houver usuário
+            <Card className="w-full max-w-md shadow-xl bg-white">
                 <CardHeader className="text-center">
                 <Link href="/" className="inline-block mb-6">
-                    <Image src={LogoPath} alt="FHT Sistemas Logo" width={180} priority className="mx-auto" />
+                    <Image src={LogoPath} alt="FHT Sistemas Logo" width={180} height={40} priority className="mx-auto h-auto" />
                 </Link>
                 <CardTitle className="text-2xl font-bold tracking-tight text-gray-900">Acesse sua Conta</CardTitle>
                 <CardDescription className="text-gray-600">Bem-vindo(a) de volta!</CardDescription>
@@ -186,15 +186,29 @@ export default function LoginPage() {
                 <CardContent>
                 <form onSubmit={handleSubmit} className="space-y-4">
                     <div className="space-y-1.5">
-                    <Label htmlFor="email" className="text-gray-700">Email</Label>
-                    <Input id="email" type="email" placeholder="seuemail@exemplo.com" value={email} onChange={(e: ChangeEvent<HTMLInputElement>) => setEmail(e.target.value)} required className="border-gray-300 focus:ring-blue-500 focus:border-blue-500"/>
+                    <Label htmlFor="email-login" className="text-gray-700">Email</Label>
+                    <Input
+                        id="email-login" type="email" placeholder="seuemail@exemplo.com"
+                        value={email}
+                        onChange={(e: ChangeEvent<HTMLInputElement>) => setEmail(e.target.value)}
+                        required
+                        className="border-gray-300 focus:ring-blue-500 focus:border-blue-500"
+                    />
                     </div>
                     <div className="space-y-1.5">
                     <div className="flex items-center justify-between">
-                        <Label htmlFor="password" className="text-gray-700">Senha</Label>
-                        <Link href="/reset-password" className="text-xs text-blue-600 hover:text-blue-500 hover:underline">Esqueceu a senha?</Link>
+                        <Label htmlFor="password-login" className="text-gray-700">Senha</Label>
+                        <Link href="/reset-password" className="text-xs text-blue-600 hover:text-blue-500 hover:underline">
+                        Esqueceu a senha?
+                        </Link>
                     </div>
-                    <Input id="password" type="password" placeholder="********" value={password} onChange={(e: ChangeEvent<HTMLInputElement>) => setPassword(e.target.value)} required className="border-gray-300 focus:ring-blue-500 focus:border-blue-500"/>
+                    <Input
+                        id="password-login" type="password" placeholder="********"
+                        value={password}
+                        onChange={(e: ChangeEvent<HTMLInputElement>) => setPassword(e.target.value)}
+                        required
+                        className="border-gray-300 focus:ring-blue-500 focus:border-blue-500"
+                    />
                     </div>
                     {error && <p className="text-sm text-red-600 bg-red-100 p-3 rounded-md text-center">{error}</p>}
                     <Button type="submit" className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3" disabled={isSubmitting}>
@@ -206,7 +220,9 @@ export default function LoginPage() {
                 <CardFooter className="flex flex-col items-center justify-center pt-4 border-t">
                 <p className="text-xs text-gray-600">
                     Não tem uma conta?{' '}
-                    <Link href="/register" className="font-medium text-blue-600 hover:text-blue-500 hover:underline">Cadastre-se aqui</Link>
+                    <Link href="/register" className="font-medium text-blue-600 hover:text-blue-500 hover:underline">
+                    Cadastre-se aqui
+                    </Link>
                 </p>
                 </CardFooter>
             </Card>
