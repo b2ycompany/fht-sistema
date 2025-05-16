@@ -2,127 +2,132 @@
 "use client";
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card"; // <<< ADICIONADO CardFooter
+import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import Link from 'next/link';
 import { 
-    ArrowRight, 
-    CalendarCheck, 
-    FileClock, 
-    BellDot, 
-    Briefcase, 
-    Clock, 
-    DollarSign, 
-    MapPinIcon,
-    MessageSquare, // <<< ADICIONADO
-    CalendarDays  // <<< ADICIONADO
+    ArrowRight, CalendarCheck, FileClock, BellDot, Briefcase, Clock, DollarSign, MapPinIcon, 
+    MessageSquare, Users, AlertTriangle as LucideAlertTriangle, ClipboardList, Loader2, RotateCcw, 
+    CalendarDays
 } from 'lucide-react';
 import { Timestamp } from 'firebase/firestore';
 
-// Serviços
 import { getPendingProposalsForDoctor, type ShiftProposal } from '@/lib/proposal-service';
 import { getContractsForDoctor, type Contract } from '@/lib/contract-service';
 import { getTimeSlots, type TimeSlot } from '@/lib/availability-service';
 import { useAuth } from '@/components/auth-provider';
 import { formatCurrency, cn } from '@/lib/utils';
-import { useToast } from "@/hooks/use-toast"; // <<< ADICIONADO
-// Assumindo que você tem esses componentes de estado globais ou definidos em outro lugar
-// Se não, precisaremos defini-los aqui ou ajustar.
-import { LoadingState, ErrorState, EmptyState } from '@/components/ui/state-indicators'; 
+import { useToast } from "@/hooks/use-toast";
+
+// Componentes de Estado
+const LoadingState = React.memo(({ message = "Carregando..." }: { message?: string }) => ( <div className="flex items-center justify-center py-10 text-sm text-gray-500"><Loader2 className="h-6 w-6 animate-spin mr-2"/>{message}</div> ));
+LoadingState.displayName = 'LoadingState';
+const EmptyState = React.memo(({ message }: { message: string }) => ( <div className="text-center py-10"><ClipboardList className="mx-auto h-12 w-12 text-gray-400"/><h3 className="mt-2 text-sm font-semibold text-gray-900">{message}</h3></div> ));
+EmptyState.displayName = 'EmptyState';
+const ErrorState = React.memo(({ message, onRetry }: { message: string; onRetry?: () => void; }) => ( <div className="text-center py-10 bg-red-50 p-4 rounded-md border border-red-200"><LucideAlertTriangle className="mx-auto h-10 w-10 text-red-400"/><h3 className="mt-2 text-sm font-semibold text-red-700">{message}</h3>{onRetry && <Button variant="destructive" onClick={onRetry} size="sm" className="mt-3"><RotateCcw className="mr-2 h-4 w-4"/>Tentar Novamente</Button>}</div> ));
+ErrorState.displayName = 'ErrorState';
+
 
 interface DashboardStats {
-  pendingProposals: number;
-  upcomingShifts: number;
-  totalAvailabilitySlots: number;
+  pendingProposalsCount: number;
+  upcomingShiftsCount: number;
+  totalAvailabilitySlotsCount: number;
 }
 
-interface UpcomingShiftDisplay extends Contract {
+interface UpcomingShiftDisplayItem extends Contract {
     displayDate: string;
     displayTime: string;
 }
-interface PendingProposalDisplay extends ShiftProposal {
+interface PendingProposalDisplayItem extends ShiftProposal {
     displayDate: string;
     displayTime: string;
 }
+
 
 export default function DashboardPage() {
   const { user } = useAuth();
-  const { toast } = useToast(); // Inicializado
+  const { toast } = useToast();
 
-  const [stats, setStats] = useState<DashboardStats>({ pendingProposals: 0, upcomingShifts: 0, totalAvailabilitySlots: 0 });
-  const [upcomingShifts, setUpcomingShifts] = useState<UpcomingShiftDisplay[]>([]);
-  const [pendingProposals, setPendingProposals] = useState<PendingProposalDisplay[]>([]);
+  const [stats, setStats] = useState<DashboardStats>({ pendingProposalsCount: 0, upcomingShiftsCount: 0, totalAvailabilitySlotsCount: 0 });
+  const [upcomingShifts, setUpcomingShifts] = useState<UpcomingShiftDisplayItem[]>([]);
+  const [pendingProposals, setPendingProposals] = useState<PendingProposalDisplayItem[]>([]);
   
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const fetchDashboardData = useCallback(async () => {
+    if (!user) { // Adicionado para garantir que user existe
+        console.log("[DashboardPage] User not available yet for fetching data.");
+        setIsLoading(false); // Para o loading se não há usuário
+        return;
+    }
     setIsLoading(true);
     setError(null);
-    console.log("[DashboardPage] Fetching dashboard data...");
+    console.log("[DashboardPage] Fetching dashboard data for user:", user.uid);
     try {
-      // Para getContractsForDoctor, precisamos passar um array de status
-      // Para "próximos plantões", geralmente seriam os 'ACTIVE_SIGNED'
-      const activeContracts = await getContractsForDoctor(['ACTIVE_SIGNED']);
-      const proposals = await getPendingProposalsForDoctor();
-      const availabilities = await getTimeSlots();
+      // Buscar todos os dados em paralelo
+      const [contractsData, proposalsData, availabilitiesData] = await Promise.all([
+        getContractsForDoctor(['ACTIVE_SIGNED', 'PENDING_HOSPITAL_SIGNATURE']), // Para "Próximos Plantões"
+        getPendingProposalsForDoctor(),
+        getTimeSlots()
+      ]);
+
+      console.log("[DashboardPage] Data fetched - Contracts:", contractsData.length, "Proposals:", proposalsData.length, "Availabilities:", availabilitiesData.length);
 
       setStats({
-        pendingProposals: proposals.length,
-        upcomingShifts: activeContracts.length, // Contagem de contratos ativos
-        totalAvailabilitySlots: availabilities.length,
+        pendingProposalsCount: proposalsData.length,
+        upcomingShiftsCount: contractsData.filter(c => c.status === 'ACTIVE_SIGNED').length,
+        totalAvailabilitySlotsCount: availabilitiesData.length,
       });
 
-      const formattedUpcomingShifts = activeContracts
+      const formattedUpcomingShifts: UpcomingShiftDisplayItem[] = contractsData
+        .filter(contract => contract.status === 'ACTIVE_SIGNED')
         .sort((a, b) => (a.shiftDates?.[0]?.toDate()?.getTime() || 0) - (b.shiftDates?.[0]?.toDate()?.getTime() || 0))
         .slice(0, 3)
         .map(contract => ({
           ...contract,
-          displayDate: contract.shiftDates?.[0] instanceof Timestamp ? contract.shiftDates[0].toDate().toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' }) : 'N/A',
+          displayDate: contract.shiftDates?.[0] instanceof Timestamp ? contract.shiftDates[0].toDate().toLocaleDateString('pt-BR', { day: '2-digit', month: 'short', year: 'numeric' }) : 'N/A',
           displayTime: `${contract.startTime} - ${contract.endTime}`,
         }));
       setUpcomingShifts(formattedUpcomingShifts);
 
-      const formattedPendingProposals = proposals
-        .sort((a,b) => (a.createdAt?.toDate()?.getTime() || 0) - (b.createdAt?.toDate()?.getTime() || 0)) // Ordenar por data de criação
+      const formattedPendingProposals: PendingProposalDisplayItem[] = proposalsData
+        .sort((a,b) => (a.createdAt?.toDate()?.getTime() || 0) - (b.createdAt?.toDate()?.getTime() || 0))
         .slice(0, 3)
         .map(proposal => ({
             ...proposal,
-            displayDate: proposal.shiftDates?.[0] instanceof Timestamp ? proposal.shiftDates[0].toDate().toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' }) : 'N/A',
+            displayDate: proposal.shiftDates?.[0] instanceof Timestamp ? proposal.shiftDates[0].toDate().toLocaleDateString('pt-BR', { day: '2-digit', month: 'short', year: 'numeric' }) : 'N/A',
             displayTime: `${proposal.startTime} - ${proposal.endTime}`,
         }));
       setPendingProposals(formattedPendingProposals);
 
-      console.log("[DashboardPage] Dashboard data fetched/processed. Upcoming shifts:", formattedUpcomingShifts.length, "Pending proposals:", formattedPendingProposals.length);
+      console.log("[DashboardPage] Dashboard data processed and states updated.");
 
     } catch (err: any) {
       console.error("[DashboardPage] Error fetching dashboard data:", err);
-      setError("Falha ao carregar dados do dashboard. Tente recarregar a página.");
+      setError("Falha ao carregar dados do dashboard.");
       toast({ title: "Erro no Dashboard", description: err.message || "Não foi possível buscar os dados.", variant: "destructive" });
     } finally {
       setIsLoading(false);
     }
-  // Adicione user?.uid às dependências se as funções de serviço dependem implicitamente do usuário logado via `auth.currentUser`
-  // e você quer re-buscar se o usuário mudar (embora o layout já deva lidar com logout).
-  }, [toast, user]); 
+  }, [user, toast]); // user é a dependência chave aqui
 
   useEffect(() => {
-    if (user) { // Só busca dados se o usuário (do AuthProvider) estiver carregado
-        console.log("[DashboardPage] User detected, calling fetchDashboardData.");
+    if (user) { // Só busca dados se o usuário do AuthProvider estiver carregado
+        console.log("[DashboardPage] User detected in useEffect, calling fetchDashboardData.");
         fetchDashboardData();
     } else {
-        console.log("[DashboardPage] No user from AuthProvider yet, or user is null.");
-        // Se for o caso de usuário null e authLoading for false, o layout já deve ter redirecionado.
-        // Mas se chegou aqui sem usuário, não busca os dados.
-        setIsLoading(false); // Para de carregar se não houver usuário
+        console.log("[DashboardPage] No user in useEffect (yet), dashboard data not fetched.");
+        // Se authLoading também for false e user for null, significa que não há usuário logado.
+        // Não precisa setar isLoading(false) aqui se o estado inicial já é true e o if não for atendido.
     }
-  }, [user, fetchDashboardData]);
+  }, [user, fetchDashboardData]); // fetchDashboardData é useCallback e depende de 'user'
 
   if (isLoading) {
     return <div className="p-6"><LoadingState message="Carregando seu dashboard..." /></div>;
   }
-  if (error && !isLoading) { // Mostra erro apenas se não estiver mais carregando
+  if (error && !isLoading) {
     return <div className="p-6"><ErrorState message={error} onRetry={fetchDashboardData} /></div>;
   }
 
@@ -136,7 +141,7 @@ export default function DashboardPage() {
             <CardTitle className="text-lg text-amber-800 flex items-center"><BellDot className="mr-2 h-5 w-5"/> Você tem Novas Propostas!</CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-sm text-amber-700">Há {stats.pendingProposals} proposta(s) de plantão aguardando sua avaliação.</p>
+            <p className="text-sm text-amber-700">Há {stats.pendingProposalsCount} proposta(s) de plantão aguardando sua avaliação.</p>
           </CardContent>
           <CardFooter>
             <Button asChild size="sm" className="bg-amber-500 hover:bg-amber-600 text-white">
@@ -153,18 +158,18 @@ export default function DashboardPage() {
             <MessageSquare className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{stats.pendingProposals}</div>
+            <div className="text-2xl font-bold">{stats.pendingProposalsCount}</div>
             <p className="text-xs text-muted-foreground">Aguardando sua resposta</p>
           </CardContent>
         </Card>
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Próximos Plantões Confirmados</CardTitle>
+            <CardTitle className="text-sm font-medium">Próximos Plantões</CardTitle>
             <CalendarCheck className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{stats.upcomingShifts}</div>
-            <p className="text-xs text-muted-foreground">Contratos ativos</p>
+            <div className="text-2xl font-bold">{stats.upcomingShiftsCount}</div>
+            <p className="text-xs text-muted-foreground">Contratos ativos e agendados</p>
           </CardContent>
         </Card>
         <Card>
@@ -173,7 +178,7 @@ export default function DashboardPage() {
             <FileClock className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{stats.totalAvailabilitySlots}</div>
+            <div className="text-2xl font-bold">{stats.totalAvailabilitySlotsCount}</div>
             <p className="text-xs text-muted-foreground">Cadastrados por você</p>
           </CardContent>
         </Card>
