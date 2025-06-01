@@ -1,18 +1,20 @@
 {
   "compilerOptions": {
-    "module": "commonjs", 
+    "module": "commonjs",
     "noImplicitReturns": true,
     "noUnusedLocals": true,
-    "outDir": "lib",
+    "outDir": "lib", // Onde o JavaScript compilado será salvo
     "sourceMap": true,
     "strict": true,
-    "target": "es2017", 
-    "esModuleInterop": true, 
-    "skipLibCheck": true, 
-    "resolveJsonModule": true
+    "target": "es2017", // Node.js 18 (usado pelo Firebase Functions) suporta ES2017+
+    "esModuleInterop": true,
+    "skipLibCheck": true, // Para ignorar erros de tipo em node_modules
+    "resolveJsonModule": true,
+    "forceConsistentCasingInFileNames": true
   },
   "compileOnSave": true,
   "include": [
-    "src"
-  ]
+    "src" // Compila apenas os arquivos na pasta src
+  ],
+  "exclude": ["node_modules", "lib"] // Exclui node_modules e a pasta de output lib
 }

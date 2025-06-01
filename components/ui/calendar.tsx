@@ -1,7 +1,10 @@
+// components/ui/calendar.tsx
 "use client"
 
 import * as React from "react"
-import { ChevronLeft, ChevronRight } from "lucide-react"
+// ChevronLeft e ChevronRight não são mais importados aqui, pois não os usaremos diretamente neste arquivo por enquanto.
+// Se você precisar deles em outro lugar, mantenha a importação.
+// import { ChevronLeft, ChevronRight } from "lucide-react" 
 import { DayPicker } from "react-day-picker"
 
 import { cn } from "@/lib/utils"
@@ -46,7 +49,7 @@ function Calendar({
           "bg-primary text-primary-foreground hover:bg-primary hover:text-primary-foreground focus:bg-primary focus:text-primary-foreground",
         day_today: "bg-accent text-accent-foreground",
         day_outside:
-          "day-outside text-muted-foreground aria-selected:bg-accent/50 aria-selected:text-muted-foreground",
+          "day-outside text-muted-foreground opacity-50 aria-selected:bg-accent/50 aria-selected:text-muted-foreground",
         day_disabled: "text-muted-foreground opacity-50",
         day_range_middle:
           "aria-selected:bg-accent aria-selected:text-accent-foreground",
@@ -54,9 +57,13 @@ function Calendar({
         ...classNames,
       }}
       components={{
-        IconLeft: ({ ...props }) => <ChevronLeft className="h-4 w-4" />,
-        IconRight: ({ ...props }) => <ChevronRight className="h-4 w-4" />,
+        // Ícones de navegação customizados foram removidos daqui temporariamente.
+        // O DayPicker usará seus ícones padrão.
+        // Outras customizações de componentes (Dropdown, Caption etc.) que o ShadcnUI possa ter,
+        // deveriam permanecer se você as tiver e se não estiverem causando erros.
+        // No seu código fornecido anteriormente, este objeto 'components' só continha IconLeft/IconRight.
       }}
+      // As props iconPrevious e iconNext também foram removidas.
       {...props}
     />
   )

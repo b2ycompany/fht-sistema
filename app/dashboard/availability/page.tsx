@@ -7,8 +7,9 @@ import { Button } from "@/components/ui/button";
 import type { VariantProps } from "class-variance-authority";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Calendar } from "@/components/ui/calendar";
-import { type DayModifiers, type SelectSingleEventHandler, type SelectMultipleEventHandler } from "react-day-picker";
-import { // <<< CORREÇÃO AQUI: Adicionar todos os componentes Select
+// CORREÇÃO APLICADA AQUI: DayModifiers -> Modifiers
+import { type Modifiers, type SelectSingleEventHandler, type SelectMultipleEventHandler } from "react-day-picker";
+import {
     Select,
     SelectContent,
     SelectGroup,
@@ -67,7 +68,6 @@ const citiesByState: { [key: string]: string[] } = {
 };
 const serviceTypesOptions = Object.entries(ServiceTypeRates).map(([v, r]) => ({ value: v, label: v.split('_').map(w=>w[0].toUpperCase()+w.slice(1)).join(' '), rateExample: r }));
 
-// --- COMPONENTES DE ESTADO (Loading, Empty, Error) ---
 const LoadingState = React.memo(() => ( <div className="flex flex-col justify-center items-center text-center py-10 min-h-[150px] w-full"> <Loader2 className="h-8 w-8 animate-spin text-blue-600" /> <span className="ml-3 text-sm text-gray-600 mt-3">Carregando dados...</span> </div> ));
 LoadingState.displayName = 'LoadingState';
 const EmptyState = React.memo(({ message, actionButton }: { message: string; actionButton?: React.ReactNode }) => ( <div className="text-center text-sm text-gray-500 py-10 min-h-[150px] flex flex-col items-center justify-center bg-gray-50/70 rounded-md border border-dashed border-gray-300 w-full"> <ClipboardList className="w-12 h-12 text-gray-400 mb-4"/> <p className="font-medium text-gray-600 mb-1">Nada por aqui ainda!</p> <p className="max-w-xs">{message}</p> {actionButton && <div className="mt-4">{actionButton}</div>} </div> ));
@@ -75,7 +75,6 @@ EmptyState.displayName = 'EmptyState';
 const ErrorState = React.memo(({ message, onRetry }: { message: string; onRetry?: () => void }) => ( <div className="text-center text-sm text-red-600 py-10 min-h-[150px] flex flex-col items-center justify-center bg-red-50/70 rounded-md border border-dashed border-red-300 w-full"> <AlertCircle className="w-12 h-12 text-red-400 mb-4"/> <p className="font-semibold text-red-700 mb-1 text-base">Oops! Algo deu errado.</p> <p className="max-w-md text-red-600">{message || "Não foi possível carregar os dados. Por favor, tente novamente."}</p> {onRetry && ( <Button variant="destructive" size="sm" onClick={onRetry} className="mt-4 bg-red-600 hover:bg-red-700 text-white"> <RotateCcw className="mr-2 h-4 w-4" /> Tentar Novamente </Button> )} </div> ));
 ErrorState.displayName = 'ErrorState';
 
-// --- Componente Principal da Página ---
 export default function AvailabilityPage() {
   const { toast } = useToast();
   const [isFormDialogOpen, setIsFormDialogOpen] = useState(false);
@@ -138,7 +137,6 @@ export default function AvailabilityPage() {
   );
 }
 
-// --- COMPONENTE TimeSlotListItem ---
 interface TimeSlotListItemProps { slot: TimeSlot; onEdit: () => void; onDelete: () => void; }
 const TimeSlotListItem: React.FC<TimeSlotListItemProps> = ({ slot, onEdit, onDelete }) => {
   const slotDate = slot.date instanceof Timestamp ? slot.date.toDate() : null;
@@ -152,7 +150,6 @@ const TimeSlotListItem: React.FC<TimeSlotListItemProps> = ({ slot, onEdit, onDel
 };
 TimeSlotListItem.displayName = 'TimeSlotListItem';
 
-// --- COMPONENTE TimeSlotFormDialog (para Adicionar/Editar Disponibilidade) ---
 interface TimeSlotFormDialogProps {
   onFormSubmitted: () => void;
   initialData?: TimeSlot | null;
@@ -235,33 +232,26 @@ const TimeSlotFormDialog: React.FC<TimeSlotFormDialogProps> = ({ onFormSubmitted
     finally { setIsLoadingSubmit(false); }
   };
 
-  // Lógica do Calendário para modo de edição vs criação
-  const calendarMode = isEditing ? "single" : "multiple";
-  const selectedCalendarDate: Date | Date[] | undefined = isEditing ? (dates[0] || undefined) : dates;
-  
-  // CORRIGIDO: Tipagem explícita para onSelect do Calendar
-  const handleCalendarSelect = (day: Date | undefined, selected: Date, modifiers: DayModifiers, e: React.MouseEvent<Element, MouseEvent>) => {
-    if (isEditing) {
-        // No modo de edição, não permitimos mudar a data principal (o calendário é desabilitado)
-        return;
-    }
-    // Modo de criação (multiple) - o DayPicker lida com o array 'selected' e 'day' é o dia clicado
-    // A prop onSelect do Calendar com mode="multiple" recebe (Date[] | undefined)
-    // Esta função específica onDayClick (se usada em vez de onSelect direto) precisaria de lógica diferente.
-    // Simplificando e usando onSelect direto no Calendar.
-  };
-
   const onCalendarOnSelectMultiple = (selectedDays: Date[] | undefined) => {
+    console.log("[CalendarDebug] onCalendarOnSelectMultiple ACONTECEU!");
+    console.log("[CalendarDebug] isEditing:", isEditing);
+    console.log("[CalendarDebug] Recebido 'selectedDays':", selectedDays);
+
     if (!isEditing) {
-        setDates(selectedDays || []);
-    }
-  };
-  const onCalendarOnSelectSingle = (selectedDay: Date | undefined) => {
-    if (isEditing && selectedDay) { // Teoricamente não deveria ser chamado se disabled
-        setDates([selectedDay]);
+      setDates(prevDates => {
+        console.log("[CalendarDebug] Estado 'dates' ANTERIOR:", prevDates);
+        const newDates = selectedDays || [];
+        console.log("[CalendarDebug] Estado 'dates' NOVO será:", newDates);
+        return newDates;
+      });
     }
   };
 
+  const onCalendarOnSelectSingle = (selectedDay: Date | undefined) => {
+    if (isEditing && selectedDay) {
+      setDates([selectedDay]);
+    }
+  };
 
   return (
     <DialogContent className="sm:max-w-lg md:max-w-xl">
@@ -272,7 +262,7 @@ const TimeSlotFormDialog: React.FC<TimeSlotFormDialogProps> = ({ onFormSubmitted
         </DialogDescription>
       </DialogHeader>
       <div className="grid gap-5 py-4 max-h-[70vh] overflow-y-auto px-1 pr-3 md:pr-4 custom-scrollbar">
-         <div className="space-y-2">
+          <div className="space-y-2">
           <Label className="font-semibold text-gray-800 flex items-center"><CalendarDays className="h-4 w-4 mr-2 text-blue-600"/>Data(s) da Disponibilidade*</Label>
           <p className="text-xs text-gray-500">
             {isEditing ? "Data original (não pode ser alterada)." : "Selecione um ou mais dias no calendário."}
@@ -281,8 +271,8 @@ const TimeSlotFormDialog: React.FC<TimeSlotFormDialogProps> = ({ onFormSubmitted
             {isEditing ? (
                 <Calendar
                     mode="single"
-                    selected={dates[0]} // Mostra a data única
-                    disabled // Desabilita interação no modo de edição
+                    selected={dates[0]}
+                    disabled
                     className="p-0 border rounded-md shadow-sm bg-white w-full sm:w-auto"
                     footer={<p className="text-xs text-gray-700 font-medium p-2 border-t">Data: {dates[0]?.toLocaleDateString('pt-BR')}</p>}
                 />
@@ -290,7 +280,7 @@ const TimeSlotFormDialog: React.FC<TimeSlotFormDialogProps> = ({ onFormSubmitted
                 <Calendar
                     mode="multiple"
                     selected={dates}
-                    onSelect={onCalendarOnSelectMultiple} // CORRIGIDO: Usando o handler tipado
+                    onSelect={onCalendarOnSelectMultiple}
                     disabled={{ before: new Date(new Date().setHours(0, 0, 0, 0)) }}
                     className="p-0 border rounded-md shadow-sm bg-white w-full sm:w-auto"
                     footer={ dates.length > 0 ? <p className="text-xs text-blue-700 font-medium p-2 border-t">{dates.length} dia(s) selecionado(s).</p> : <p className="text-xs text-gray-500 p-2 border-t">Nenhum dia selecionado.</p>}
@@ -299,7 +289,7 @@ const TimeSlotFormDialog: React.FC<TimeSlotFormDialogProps> = ({ onFormSubmitted
             {dates.length > 0 && !isEditing && <Button variant="outline" size="sm" onClick={() => setDates([])} className="text-xs self-start sm:self-end w-full sm:w-auto"><X className="h-3 w-3 mr-1"/> Limpar Datas</Button>}
           </div>
         </div>
-         <div className="space-y-2">
+        <div className="space-y-2">
             <Label className="font-semibold text-gray-800 flex items-center"><Clock className="h-4 w-4 mr-2 text-blue-600"/>Horário da Disponibilidade*</Label>
             <div className="flex flex-wrap gap-2 mb-3">
                 <Button variant="outline" size="sm" onClick={() => applyQuickTime("07:00", "19:00")} className="text-xs">Diurno (07-19h)</Button>
@@ -341,4 +331,3 @@ const TimeSlotFormDialog: React.FC<TimeSlotFormDialogProps> = ({ onFormSubmitted
     </DialogContent>
   );
 };
-// --- FIM DOS COMPONENTES AUXILIARES ---
