@@ -32,16 +32,16 @@ import {
   type SpecialistDocumentsRef,
   type HospitalDocumentsRef,
   type LegalRepDocumentsRef
-} from "@/lib/auth-service";
-import { uploadFileToStorage } from "@/lib/storage-service";
+} from "@/lib/auth-service"; // Verifique se os paths estão corretos
+import { uploadFileToStorage } from "@/lib/storage-service"; // Verifique se os paths estão corretos
 import { FirebaseError } from "firebase/app";
-import { cn } from "@/lib/utils";
-import { auth } from "@/lib/firebase";
+import { cn } from "@/lib/utils"; // Verifique se os paths estão corretos
+import { auth } from "@/lib/firebase"; // Verifique se os paths estão corretos
 import {
   Loader2, Check, AlertTriangle, Info, Stethoscope, Building,
   FileUp, XCircleIcon, ExternalLink, CheckCircle
 } from "lucide-react";
-import { useAuth as useAuthHook } from "@/components/auth-provider";
+import { useAuth as useAuthHook } from "@/components/auth-provider"; // Verifique se os paths estão corretos
 
 interface Credentials {
   password: string;
@@ -338,7 +338,7 @@ export default function RegisterPage() {
     const [isLoading, setIsLoading] = useState(false);
     const router = useRouter();
     const { toast } = useToast();
-    const { user: authUser, loading: authLoading } = useAuthHook();
+    const { user: authUser, loading: authLoading } = useAuthHook(); // authUser é do tipo firebase.User | null
     const [initialRedirectPath, setInitialRedirectPath] = useState<string | null>(null);
     const [checkingInitialAuth, setCheckingInitialAuth] = useState(true);
 
@@ -366,9 +366,12 @@ export default function RegisterPage() {
     
         if (authUser) {
             setCheckingInitialAuth(true);
+            // Para acessar custom claims (como 'role'), use getIdTokenResult()
+            // O objeto 'authUser' (do tipo firebase.User) não tem 'customClaims' diretamente.
             authUser.getIdTokenResult()
                 .then((idTokenResult) => {
-                    const userRole = idTokenResult.claims.role as UserType;
+                    // idTokenResult.claims contém os custom claims
+                    const userRole = idTokenResult.claims.role as UserType; 
                     const path = userRole === 'doctor' ? '/dashboard/availability' :
                                  userRole === 'hospital' ? '/hospital/dashboard' :
                                  '/';
@@ -858,6 +861,8 @@ export default function RegisterPage() {
                     case 'auth/email-already-in-use': title = "Email já Cadastrado"; description = "Este email já está em uso."; break;
                 }
             }
+            // Se o erro nas linhas 1069, 1070 for aqui, certifique-se de que qualquer acesso a authUser (ou firebaseUser)
+            // para obter custom claims use .getIdTokenResult().then(idTokenResult => idTokenResult.claims.seuClaim)
             toast({ variant: "destructive", title: title, description: description, duration: 7000 });
         } finally {
             setIsLoading(false);

@@ -80,8 +80,8 @@ export interface DoctorRegistrationPayload
   extends Omit<PersonalInfo, "email" | "name"> {
   address: AddressInfo;
   isSpecialist: boolean;
-  documents: Partial<DoctorDocumentsRef>; // URLs após upload
-  specialistDocuments: Partial<SpecialistDocumentsRef>; // URLs após upload
+  documents: Partial<DoctorDocumentsRef>; 
+  specialistDocuments: Partial<SpecialistDocumentsRef>; 
 }
 export interface HospitalRegistrationPayload {
   cnpj: string;
@@ -89,8 +89,8 @@ export interface HospitalRegistrationPayload {
   phone: string;
   address: AddressInfo;
   legalRepresentativeInfo: LegalRepresentativeInfo;
-  hospitalDocs: Partial<HospitalDocumentsRef>; // URLs
-  legalRepDocuments: Partial<LegalRepDocumentsRef>; // URLs
+  hospitalDocs: Partial<HospitalDocumentsRef>; 
+  legalRepDocuments: Partial<LegalRepDocumentsRef>; 
 }
 
 export interface UserProfileBase {
@@ -128,6 +128,19 @@ export interface AdminProfile extends UserProfileBase {
 
 export type UserProfile = DoctorProfile | HospitalProfile | AdminProfile;
 
+// Interface para os dados de atualização do perfil do médico
+export interface DoctorProfileUpdatePayload {
+  name?: string;
+  dob?: string;
+  rg?: string;
+  phone?: string;
+  address?: Partial<AddressInfo>;
+  isSpecialist?: boolean; // Adicionado caso o médico possa mudar esse status
+  // Adicione quaisquer outros campos que o médico possa editar no seu perfil
+  // Ex: crm?: string; bio?: string; etc.
+}
+
+
 export const createAuthUser = async (
   email: string,
   password: string,
@@ -155,23 +168,21 @@ export const completeUserRegistration = async (
   registrationData: DoctorRegistrationPayload | HospitalRegistrationPayload,
 ): Promise<void> => {
   let userProfileDataSpecific:
-    | Omit<DoctorProfile, keyof UserProfileBase | "documents" | "specialistDocuments">
-    | Omit<HospitalProfile, keyof UserProfileBase | "hospitalDocs" | "legalRepDocuments">;
+    | Omit<DoctorProfile, keyof UserProfileBase | "documents" | "specialistDocuments" | "role"> 
+    | Omit<HospitalProfile, keyof UserProfileBase | "hospitalDocs" | "legalRepDocuments" | "role">;
 
   let documentsToSave: any = {};
 
   if (role === "doctor") {
     const doctorData = registrationData as DoctorRegistrationPayload;
     userProfileDataSpecific = {
-      // Campos de PersonalInfo (exceto email, name)
       dob: doctorData.dob,
       rg: doctorData.rg,
       cpf: doctorData.cpf,
       phone: doctorData.phone,
-      // Outros campos específicos de DoctorProfile
       address: doctorData.address,
       isSpecialist: doctorData.isSpecialist,
-      documentVerificationStatus: "PENDING_REVIEW", // Status inicial
+      documentVerificationStatus: "PENDING_REVIEW", 
       adminVerificationNotes: "",
     };
     documentsToSave = {
@@ -197,13 +208,13 @@ export const completeUserRegistration = async (
     throw new Error("Tipo de perfil de registro inválido.");
   }
 
-  const finalProfileData = {
+  const finalProfileData: Omit<UserProfileBase, "createdAt" | "updatedAt"> & typeof userProfileDataSpecific & typeof documentsToSave & { createdAt: any, updatedAt: any} = {
     uid: userId,
     email: email,
     displayName: displayName,
     role: role,
     ...userProfileDataSpecific,
-    ...documentsToSave, // Adiciona os objetos de documentos (que contêm URLs)
+    ...documentsToSave, 
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   };
@@ -242,7 +253,6 @@ export const getCurrentUserData = async (): Promise<UserProfile | null> => {
 
 export const getDoctorProfileForAdmin = async (doctorId: string): Promise<DoctorProfile | null> => {
   if (!doctorId) return null;
-  // TODO: Adicionar verificação de role do admin que está fazendo a chamada
   try {
     const docRef = doc(db, "users", doctorId);
     const docSnap = await getDoc(docRef);
@@ -262,7 +272,6 @@ export const updateDoctorDocumentVerificationStatus = async (
   notes?: string,
 ): Promise<void> => {
   if (!doctorId) throw new Error("ID do Doutor não fornecido.");
-  // TODO: Adicionar verificação de role do admin
   const doctorDocRef = doc(db, "users", doctorId);
   const updatePayload: {
     documentVerificationStatus: NonNullable<DoctorProfile["documentVerificationStatus"]>;
@@ -270,7 +279,7 @@ export const updateDoctorDocumentVerificationStatus = async (
     updatedAt: Timestamp;
   } = {
     documentVerificationStatus: status,
-    updatedAt: serverTimestamp() as Timestamp, // Cast para Timestamp do cliente
+    updatedAt: serverTimestamp() as Timestamp,
   };
   if (notes !== undefined) {
     updatePayload.adminVerificationNotes = notes;
@@ -279,6 +288,64 @@ export const updateDoctorDocumentVerificationStatus = async (
     await updateDoc(doctorDocRef, updatePayload);
   } catch (error) {
     console.error(`[AuthService] Erro ao atualizar status de docs do doutor ${doctorId}:`, error);
+    throw error;
+  }
+};
+
+// FUNÇÃO ADICIONADA PARA ATUALIZAR PERFIL DO MÉDICO
+export const updateDoctorProfileData = async (
+  doctorId: string,
+  dataToUpdate: DoctorProfileUpdatePayload,
+): Promise<void> => {
+  if (!doctorId) {
+    throw new Error("ID do Doutor não fornecido para atualização.");
+  }
+  if (!dataToUpdate || Object.keys(dataToUpdate).length === 0) {
+    // Considerar se é um erro ou apenas não fazer nada
+    console.warn("[AuthService] Nenhum dado fornecido para atualização do perfil do doutor.");
+    return; 
+  }
+
+  const doctorDocRef = doc(db, "users", doctorId);
+  const updatePayload: any = {};
+
+  // Mapeia apenas os campos definidos em dataToUpdate para o payload final
+  // Isso evita sobrescrever campos não intencionais com undefined
+  Object.keys(dataToUpdate).forEach(key => {
+    const fieldKey = key as keyof DoctorProfileUpdatePayload;
+    if (dataToUpdate[fieldKey] !== undefined) {
+      if (fieldKey === 'address' && typeof dataToUpdate.address === 'object' && dataToUpdate.address !== null) {
+        // Atualização de campos aninhados para o endereço
+        Object.keys(dataToUpdate.address).forEach(addressKey => {
+          const typedAddressKey = addressKey as keyof AddressInfo;
+          if (dataToUpdate.address![typedAddressKey] !== undefined) {
+             updatePayload[`address.${typedAddressKey}`] = dataToUpdate.address![typedAddressKey];
+          }
+        });
+      } else if (fieldKey !== 'address') { // Evita adicionar o objeto 'address' diretamente se já foi desmembrado
+        updatePayload[fieldKey] = dataToUpdate[fieldKey];
+      }
+    }
+  });
+  
+  // Se não há nada para atualizar após filtrar undefined (exceto updatedAt), não faz a chamada
+  if (Object.keys(updatePayload).length === 0) {
+    console.warn("[AuthService] Nenhum dado válido para atualizar após filtrar undefined.");
+    return;
+  }
+
+  updatePayload.updatedAt = serverTimestamp();
+
+  try {
+    const docSnap = await getDoc(doctorDocRef);
+    if (!docSnap.exists() || docSnap.data()?.role !== 'doctor') {
+        throw new Error("Perfil de doutor não encontrado ou tipo de usuário incorreto para atualização.");
+    }
+
+    await updateDoc(doctorDocRef, updatePayload);
+    console.log(`[AuthService] Perfil do doutor ${doctorId} atualizado com sucesso.`);
+  } catch (error) {
+    console.error(`[AuthService] Erro ao atualizar perfil do doutor ${doctorId}:`, error);
     throw error;
   }
 };
