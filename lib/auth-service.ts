@@ -119,8 +119,10 @@ export interface HospitalProfile extends UserProfileBase {
   legalRepresentativeInfo: LegalRepresentativeInfo;
   hospitalDocs?: Partial<HospitalDocumentsRef>;
   legalRepDocuments?: Partial<LegalRepDocumentsRef>;
+  // Campos adicionados para status de verificação do hospital
+  registrationStatus?: "PENDING_REVIEW" | "APPROVED" | "REJECTED_NEEDS_RESUBMISSION"; // <<< ADICIONADO
+  adminVerificationNotes?: string; // <<< ADICIONADO
 }
-
 export interface AdminProfile extends UserProfileBase {
   role: "admin" | "backoffice";
   permissions?: string[];

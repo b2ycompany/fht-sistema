@@ -4,10 +4,9 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import Link from 'next/link';
 import { 
-    ArrowRight, CalendarCheck, FileClock, BellDot, Briefcase, Clock, DollarSign, MapPinIcon, 
+    ArrowRight, CalendarCheck, FileClock, BellDot, Briefcase, Clock, MapPinIcon, 
     MessageSquare, Users, AlertTriangle as LucideAlertTriangle, ClipboardList, Loader2, RotateCcw, 
     CalendarDays
 } from 'lucide-react';
@@ -17,8 +16,13 @@ import { getPendingProposalsForDoctor, type ShiftProposal } from '@/lib/proposal
 import { getContractsForDoctor, type Contract } from '@/lib/contract-service';
 import { getTimeSlots, type TimeSlot } from '@/lib/availability-service';
 import { useAuth } from '@/components/auth-provider';
-import { formatCurrency, cn } from '@/lib/utils';
+import { formatCurrency, cn } from '@/lib/utils'; // formatCurrency não usado aqui, mas cn sim.
 import { useToast } from "@/hooks/use-toast";
+
+// Importar DoctorProfile e getCurrentUserData
+import { getCurrentUserData, type DoctorProfile } from '@/lib/auth-service'; 
+// Importar ProfileStatusAlert e seu tipo
+import ProfileStatusAlert, { type ProfileStatus } from '@/components/ui/ProfileStatusAlert'; 
 
 // Componentes de Estado
 const LoadingState = React.memo(({ message = "Carregando..." }: { message?: string }) => ( <div className="flex items-center justify-center py-10 text-sm text-gray-500"><Loader2 className="h-6 w-6 animate-spin mr-2"/>{message}</div> ));
@@ -46,34 +50,43 @@ interface PendingProposalDisplayItem extends ShiftProposal {
 
 
 export default function DashboardPage() {
-  const { user } = useAuth();
+  const { user, loading: authLoading } = useAuth(); // Renomeado loading para authLoading para clareza
   const { toast } = useToast();
 
   const [stats, setStats] = useState<DashboardStats>({ pendingProposalsCount: 0, upcomingShiftsCount: 0, totalAvailabilitySlotsCount: 0 });
   const [upcomingShifts, setUpcomingShifts] = useState<UpcomingShiftDisplayItem[]>([]);
   const [pendingProposals, setPendingProposals] = useState<PendingProposalDisplayItem[]>([]);
   
-  const [isLoading, setIsLoading] = useState(true);
+  const [doctorProfile, setDoctorProfile] = useState<DoctorProfile | null>(null); // Estado para o perfil do médico
+  
+  const [isLoading, setIsLoading] = useState(true); // Loading específico desta página
   const [error, setError] = useState<string | null>(null);
 
   const fetchDashboardData = useCallback(async () => {
-    if (!user) { // Adicionado para garantir que user existe
+    if (!user) {
         console.log("[DashboardPage] User not available yet for fetching data.");
-        setIsLoading(false); // Para o loading se não há usuário
+        setIsLoading(false); 
         return;
     }
     setIsLoading(true);
     setError(null);
     console.log("[DashboardPage] Fetching dashboard data for user:", user.uid);
     try {
-      // Buscar todos os dados em paralelo
-      const [contractsData, proposalsData, availabilitiesData] = await Promise.all([
-        getContractsForDoctor(['ACTIVE_SIGNED', 'PENDING_HOSPITAL_SIGNATURE']), // Para "Próximos Plantões"
+      const [contractsData, proposalsData, availabilitiesData, currentProfileData] = await Promise.all([
+        getContractsForDoctor(['ACTIVE_SIGNED', 'PENDING_HOSPITAL_SIGNATURE']),
         getPendingProposalsForDoctor(),
-        getTimeSlots()
+        getTimeSlots(),
+        getCurrentUserData() 
       ]);
 
-      console.log("[DashboardPage] Data fetched - Contracts:", contractsData.length, "Proposals:", proposalsData.length, "Availabilities:", availabilitiesData.length);
+      console.log("[DashboardPage] Data fetched - Contracts:", contractsData.length, "Proposals:", proposalsData.length, "Availabilities:", availabilitiesData.length, "Profile:", currentProfileData ? 'Loaded' : 'Not loaded');
+
+      if (currentProfileData && currentProfileData.role === 'doctor') {
+        setDoctorProfile(currentProfileData as DoctorProfile);
+      } else if (currentProfileData) {
+        console.warn("[DashboardPage] Fetched profile is not a doctor profile:", currentProfileData.role);
+        // Considerar definir um erro específico se o perfil não for de médico e esta página for exclusiva para médicos.
+      }
 
       setStats({
         pendingProposalsCount: proposalsData.length,
@@ -111,29 +124,65 @@ export default function DashboardPage() {
     } finally {
       setIsLoading(false);
     }
-  }, [user, toast]); // user é a dependência chave aqui
+  }, [user, toast]); 
 
   useEffect(() => {
-    if (user) { // Só busca dados se o usuário do AuthProvider estiver carregado
+    if (authLoading) { // Se o hook de autenticação ainda está carregando
+        setIsLoading(true); // Mantém o isLoading da página ativo
+        return;
+    }
+
+    if (user) { // Se o usuário existe (após authLoading ser false)
         console.log("[DashboardPage] User detected in useEffect, calling fetchDashboardData.");
         fetchDashboardData();
-    } else {
-        console.log("[DashboardPage] No user in useEffect (yet), dashboard data not fetched.");
-        // Se authLoading também for false e user for null, significa que não há usuário logado.
-        // Não precisa setar isLoading(false) aqui se o estado inicial já é true e o if não for atendido.
+    } else { // Se não há usuário (após authLoading ser false)
+        console.log("[DashboardPage] No user after auth check, dashboard data not fetched.");
+        setIsLoading(false); // Parar o indicador de carregamento da página
+        setDoctorProfile(null); // Limpar dados do perfil
+        setStats({ pendingProposalsCount: 0, upcomingShiftsCount: 0, totalAvailabilitySlotsCount: 0 }); // Resetar stats
+        setUpcomingShifts([]); // Limpar plantões
+        setPendingProposals([]); // Limpar propostas
+        // O AuthProvider ou um layout superior deve cuidar do redirecionamento para /login
     }
-  }, [user, fetchDashboardData]); // fetchDashboardData é useCallback e depende de 'user'
+  }, [user, authLoading, fetchDashboardData]); // Adicionado authLoading como dependência
 
-  if (isLoading) {
+  if (isLoading && authLoading) { // Mostra loading se a autenticação ou os dados do dashboard estiverem carregando
     return <div className="p-6"><LoadingState message="Carregando seu dashboard..." /></div>;
   }
-  if (error && !isLoading) {
+  
+  // Se authLoading terminou, mas user é null, o AuthProvider deve redirecionar.
+  // Mostramos um estado de erro se a busca de dados falhou.
+  if (error && !isLoading) { // Verifica isLoading da página, não authLoading
     return <div className="p-6"><ErrorState message={error} onRetry={fetchDashboardData} /></div>;
   }
+  
+  // Caso especial: auth carregou, não há usuário, e ainda não foi redirecionado (AuthProvider pode levar um instante)
+  if (!authLoading && !user && !isLoading) {
+    return (
+        <div className="container mx-auto p-4 sm:p-6 space-y-6 text-center">
+            <LoadingState message="Aguardando autenticação ou redirecionando..." />
+        </div>
+    );
+  }
+  
+  // Se o usuário existe mas o perfil do médico ainda não carregou (após o loading inicial), pode mostrar um loader específico para o perfil ou nada.
+  // Para este exemplo, o ProfileStatusAlert simplesmente não será renderizado se doctorProfile for null.
+
+  const doctorEditProfileLink = "/dashboard/profile/edit"; 
 
   return (
     <div className="container mx-auto p-4 sm:p-6 space-y-6">
-      <h1 className="text-3xl font-bold text-gray-800">Bem-vindo(a) de volta, {user?.displayName || 'Doutor(a)'}!</h1>
+      <h1 className="text-3xl font-bold text-gray-800">Bem-vindo(a) de volta, {doctorProfile?.displayName || user?.displayName || 'Doutor(a)'}!</h1>
+
+      {/* Componente ProfileStatusAlert para status do cadastro */}
+      {doctorProfile && (
+        <ProfileStatusAlert 
+          status={doctorProfile.documentVerificationStatus as ProfileStatus | undefined}
+          adminNotes={doctorProfile.adminVerificationNotes}
+          userType="doctor"
+          editProfileLink={doctorEditProfileLink}
+        />
+      )}
 
       {pendingProposals.length > 0 && (
         <Card className="bg-amber-50 border-amber-200 shadow-lg">

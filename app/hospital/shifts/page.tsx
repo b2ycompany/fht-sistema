@@ -8,7 +8,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter }
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Calendar } from "@/components/ui/calendar";
-import { type SelectMultipleEventHandler, type DayModifiers } from "react-day-picker";
+import { type SelectMultipleEventHandler, type Modifiers } from "react-day-picker";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
@@ -234,84 +234,135 @@ const ShiftListItem: React.FC<ShiftListItemProps> = React.memo(({ shift, actions
 });
 ShiftListItem.displayName = 'ShiftListItem';
 
+// Cole este bloco para substituir apenas o componente AddShiftDialog no seu arquivo
+
 interface AddShiftDialogProps { onShiftSubmitted: () => void; initialData?: ShiftRequirement | null; }
 const AddShiftDialog: React.FC<AddShiftDialogProps> = ({ onShiftSubmitted, initialData }) => {
-  const { toast } = useToast();
-  const isEditing = !!initialData && !!initialData.id;
-  const [dates, setDates] = useState<Date[]>(() => initialData?.dates?.map(ts => ts.toDate()) || []);
-  const [startTime, setStartTime] = useState(initialData?.startTime || "07:00");
-  const [endTime, setEndTime] = useState(initialData?.endTime || "19:00");
-  const [numberOfVacancies, setNumberOfVacancies] = useState<string>(String(initialData?.numberOfVacancies || "1"));
-  const [requiredSpecialties, setRequiredSpecialties] = useState<string[]>(initialData?.specialtiesRequired || []);
-  const [selectedState, setSelectedState] = useState<string>(initialData?.state || "");
-  const [selectedCity, setSelectedCity] = useState<string>(initialData?.city || "");
-  const [selectedServiceType, setSelectedServiceType] = useState<string>(initialData?.serviceType || "");
-  const [offeredRateInput, setOfferedRateInput] = useState<string>(String(initialData?.offeredRate || ""));
-  const [notes, setNotes] = useState<string>(initialData?.notes || "");
-  const [isLoadingSubmit, setIsLoadingSubmit] = useState(false);
-  const [specialtyPopoverOpen, setSpecialtyPopoverOpen] = useState(false);
-  const [specialtySearchValue, setSpecialtySearchValue] = useState("");
-  const [timeError, setTimeError] = useState<string | null>(null);
-  const [availableCities, setAvailableCities] = useState<string[]>([]);
-  
-  const applyQuickTime = (start: string, end: string) => { setStartTime(start); setEndTime(end); }; // Definido
-  useEffect(() => { if (initialData?.state) { setAvailableCities(citiesByState[initialData.state] || []); } }, [initialData?.state]);
-  const resetFormFields = useCallback(() => { setDates([]); setStartTime("07:00"); setEndTime("19:00"); setNumberOfVacancies("1"); setRequiredSpecialties([]); setSpecialtySearchValue(""); setTimeError(null); setSelectedState(""); setSelectedCity(""); setAvailableCities([]); setSelectedServiceType(""); setOfferedRateInput(""); setNotes(""); }, []);
-  const validateTimes = useCallback((start: string, end: string) => { if (start && end && start === end ) { setTimeError("Início não pode ser igual ao término."); } else { setTimeError(null); } }, []);
-  useEffect(() => { validateTimes(startTime, endTime); }, [startTime, endTime, validateTimes]);
-  useEffect(() => { if (selectedState) { if (!initialData || selectedState !== initialData.state) { setAvailableCities(citiesByState[selectedState] || []); setSelectedCity(""); } else if (initialData && selectedState === initialData.state && !selectedCity) { if (citiesByState[selectedState]?.includes(initialData.city)) { setSelectedCity(initialData.city); } } } else { setAvailableCities([]); setSelectedCity(""); } }, [selectedState, initialData]);
-  const handleSelectRequiredSpecialty = (specialty: string) => { if (!requiredSpecialties.includes(specialty)) setRequiredSpecialties((prev: string[]) => [...prev, specialty]); setSpecialtySearchValue(""); setSpecialtyPopoverOpen(false); };
-  const handleRemoveRequiredSpecialty = (specialtyToRemove: string) => { setRequiredSpecialties((prev: string[]) => prev.filter((s: string) => s !== specialtyToRemove)); };
-  const filteredSpecialties = useMemo(() => medicalSpecialties.filter(s => typeof s === 'string' && s.toLowerCase().includes(specialtySearchValue.toLowerCase()) && !requiredSpecialties.includes(s)), [specialtySearchValue, requiredSpecialties]);
-  
-  const handleSubmitForm = async () => {
-    const offeredRate = parseFloat(offeredRateInput.replace(',', '.'));
-    const numVacancies = parseInt(numberOfVacancies, 10);
-    if (dates.length === 0 && !isEditing) { toast({title:"Datas são obrigatórias", variant: "destructive"}); return; }
-    if (timeError) { toast({title:"Horário Inválido", variant: "destructive"}); return; }
-    if (!selectedServiceType) { toast({title:"Tipo de Atendimento Obrigatório", variant: "destructive"}); return; }
-    if (isNaN(offeredRate) || offeredRate <= 0) { toast({title:"Valor Hora Inválido", variant: "destructive"}); return; }
-    if (isNaN(numVacancies) || numVacancies <= 0) { toast({title:"Nº de Profissionais Inválido", variant: "destructive"}); return; }
-    if (!selectedState || !selectedCity) { toast({title:"Localização Obrigatória", variant: "destructive"}); return; }
+  const { toast } = useToast();
+  const isEditing = !!initialData && !!initialData.id;
+  const [dates, setDates] = useState<Date[]>(() => initialData?.dates?.map(ts => ts.toDate()) || []);
+  const [startTime, setStartTime] = useState(initialData?.startTime || "07:00");
+  const [endTime, setEndTime] = useState(initialData?.endTime || "19:00");
+  const [numberOfVacancies, setNumberOfVacancies] = useState<string>(String(initialData?.numberOfVacancies || "1"));
+  const [requiredSpecialties, setRequiredSpecialties] = useState<string[]>(initialData?.specialtiesRequired || []);
+  const [selectedState, setSelectedState] = useState<string>(initialData?.state || "");
+  const [selectedCity, setSelectedCity] = useState<string>(initialData?.city || "");
+  const [selectedServiceType, setSelectedServiceType] = useState<string>(initialData?.serviceType || "");
+  const [offeredRateInput, setOfferedRateInput] = useState<string>(String(initialData?.offeredRate || ""));
+  const [notes, setNotes] = useState<string>(initialData?.notes || "");
+  const [isLoadingSubmit, setIsLoadingSubmit] = useState(false);
+  const [specialtyPopoverOpen, setSpecialtyPopoverOpen] = useState(false);
+  const [specialtySearchValue, setSpecialtySearchValue] = useState("");
+  const [timeError, setTimeError] = useState<string | null>(null);
+  const [availableCities, setAvailableCities] = useState<string[]>([]);
+  
+  const applyQuickTime = (start: string, end: string) => { setStartTime(start); setEndTime(end); };
+  useEffect(() => { if (initialData?.state) { setAvailableCities(citiesByState[initialData.state] || []); } }, [initialData?.state]);
+  const resetFormFields = useCallback(() => { setDates([]); setStartTime("07:00"); setEndTime("19:00"); setNumberOfVacancies("1"); setRequiredSpecialties([]); setSpecialtySearchValue(""); setTimeError(null); setSelectedState(""); setSelectedCity(""); setAvailableCities([]); setSelectedServiceType(""); setOfferedRateInput(""); setNotes(""); }, []);
+  const validateTimes = useCallback((start: string, end: string) => { if (start && end && start === end ) { setTimeError("Início não pode ser igual ao término."); } else { setTimeError(null); } }, []);
+  useEffect(() => { validateTimes(startTime, endTime); }, [startTime, endTime, validateTimes]);
+  useEffect(() => { if (selectedState) { if (!initialData || selectedState !== initialData.state) { setAvailableCities(citiesByState[selectedState] || []); setSelectedCity(""); } else if (initialData && selectedState === initialData.state && !selectedCity) { if (citiesByState[selectedState]?.includes(initialData.city)) { setSelectedCity(initialData.city); } } } else { setAvailableCities([]); setSelectedCity(""); } }, [selectedState, initialData]);
+  const handleSelectRequiredSpecialty = (specialty: string) => { if (!requiredSpecialties.includes(specialty)) setRequiredSpecialties((prev: string[]) => [...prev, specialty]); setSpecialtySearchValue(""); setSpecialtyPopoverOpen(false); };
+  const handleRemoveRequiredSpecialty = (specialtyToRemove: string) => { setRequiredSpecialties((prev: string[]) => prev.filter((s: string) => s !== specialtyToRemove)); };
+  const filteredSpecialties = useMemo(() => medicalSpecialties.filter(s => typeof s === 'string' && s.toLowerCase().includes(specialtySearchValue.toLowerCase()) && !requiredSpecialties.includes(s)), [specialtySearchValue, requiredSpecialties]);
+  
+  const handleSubmitForm = async () => {
+    const offeredRate = parseFloat(offeredRateInput.replace(',', '.'));
+    const numVacancies = parseInt(numberOfVacancies, 10);
+    if (dates.length === 0 && !isEditing) { toast({title:"Datas são obrigatórias", variant: "destructive"}); return; }
+    if (timeError) { toast({title:"Horário Inválido", variant: "destructive"}); return; }
+    if (!selectedServiceType) { toast({title:"Tipo de Atendimento Obrigatório", variant: "destructive"}); return; }
+    if (isNaN(offeredRate) || offeredRate <= 0) { toast({title:"Valor Hora Inválido", variant: "destructive"}); return; }
+    if (isNaN(numVacancies) || numVacancies <= 0) { toast({title:"Nº de Profissionais Inválido", variant: "destructive"}); return; }
+    if (!selectedState || !selectedCity) { toast({title:"Localização Obrigatória", variant: "destructive"}); return; }
 
-    setIsLoadingSubmit(true);
-    const currentUser = auth.currentUser;
-    if (!currentUser) { toast({ title: "Usuário não autenticado", variant: "destructive"}); setIsLoadingSubmit(false); return; }
+    setIsLoadingSubmit(true);
+    const currentUser = auth.currentUser;
+    if (!currentUser) { toast({ title: "Usuário não autenticado", variant: "destructive"}); setIsLoadingSubmit(false); return; }
 
-    const isOvernightShift = startTime > endTime;
-    const finalNotes = notes.trim();
+    const isOvernightShift = startTime > endTime;
+    const finalNotes = notes.trim();
 
-    try {
-      if (isEditing && initialData?.id) {
-        const updatePayload: ShiftUpdatePayload = {
-          startTime, endTime, isOvernight: isOvernightShift,
-          state: selectedState, city: selectedCity,
-          serviceType: selectedServiceType, specialtiesRequired: requiredSpecialties,
-          offeredRate, numberOfVacancies: numVacancies,
-          ...(finalNotes ? { notes: finalNotes } : { notes: "" }),
-        };
-        await updateShiftRequirement(initialData.id, updatePayload);
-        toast({ title: "Demanda Atualizada!", variant: "default" });
-      } else {
-        const dateTimestamps: Timestamp[] = dates.map(date => Timestamp.fromDate(date));
-        const createPayload: ShiftFormPayload = {
-          publishedByUID: currentUser.uid, dates: dateTimestamps,
-          startTime, endTime, isOvernight: isOvernightShift,
-          state: selectedState, city: selectedCity,
-          serviceType: selectedServiceType, specialtiesRequired: requiredSpecialties,
-          offeredRate, numberOfVacancies: numVacancies,
-          ...(finalNotes && { notes: finalNotes }),
-        };
-        await addShiftRequirement(createPayload);
-        toast({ title: "Demanda Publicada!", variant: "default" });
-        if(!isEditing) resetFormFields();
-      }
-      onShiftSubmitted();
-    } catch (err:any) { toast({ title: `Erro ao ${isEditing ? 'Salvar' : 'Publicar'}`, description: err.message, variant: "destructive"}); }
-    finally { setIsLoadingSubmit(false); }
-  };
+    try {
+      if (isEditing && initialData?.id) {
+        const updatePayload: ShiftUpdatePayload = {
+          startTime, endTime, isOvernight: isOvernightShift,
+          state: selectedState, city: selectedCity,
+          serviceType: selectedServiceType, specialtiesRequired: requiredSpecialties,
+          offeredRate, numberOfVacancies: numVacancies,
+          ...(finalNotes ? { notes: finalNotes } : { notes: "" }),
+        };
+        await updateShiftRequirement(initialData.id, updatePayload);
+        toast({ title: "Demanda Atualizada!", variant: "default" });
+      } else {
+        const dateTimestamps: Timestamp[] = dates.map(date => Timestamp.fromDate(date));
+        const createPayload: ShiftFormPayload = {
+          publishedByUID: currentUser.uid, dates: dateTimestamps,
+          startTime, endTime, isOvernight: isOvernightShift,
+          state: selectedState, city: selectedCity,
+          serviceType: selectedServiceType, specialtiesRequired: requiredSpecialties,
+          offeredRate, numberOfVacancies: numVacancies,
+          ...(finalNotes && { notes: finalNotes }),
+        };
+        await addShiftRequirement(createPayload);
+        toast({ title: "Demanda Publicada!", variant: "default" });
+        if(!isEditing) resetFormFields();
+      }
+      onShiftSubmitted();
+    } catch (err:any) { toast({ title: `Erro ao ${isEditing ? 'Salvar' : 'Publicar'}`, description: err.message, variant: "destructive"}); }
+    finally { setIsLoadingSubmit(false); }
+  };
 
-  return ( <DialogContent className="sm:max-w-2xl md:max-w-3xl"> <DialogHeader> <DialogTitle className="text-xl">{isEditing ? "Editar Demanda" : "Publicar Nova Demanda"}</DialogTitle> <DialogDescription>{isEditing ? "Altere os detalhes. Datas não são editáveis." : "Defina os critérios. Uma demanda será criada para cada data selecionada."}</DialogDescription> </DialogHeader> <div className="grid gap-5 py-4 max-h-[70vh] overflow-y-auto px-1 pr-3 md:pr-4 custom-scrollbar"> <div className="space-y-2"> <Label className="font-semibold text-gray-800 flex items-center"><CalendarDays/>Data(s)*</Label> <p className="text-xs text-gray-500">{isEditing ? "Original (não editável)." : "Selecione."}</p> <div className="flex flex-col sm:flex-row gap-2 items-start"> {isEditing ? ( <Calendar mode="single" selected={dates[0]} disabled footer={ dates[0] ? <p>{dates[0]?.toLocaleDateString('pt-BR')}</p> : null} /> ) : ( <Calendar mode="multiple" selected={dates} onSelect={setDates as SelectMultipleEventHandler} disabled={{ before: new Date(new Date().setHours(0,0,0,0))}} footer={ dates.length > 0 ? <p>{dates.length} dia(s)</p> : <p>Nenhum dia</p>} /> )} {dates.length > 0 && !isEditing && <Button variant="outline" size="sm" onClick={() => setDates([])}><X/> Limpar</Button>} </div> </div> <div className="space-y-2"> <Label className="font-semibold text-gray-800 flex items-center"><Clock/>Horário*</Label> <div className="flex flex-wrap gap-2 mb-3"> <Button variant="outline" size="sm" onClick={() => applyQuickTime("07:00", "19:00")}>Diurno</Button> <Button variant="outline" size="sm" onClick={() => applyQuickTime("19:00", "07:00")}>Noturno</Button> <Button variant="outline" size="sm" onClick={() => applyQuickTime("08:00", "12:00")}>Manhã</Button> <Button variant="outline" size="sm" onClick={() => applyQuickTime("13:00", "18:00")}>Tarde</Button> <Button variant="outline" size="sm" onClick={() => applyQuickTime("00:00", "23:30")}>24h</Button> </div> <div className="grid grid-cols-1 sm:grid-cols-2 gap-4"> <div><Label htmlFor="sTime">Início*</Label><Select value={startTime} onValueChange={setStartTime}><SelectTrigger id="sTime" className={cn(timeError && "border-red-500")}><SelectValue/></SelectTrigger><SelectContent>{timeOptions.map(t=><SelectItem key={"s"+t} value={t}>{t}</SelectItem>)}</SelectContent></Select></div> <div><Label htmlFor="eTime">Término*</Label><Select value={endTime} onValueChange={setEndTime}><SelectTrigger id="eTime" className={cn(timeError && "border-red-500")}><SelectValue/></SelectTrigger><SelectContent>{timeOptions.map(t=><SelectItem key={"e"+t} value={t}>{t}</SelectItem>)}</SelectContent></Select></div> {timeError && <p className="text-red-600 col-span-2">{timeError}</p>} </div> </div> <div className="grid grid-cols-1 sm:grid-cols-2 gap-4"> <div><Label htmlFor="state-m" className="font-semibold text-gray-800 flex items-center"><MapPin/>Estado*</Label><Select value={selectedState} onValueChange={setSelectedState}><SelectTrigger id="state-m"><SelectValue placeholder="UF..."/></SelectTrigger><SelectContent>{brazilianStates.map(s=><SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent></Select></div> <div><Label htmlFor="city-m" className="font-semibold text-gray-800">Cidade*</Label><Select value={selectedCity} onValueChange={setSelectedCity} disabled={!selectedState||!availableCities.length}><SelectTrigger id="city-m"><SelectValue placeholder={!selectedState?"UF?":(!availableCities.length?"Sem cidades":"Cidade...")}/></SelectTrigger><SelectContent>{availableCities.map(c=><SelectItem key={c} value={c}>{c}</SelectItem>)}</SelectContent></Select></div> </div> <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4"> <div><Label htmlFor="serv-type-m" className="font-semibold text-gray-800 flex items-center"><Briefcase/>Tipo*</Label><Select value={selectedServiceType} onValueChange={setSelectedServiceType}><SelectTrigger id="serv-type-m"><SelectValue placeholder="Selecione..."/></SelectTrigger><SelectContent>{serviceTypesOptions.map(o=><SelectItem key={o.value} value={o.value}>{o.label} <span className="text-xs text-gray-500">({formatCurrency(o.rateExample)}/h)</span></SelectItem>)}</SelectContent></Select></div> <div><Label htmlFor="rate-m" className="font-semibold text-gray-800 flex items-center"><DollarSign/>Valor/Hora (R$)*</Label><Input id="rate-m" type="number" min="1" step="any" placeholder="150.00" value={offeredRateInput} onChange={e=>setOfferedRateInput(e.target.value)}/></div> <div><Label htmlFor="vac-m" className="font-semibold text-gray-800 flex items-center"><Users/>Profissionais*</Label><Input id="vac-m" type="number" min="1" step="1" placeholder="1" value={numberOfVacancies} onChange={e=>setNumberOfVacancies(e.target.value)}/></div> </div> <div className="space-y-2"> <Label className="font-semibold text-gray-800 flex items-center"><ClipboardList/>Especialidades (Opcional)</Label> <Popover open={specialtyPopoverOpen} onOpenChange={setSpecialtyPopoverOpen}><PopoverTrigger asChild><Button variant="outline" className="w-full justify-start font-normal h-9">{requiredSpecialties.length?requiredSpecialties.join(', '):"Selecione..."}</Button></PopoverTrigger><PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0"><Command><CommandInput value={specialtySearchValue} onValueChange={setSpecialtySearchValue}/><CommandList><CommandEmpty>Nenhuma.</CommandEmpty><CommandGroup>{filteredSpecialties.map(s=>(<CommandItem key={s} value={s} onSelect={()=>handleSelectRequiredSpecialty(s)}>{s}</CommandItem>))}</CommandGroup></CommandList></Command></PopoverContent></Popover> {requiredSpecialties.length > 0 && ( <div className="flex flex-wrap gap-1.5 mt-2 pt-2 border-t"> {requiredSpecialties.map((s: string)=>(<Badge key={s} variant="secondary">{s}<button type="button" onClick={()=>handleRemoveRequiredSpecialty(s)} className="ml-1.5"><X className="h-3 w-3"/></button></Badge>))} </div> )} </div> <div className="space-y-1.5"> <Label htmlFor="notes-m" className="font-semibold text-gray-800 flex items-center"><Info/>Notas (Opcional)</Label> <Textarea id="notes-m" placeholder="Detalhes adicionais..." value={notes} onChange={e=>setNotes(e.target.value)}/></div> </div> <DialogFooter className="mt-2 pt-4 border-t bg-slate-50 -m-6 px-6 pb-4 rounded-b-lg"> <DialogClose asChild><Button type="button" variant="outline" disabled={isLoadingSubmit}>Cancelar</Button></DialogClose> <Button type="button" onClick={handleSubmitForm} disabled={isLoadingSubmit || (dates.length === 0 && !isEditing)} className="bg-blue-600 hover:bg-blue-700"> {isLoadingSubmit && <Loader2 className="mr-2 h-4 w-4 animate-spin" />} {isLoadingSubmit ? (isEditing ? "Salvando..." : "Publicando...") : (isEditing ? "Salvar Alterações" : `Publicar Demanda (${dates.length||0} Dia(s))`)} </Button> </DialogFooter> </DialogContent>
+  return ( 
+    <DialogContent className="sm:max-w-2xl md:max-w-3xl"> 
+        <DialogHeader> 
+            <DialogTitle className="text-xl">{isEditing ? "Editar Demanda" : "Publicar Nova Demanda"}</DialogTitle> 
+            <DialogDescription>{isEditing ? "Altere os detalhes. Datas não são editáveis." : "Defina os critérios. Uma demanda será criada para cada data selecionada."}</DialogDescription> 
+        </DialogHeader> 
+        <div className="grid gap-5 py-4 max-h-[70vh] overflow-y-auto px-1 pr-3 md:pr-4 custom-scrollbar"> 
+            <div className="space-y-2"> 
+                <Label className="font-semibold text-gray-800 flex items-center"><CalendarDays/>Data(s)*</Label> 
+                <p className="text-xs text-gray-500">{isEditing ? "Original (não editável)." : "Selecione."}</p> 
+                <div className="flex flex-col sm:flex-row gap-2 items-start"> 
+                    {isEditing ? ( 
+                        <Calendar 
+                            mode="single" 
+                            selected={dates[0]} 
+                            disabled 
+                            footer={ dates[0] ? <p>{dates[0]?.toLocaleDateString('pt-BR')}</p> : null} 
+                            // *** ALTERAÇÃO APLICADA AQUI ***
+                            modifiersClassNames={{
+                                selected: 'bg-blue-600 text-white rounded-md',
+                                today: 'bg-blue-100 text-blue-800 rounded-md font-bold'
+                            }}
+                        /> 
+                    ) : ( 
+                        <Calendar 
+                            mode="multiple" 
+                            selected={dates} 
+                            onSelect={setDates as SelectMultipleEventHandler} 
+                            disabled={{ before: new Date(new Date().setHours(0,0,0,0))}} 
+                            footer={ dates.length > 0 ? <p>{dates.length} dia(s)</p> : <p>Nenhum dia</p>} 
+                            // *** ALTERAÇÃO APLICADA AQUI ***
+                            modifiersClassNames={{
+                                selected: 'bg-blue-600 text-white hover:bg-blue-700 focus:bg-blue-700 rounded-md',
+                                today: 'bg-blue-100 text-blue-800 rounded-md font-bold'
+                            }}
+                        /> 
+                    )} 
+                    {dates.length > 0 && !isEditing && <Button variant="outline" size="sm" onClick={() => setDates([])}><X/> Limpar</Button>} 
+                </div> 
+            </div> 
+            <div className="space-y-2"> <Label className="font-semibold text-gray-800 flex items-center"><Clock/>Horário*</Label> <div className="flex flex-wrap gap-2 mb-3"> <Button variant="outline" size="sm" onClick={() => applyQuickTime("07:00", "19:00")}>Diurno</Button> <Button variant="outline" size="sm" onClick={() => applyQuickTime("19:00", "07:00")}>Noturno</Button> <Button variant="outline" size="sm" onClick={() => applyQuickTime("08:00", "12:00")}>Manhã</Button> <Button variant="outline" size="sm" onClick={() => applyQuickTime("13:00", "18:00")}>Tarde</Button> <Button variant="outline" size="sm" onClick={() => applyQuickTime("00:00", "23:30")}>24h</Button> </div> <div className="grid grid-cols-1 sm:grid-cols-2 gap-4"> <div><Label htmlFor="sTime">Início*</Label><Select value={startTime} onValueChange={setStartTime}><SelectTrigger id="sTime" className={cn(timeError && "border-red-500")}><SelectValue/></SelectTrigger><SelectContent>{timeOptions.map(t=><SelectItem key={"s"+t} value={t}>{t}</SelectItem>)}</SelectContent></Select></div> <div><Label htmlFor="eTime">Término*</Label><Select value={endTime} onValueChange={setEndTime}><SelectTrigger id="eTime" className={cn(timeError && "border-red-500")}><SelectValue/></SelectTrigger><SelectContent>{timeOptions.map(t=><SelectItem key={"e"+t} value={t}>{t}</SelectItem>)}</SelectContent></Select></div> {timeError && <p className="text-red-600 col-span-2">{timeError}</p>} </div> </div> 
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4"> <div><Label htmlFor="state-m" className="font-semibold text-gray-800 flex items-center"><MapPin/>Estado*</Label><Select value={selectedState} onValueChange={setSelectedState}><SelectTrigger id="state-m"><SelectValue placeholder="UF..."/></SelectTrigger><SelectContent>{brazilianStates.map(s=><SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent></Select></div> <div><Label htmlFor="city-m" className="font-semibold text-gray-800">Cidade*</Label><Select value={selectedCity} onValueChange={setSelectedCity} disabled={!selectedState||!availableCities.length}><SelectTrigger id="city-m"><SelectValue placeholder={!selectedState?"UF?":(!availableCities.length?"Sem cidades":"Cidade...")}/></SelectTrigger><SelectContent>{availableCities.map(c=><SelectItem key={c} value={c}>{c}</SelectItem>)}</SelectContent></Select></div> </div> 
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4"> <div><Label htmlFor="serv-type-m" className="font-semibold text-gray-800 flex items-center"><Briefcase/>Tipo*</Label><Select value={selectedServiceType} onValueChange={setSelectedServiceType}><SelectTrigger id="serv-type-m"><SelectValue placeholder="Selecione..."/></SelectTrigger><SelectContent>{serviceTypesOptions.map(o=><SelectItem key={o.value} value={o.value}>{o.label} <span className="text-xs text-gray-500">({formatCurrency(o.rateExample)}/h)</span></SelectItem>)}</SelectContent></Select></div> <div><Label htmlFor="rate-m" className="font-semibold text-gray-800 flex items-center"><DollarSign/>Valor/Hora (R$)*</Label><Input id="rate-m" type="number" min="1" step="any" placeholder="150.00" value={offeredRateInput} onChange={e=>setOfferedRateInput(e.target.value)}/></div> <div><Label htmlFor="vac-m" className="font-semibold text-gray-800 flex items-center"><Users/>Profissionais*</Label><Input id="vac-m" type="number" min="1" step="1" placeholder="1" value={numberOfVacancies} onChange={e=>setNumberOfVacancies(e.target.value)}/></div> </div> 
+            <div className="space-y-2"> <Label className="font-semibold text-gray-800 flex items-center"><ClipboardList/>Especialidades (Opcional)</Label> <Popover open={specialtyPopoverOpen} onOpenChange={setSpecialtyPopoverOpen}><PopoverTrigger asChild><Button variant="outline" className="w-full justify-start font-normal h-9">{requiredSpecialties.length?requiredSpecialties.join(', '):"Selecione..."}</Button></PopoverTrigger><PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0"><Command><CommandInput value={specialtySearchValue} onValueChange={setSpecialtySearchValue}/><CommandList><CommandEmpty>Nenhuma.</CommandEmpty><CommandGroup>{filteredSpecialties.map(s=>(<CommandItem key={s} value={s} onSelect={()=>handleSelectRequiredSpecialty(s)}>{s}</CommandItem>))}</CommandGroup></CommandList></Command></PopoverContent></Popover> {requiredSpecialties.length > 0 && ( <div className="flex flex-wrap gap-1.5 mt-2 pt-2 border-t"> {requiredSpecialties.map((s: string)=>(<Badge key={s} variant="secondary">{s}<button type="button" onClick={()=>handleRemoveRequiredSpecialty(s)} className="ml-1.5"><X className="h-3 w-3"/></button></Badge>))} </div> )} </div> 
+            <div className="space-y-1.5"> <Label htmlFor="notes-m" className="font-semibold text-gray-800 flex items-center"><Info/>Notas (Opcional)</Label> <Textarea id="notes-m" placeholder="Detalhes adicionais..." value={notes} onChange={e=>setNotes(e.target.value)}/></div> 
+        </div> 
+        <DialogFooter className="mt-2 pt-4 border-t bg-slate-50 -m-6 px-6 pb-4 rounded-b-lg"> 
+            <DialogClose asChild><Button type="button" variant="outline" disabled={isLoadingSubmit}>Cancelar</Button></DialogClose> 
+            <Button type="button" onClick={handleSubmitForm} disabled={isLoadingSubmit || (dates.length === 0 && !isEditing)} className="bg-blue-600 hover:bg-blue-700"> {isLoadingSubmit && <Loader2 className="mr-2 h-4 w-4 animate-spin" />} {isLoadingSubmit ? (isEditing ? "Salvando..." : "Publicando...") : (isEditing ? "Salvar Alterações" : `Publicar Demanda (${dates.length||0} Dia(s))`)} </Button> 
+        </DialogFooter> 
+    </DialogContent>
   );
 };
-// --- FIM DOS COMPONENTES AUXILIARES ---

@@ -1,14 +1,12 @@
 // app/dashboard/availability/page.tsx
 "use client";
 
-import React from "react";
-import { useState, useEffect, useMemo, useCallback, ChangeEvent } from "react";
+import React, { useState, useEffect, useMemo, useCallback, ChangeEvent, ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import type { VariantProps } from "class-variance-authority";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Calendar } from "@/components/ui/calendar";
-// CORREÇÃO APLICADA AQUI: DayModifiers -> Modifiers
-import { type Modifiers, type SelectSingleEventHandler, type SelectMultipleEventHandler } from "react-day-picker";
+import { type SelectMultipleEventHandler } from "react-day-picker";
 import {
     Select,
     SelectContent,
@@ -58,7 +56,14 @@ import {
   Clock
 } from "lucide-react";
 
-type ButtonVariant = VariantProps<typeof Button>["variant"];
+// Componentes de Estado
+const LoadingState = React.memo(({ message = "Carregando..." }: { message?: string }) => ( <div className="flex flex-col justify-center items-center text-center py-10 min-h-[150px] w-full"> <Loader2 className="h-8 w-8 animate-spin text-blue-600" /> <span className="ml-3 text-sm text-gray-600 mt-3">{message}</span> </div> ));
+LoadingState.displayName = 'LoadingState';
+const EmptyState = React.memo(({ message, actionButton }: { message: string; actionButton?: React.ReactNode }) => ( <div className="text-center text-sm text-gray-500 py-10 min-h-[150px] flex flex-col items-center justify-center bg-gray-50/70 rounded-md border border-dashed border-gray-300 w-full"> <ClipboardList className="w-12 h-12 text-gray-400 mb-4"/> <p className="font-medium text-gray-600 mb-1">Nada por aqui ainda!</p> <p className="max-w-xs">{message}</p> {actionButton && <div className="mt-4">{actionButton}</div>} </div> ));
+EmptyState.displayName = 'EmptyState';
+const ErrorState = React.memo(({ message, onRetry }: { message: string; onRetry?: () => void }) => ( <div className="text-center text-sm text-red-600 py-10 min-h-[150px] flex flex-col items-center justify-center bg-red-50/70 rounded-md border border-dashed border-red-300 w-full"> <AlertCircle className="w-12 h-12 text-red-400 mb-4"/> <p className="font-semibold text-red-700 mb-1 text-base">Oops! Algo deu errado.</p> <p className="max-w-md text-red-600">{message || "Não foi possível carregar os dados. Por favor, tente novamente."}</p> {onRetry && ( <Button variant="destructive" size="sm" onClick={onRetry} className="mt-4 bg-red-600 hover:bg-red-700 text-white"> <RotateCcw className="mr-2 h-4 w-4" /> Tentar Novamente </Button> )} </div> ));
+ErrorState.displayName = 'ErrorState';
+
 const timeOptions = Array.from({ length: 48 }, (_, i) => { const h = Math.floor(i/2); const m = i%2 === 0 ? "00" : "30"; return `${h.toString().padStart(2,"0")}:${m}`; });
 const brazilianStates = ["AC", "AL", "AP", "AM", "BA", "CE", "DF", "ES", "GO", "MA", "MT", "MS", "MG", "PA", "PB", "PR", "PE", "PI", "RJ", "RN", "RS", "RO", "RR", "SC", "SP", "SE", "TO" ];
 const citiesByState: { [key: string]: string[] } = {
@@ -67,13 +72,6 @@ const citiesByState: { [key: string]: string[] } = {
   "MG": ["Belo Horizonte", "Uberlândia", "Contagem", "Juiz de Fora", "Betim", "Montes Claros", "Ribeirão das Neves", "Uberaba", "Governador Valadares", "Ipatinga"],
 };
 const serviceTypesOptions = Object.entries(ServiceTypeRates).map(([v, r]) => ({ value: v, label: v.split('_').map(w=>w[0].toUpperCase()+w.slice(1)).join(' '), rateExample: r }));
-
-const LoadingState = React.memo(() => ( <div className="flex flex-col justify-center items-center text-center py-10 min-h-[150px] w-full"> <Loader2 className="h-8 w-8 animate-spin text-blue-600" /> <span className="ml-3 text-sm text-gray-600 mt-3">Carregando dados...</span> </div> ));
-LoadingState.displayName = 'LoadingState';
-const EmptyState = React.memo(({ message, actionButton }: { message: string; actionButton?: React.ReactNode }) => ( <div className="text-center text-sm text-gray-500 py-10 min-h-[150px] flex flex-col items-center justify-center bg-gray-50/70 rounded-md border border-dashed border-gray-300 w-full"> <ClipboardList className="w-12 h-12 text-gray-400 mb-4"/> <p className="font-medium text-gray-600 mb-1">Nada por aqui ainda!</p> <p className="max-w-xs">{message}</p> {actionButton && <div className="mt-4">{actionButton}</div>} </div> ));
-EmptyState.displayName = 'EmptyState';
-const ErrorState = React.memo(({ message, onRetry }: { message: string; onRetry?: () => void }) => ( <div className="text-center text-sm text-red-600 py-10 min-h-[150px] flex flex-col items-center justify-center bg-red-50/70 rounded-md border border-dashed border-red-300 w-full"> <AlertCircle className="w-12 h-12 text-red-400 mb-4"/> <p className="font-semibold text-red-700 mb-1 text-base">Oops! Algo deu errado.</p> <p className="max-w-md text-red-600">{message || "Não foi possível carregar os dados. Por favor, tente novamente."}</p> {onRetry && ( <Button variant="destructive" size="sm" onClick={onRetry} className="mt-4 bg-red-600 hover:bg-red-700 text-white"> <RotateCcw className="mr-2 h-4 w-4" /> Tentar Novamente </Button> )} </div> ));
-ErrorState.displayName = 'ErrorState';
 
 export default function AvailabilityPage() {
   const { toast } = useToast();
@@ -84,15 +82,12 @@ export default function AvailabilityPage() {
   const [fetchErrorList, setFetchErrorList] = useState<string | null>(null);
 
   const fetchDoctorTimeSlots = useCallback(async () => {
-    console.log("[AvailabilityPage] fetchDoctorTimeSlots: Buscando disponibilidades...");
     setIsLoadingList(true);
     setFetchErrorList(null);
     try {
       const slots = await getTimeSlots();
       setTimeSlots(slots.sort((a,b) => (a.date.toDate().getTime() - b.date.toDate().getTime()) || a.startTime.localeCompare(b.startTime) ));
-      console.log("[AvailabilityPage] fetchDoctorTimeSlots: Encontradas", slots.length, "disponibilidades.");
     } catch (error: any) {
-      console.error("[AvailabilityPage] fetchDoctorTimeSlots: Erro -", error);
       const errorMsg = error.message?.includes("query requires an index")
         ? `Falha ao buscar: Índice do Firestore necessário. ${error.message}`
         : error.message || "Não foi possível carregar suas disponibilidades.";
@@ -186,7 +181,7 @@ const TimeSlotFormDialog: React.FC<TimeSlotFormDialogProps> = ({ onFormSubmitted
 
   const handleSubmit = async () => {
     const desiredHourlyRate = parseFloat(desiredRateInput.replace(',', '.'));
-    if (dates.length === 0) { toast({ title: "Data é obrigatória", variant: "destructive" }); return; }
+    if (dates.length === 0 && !isEditing) { toast({ title: "Data é obrigatória", variant: "destructive" }); return; }
     if (timeError) { toast({ title: "Horário Inválido", variant: "destructive" }); return; }
     if (!selectedServiceType) { toast({ title: "Tipo de Atendimento Obrigatório", variant: "destructive" }); return; }
     if (isNaN(desiredHourlyRate) || desiredHourlyRate <= 0) { toast({ title: "Valor Hora Inválido", variant: "destructive" }); return; }
@@ -231,30 +226,21 @@ const TimeSlotFormDialog: React.FC<TimeSlotFormDialogProps> = ({ onFormSubmitted
     } catch (error: any) { toast({ title: `Erro ao ${isEditing ? 'Atualizar' : 'Salvar'}`, description: error.message, variant: "destructive"}); }
     finally { setIsLoadingSubmit(false); }
   };
-
-  const onCalendarOnSelectMultiple = (selectedDays: Date[] | undefined) => {
-    console.log("[CalendarDebug] onCalendarOnSelectMultiple ACONTECEU!");
-    console.log("[CalendarDebug] isEditing:", isEditing);
-    console.log("[CalendarDebug] Recebido 'selectedDays':", selectedDays);
-
-    if (!isEditing) {
-      setDates(prevDates => {
-        console.log("[CalendarDebug] Estado 'dates' ANTERIOR:", prevDates);
-        const newDates = selectedDays || [];
-        console.log("[CalendarDebug] Estado 'dates' NOVO será:", newDates);
-        return newDates;
-      });
-    }
+  
+  // <<< CORREÇÃO FINAL >>>
+  // Usaremos as props `modifiers` e `modifiersClassNames` para forçar o estilo.
+  // Isso ignora qualquer bug interno da biblioteca e aplica nossa classe de estilo
+  // diretamente aos dias que estão no nosso estado `dates`.
+  const modifiers = {
+    selected: dates,
   };
 
-  const onCalendarOnSelectSingle = (selectedDay: Date | undefined) => {
-    if (isEditing && selectedDay) {
-      setDates([selectedDay]);
-    }
+  const modifiersClassNames = {
+    selected: 'day-selected-override', // Usamos uma nova classe para garantir que ela será aplicada
   };
 
   return (
-    <DialogContent className="sm:max-w-lg md:max-w-xl">
+    <DialogContent className="sm:max-w-2xl md:max-w-3xl"> {/* <<< Largura aumentada para evitar quebra */}
       <DialogHeader>
         <DialogTitle className="text-xl">{isEditing ? "Editar Disponibilidade" : "Adicionar Nova Disponibilidade"}</DialogTitle>
         <DialogDescription>
@@ -262,6 +248,8 @@ const TimeSlotFormDialog: React.FC<TimeSlotFormDialogProps> = ({ onFormSubmitted
         </DialogDescription>
       </DialogHeader>
       <div className="grid gap-5 py-4 max-h-[70vh] overflow-y-auto px-1 pr-3 md:pr-4 custom-scrollbar">
+          {/* Adicionando o estilo para a nossa classe de override diretamente aqui */}
+          <style>{`.day-selected-override { background-color: #2563eb !important; color: white !important; }`}</style>
           <div className="space-y-2">
           <Label className="font-semibold text-gray-800 flex items-center"><CalendarDays className="h-4 w-4 mr-2 text-blue-600"/>Data(s) da Disponibilidade*</Label>
           <p className="text-xs text-gray-500">
@@ -273,22 +261,24 @@ const TimeSlotFormDialog: React.FC<TimeSlotFormDialogProps> = ({ onFormSubmitted
                     mode="single"
                     selected={dates[0]}
                     disabled
-                    className="p-0 border rounded-md shadow-sm bg-white w-full sm:w-auto"
                     footer={<p className="text-xs text-gray-700 font-medium p-2 border-t">Data: {dates[0]?.toLocaleDateString('pt-BR')}</p>}
                 />
             ) : (
                 <Calendar
                     mode="multiple"
                     selected={dates}
-                    onSelect={onCalendarOnSelectMultiple}
+                    onSelect={setDates as SelectMultipleEventHandler}
                     disabled={{ before: new Date(new Date().setHours(0, 0, 0, 0)) }}
-                    className="p-0 border rounded-md shadow-sm bg-white w-full sm:w-auto"
                     footer={ dates.length > 0 ? <p className="text-xs text-blue-700 font-medium p-2 border-t">{dates.length} dia(s) selecionado(s).</p> : <p className="text-xs text-gray-500 p-2 border-t">Nenhum dia selecionado.</p>}
+                    // <<< CORREÇÃO APLICADA: Forçando o estilo >>>
+                    modifiers={modifiers}
+                    modifiersClassNames={modifiersClassNames}
                 />
             )}
             {dates.length > 0 && !isEditing && <Button variant="outline" size="sm" onClick={() => setDates([])} className="text-xs self-start sm:self-end w-full sm:w-auto"><X className="h-3 w-3 mr-1"/> Limpar Datas</Button>}
           </div>
         </div>
+        {/* ... Restante do seu formulário ... */}
         <div className="space-y-2">
             <Label className="font-semibold text-gray-800 flex items-center"><Clock className="h-4 w-4 mr-2 text-blue-600"/>Horário da Disponibilidade*</Label>
             <div className="flex flex-wrap gap-2 mb-3">
