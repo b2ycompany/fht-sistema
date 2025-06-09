@@ -848,7 +848,7 @@ export default function RegisterPage() {
             await completeUserRegistration(userId, loginEmail, displayName, role, registrationData);
             
             setRegistrationComplete(true);
-            const newDashboardPath = role === 'doctor' ? '/dashboard/availability' : '/hospital/dashboard';
+            const newDashboardPath = role === 'doctor' ? '/dashboard' : '/hospital/dashboard';
             setTargetDashboardPath(newDashboardPath);
 
             toast({ variant: "default", title: "Cadastro Realizado!", description: "Redirecionando para o painel...", duration: 3000 });

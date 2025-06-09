@@ -15,10 +15,16 @@ import {
   updateDoc,
   serverTimestamp,
   Timestamp,
+  collection,
+  query,
+  where,
+  getDocs,
+  documentId,
 } from "firebase/firestore";
 import { auth, db } from "./firebase";
 
 export type UserType = "doctor" | "hospital" | "admin" | "backoffice";
+export type ProfileStatus = "PENDING_REVIEW" | "APPROVED" | "REJECTED_NEEDS_RESUBMISSION";
 
 export interface PersonalInfo {
   name: string;
@@ -78,6 +84,8 @@ export interface LegalRepDocumentsRef {
 
 export interface DoctorRegistrationPayload
   extends Omit<PersonalInfo, "email" | "name"> {
+  professionalCrm: string;
+  specialties: string[];    
   address: AddressInfo;
   isSpecialist: boolean;
   documents: Partial<DoctorDocumentsRef>; 
@@ -104,7 +112,7 @@ export interface UserProfileBase {
 
 export interface DoctorProfile extends UserProfileBase, DoctorRegistrationPayload {
   role: "doctor";
-  documentVerificationStatus?: "PENDING_REVIEW" | "APPROVED" | "REJECTED_NEEDS_RESUBMISSION";
+  documentVerificationStatus?: ProfileStatus;
   adminVerificationNotes?: string;
 }
 
@@ -119,27 +127,30 @@ export interface HospitalProfile extends UserProfileBase {
   legalRepresentativeInfo: LegalRepresentativeInfo;
   hospitalDocs?: Partial<HospitalDocumentsRef>;
   legalRepDocuments?: Partial<LegalRepDocumentsRef>;
-  // Campos adicionados para status de verificação do hospital
-  registrationStatus?: "PENDING_REVIEW" | "APPROVED" | "REJECTED_NEEDS_RESUBMISSION"; // <<< ADICIONADO
-  adminVerificationNotes?: string; // <<< ADICIONADO
+  documentVerificationStatus?: ProfileStatus;
+  adminVerificationNotes?: string;
 }
 export interface AdminProfile extends UserProfileBase {
   role: "admin" | "backoffice";
   permissions?: string[];
+  adminVerificationNotes?: string;
 }
 
 export type UserProfile = DoctorProfile | HospitalProfile | AdminProfile;
 
 // Interface para os dados de atualização do perfil do médico
 export interface DoctorProfileUpdatePayload {
+  displayName?: string; // <<< CAMPO CORRIGIDO/ADICIONADO
   name?: string;
   dob?: string;
   rg?: string;
   phone?: string;
   address?: Partial<AddressInfo>;
-  isSpecialist?: boolean; // Adicionado caso o médico possa mudar esse status
-  // Adicione quaisquer outros campos que o médico possa editar no seu perfil
-  // Ex: crm?: string; bio?: string; etc.
+  isSpecialist?: boolean;
+  documents?: Partial<DoctorDocumentsRef>;
+  specialistDocuments?: Partial<SpecialistDocumentsRef>;
+  documentVerificationStatus?: ProfileStatus;
+  adminVerificationNotes?: string;
 }
 
 
@@ -169,56 +180,46 @@ export const completeUserRegistration = async (
   role: UserType,
   registrationData: DoctorRegistrationPayload | HospitalRegistrationPayload,
 ): Promise<void> => {
-  let userProfileDataSpecific:
-    | Omit<DoctorProfile, keyof UserProfileBase | "documents" | "specialistDocuments" | "role"> 
-    | Omit<HospitalProfile, keyof UserProfileBase | "hospitalDocs" | "legalRepDocuments" | "role">;
-
-  let documentsToSave: any = {};
+  let userProfileDataSpecific: any = {};
 
   if (role === "doctor") {
-    const doctorData = registrationData as DoctorRegistrationPayload;
+    const { documents, specialistDocuments, ...doctorDetails } = registrationData as DoctorRegistrationPayload;
     userProfileDataSpecific = {
-      dob: doctorData.dob,
-      rg: doctorData.rg,
-      cpf: doctorData.cpf,
-      phone: doctorData.phone,
-      address: doctorData.address,
-      isSpecialist: doctorData.isSpecialist,
-      documentVerificationStatus: "PENDING_REVIEW", 
+      ...doctorDetails,
+      documents,
+      specialistDocuments,
+      documentVerificationStatus: "PENDING_REVIEW",
       adminVerificationNotes: "",
     };
-    documentsToSave = {
-        documents: doctorData.documents,
-        specialistDocuments: doctorData.specialistDocuments,
-    };
   } else if (role === "hospital") {
-    const hospitalData = registrationData as HospitalRegistrationPayload;
+    const { hospitalDocs, legalRepDocuments, ...hospitalDetails } = registrationData as HospitalRegistrationPayload;
     userProfileDataSpecific = {
+      // O seu código original estava correto, mas faltavam os campos de status
       companyInfo: {
-        cnpj: hospitalData.cnpj,
-        stateRegistration: hospitalData.stateRegistration,
-        phone: hospitalData.phone,
-        address: hospitalData.address,
+        cnpj: (hospitalDetails as any).cnpj,
+        stateRegistration: (hospitalDetails as any).stateRegistration,
+        phone: (hospitalDetails as any).phone,
+        address: (hospitalDetails as any).address,
       },
-      legalRepresentativeInfo: hospitalData.legalRepresentativeInfo,
-    };
-    documentsToSave = {
-        hospitalDocs: hospitalData.hospitalDocs,
-        legalRepDocuments: hospitalData.legalRepDocuments,
+      legalRepresentativeInfo: (hospitalDetails as any).legalRepresentativeInfo,
+      hospitalDocs,
+      legalRepDocuments,
+      // *** ALTERAÇÃO APLICADA AQUI ***
+      documentVerificationStatus: "PENDING_REVIEW",
+      adminVerificationNotes: "",
     };
   } else {
     throw new Error("Tipo de perfil de registro inválido.");
   }
-
-  const finalProfileData: Omit<UserProfileBase, "createdAt" | "updatedAt"> & typeof userProfileDataSpecific & typeof documentsToSave & { createdAt: any, updatedAt: any} = {
+  
+  const finalProfileData = {
     uid: userId,
-    email: email,
-    displayName: displayName,
-    role: role,
-    ...userProfileDataSpecific,
-    ...documentsToSave, 
+    email,
+    displayName,
+    role,
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
+    ...userProfileDataSpecific
   };
 
   await setDoc(doc(db, "users", userId), finalProfileData);
@@ -273,28 +274,9 @@ export const updateDoctorDocumentVerificationStatus = async (
   status: NonNullable<DoctorProfile["documentVerificationStatus"]>,
   notes?: string,
 ): Promise<void> => {
-  if (!doctorId) throw new Error("ID do Doutor não fornecido.");
-  const doctorDocRef = doc(db, "users", doctorId);
-  const updatePayload: {
-    documentVerificationStatus: NonNullable<DoctorProfile["documentVerificationStatus"]>;
-    adminVerificationNotes?: string;
-    updatedAt: Timestamp;
-  } = {
-    documentVerificationStatus: status,
-    updatedAt: serverTimestamp() as Timestamp,
-  };
-  if (notes !== undefined) {
-    updatePayload.adminVerificationNotes = notes;
-  }
-  try {
-    await updateDoc(doctorDocRef, updatePayload);
-  } catch (error) {
-    console.error(`[AuthService] Erro ao atualizar status de docs do doutor ${doctorId}:`, error);
-    throw error;
-  }
+  await updateUserVerificationStatus(doctorId, status, notes);
 };
 
-// FUNÇÃO ADICIONADA PARA ATUALIZAR PERFIL DO MÉDICO
 export const updateDoctorProfileData = async (
   doctorId: string,
   dataToUpdate: DoctorProfileUpdatePayload,
@@ -303,7 +285,6 @@ export const updateDoctorProfileData = async (
     throw new Error("ID do Doutor não fornecido para atualização.");
   }
   if (!dataToUpdate || Object.keys(dataToUpdate).length === 0) {
-    // Considerar se é um erro ou apenas não fazer nada
     console.warn("[AuthService] Nenhum dado fornecido para atualização do perfil do doutor.");
     return; 
   }
@@ -311,26 +292,22 @@ export const updateDoctorProfileData = async (
   const doctorDocRef = doc(db, "users", doctorId);
   const updatePayload: any = {};
 
-  // Mapeia apenas os campos definidos em dataToUpdate para o payload final
-  // Isso evita sobrescrever campos não intencionais com undefined
   Object.keys(dataToUpdate).forEach(key => {
     const fieldKey = key as keyof DoctorProfileUpdatePayload;
     if (dataToUpdate[fieldKey] !== undefined) {
       if (fieldKey === 'address' && typeof dataToUpdate.address === 'object' && dataToUpdate.address !== null) {
-        // Atualização de campos aninhados para o endereço
         Object.keys(dataToUpdate.address).forEach(addressKey => {
           const typedAddressKey = addressKey as keyof AddressInfo;
           if (dataToUpdate.address![typedAddressKey] !== undefined) {
              updatePayload[`address.${typedAddressKey}`] = dataToUpdate.address![typedAddressKey];
           }
         });
-      } else if (fieldKey !== 'address') { // Evita adicionar o objeto 'address' diretamente se já foi desmembrado
+      } else {
         updatePayload[fieldKey] = dataToUpdate[fieldKey];
       }
     }
   });
   
-  // Se não há nada para atualizar após filtrar undefined (exceto updatedAt), não faz a chamada
   if (Object.keys(updatePayload).length === 0) {
     console.warn("[AuthService] Nenhum dado válido para atualizar após filtrar undefined.");
     return;
@@ -350,4 +327,45 @@ export const updateDoctorProfileData = async (
     console.error(`[AuthService] Erro ao atualizar perfil do doutor ${doctorId}:`, error);
     throw error;
   }
+};
+
+// --- NOVAS FUNÇÕES PARA O ADMIN ---
+
+export const getUsersForVerification = async (): Promise<UserProfile[]> => {
+    try {
+      const usersRef = collection(db, "users");
+      const q = query(usersRef, where("documentVerificationStatus", "==", "PENDING_REVIEW"));
+      const querySnapshot = await getDocs(q);
+      
+      if (querySnapshot.empty) {
+        return [];
+      }
+      
+      return querySnapshot.docs.map(d => ({ uid: d.id, ...d.data() } as UserProfile));
+    } catch (error) {
+      console.error("Erro ao buscar usuários para verificação:", error);
+      throw new Error("Não foi possível buscar os cadastros pendentes.");
+    }
+};
+  
+export const updateUserVerificationStatus = async (
+    userId: string,
+    status: ProfileStatus,
+    notes = ""
+): Promise<void> => {
+    if (!userId) throw new Error("ID do usuário não fornecido.");
+  
+    const userRef = doc(db, "users", userId);
+    const payload: any = {
+      documentVerificationStatus: status,
+      adminVerificationNotes: notes,
+      updatedAt: serverTimestamp(),
+    };
+    
+    try {
+      await updateDoc(userRef, payload);
+    } catch (error) {
+      console.error(`Erro ao atualizar status do usuário ${userId}:`, error);
+      throw new Error("Falha ao atualizar o status do cadastro.");
+    }
 };

@@ -1,28 +1,28 @@
 // app/hospital/profile/edit/page.tsx
 "use client";
 
-import React, { useState, useEffect, useCallback, ChangeEvent, ReactNode } from 'react';
-import { useRouter } from 'next/navigation';
+import React, { useState, useEffect, useCallback, ChangeEvent, ReactNode } from "react";
+import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, Save, XCircle, AlertTriangle, FileUp, ExternalLink, Building, User } from 'lucide-react';
+import { Loader2, Save, XCircle, AlertTriangle, FileUp, ExternalLink, Building, User } from "lucide-react";
 import { useAuth } from '@/components/auth-provider';
 import {
   getCurrentUserData,
-  updateUserVerificationStatus,
+  updateUserVerificationStatus, // Usaremos a função genérica para o status
   type HospitalProfile,
   type HospitalDocumentsRef,
-  type LegalRepDocumentsRef
+  type LegalRepDocumentsRef,
 } from "@/lib/auth-service";
 import { uploadFileToStorage } from '@/lib/storage-service';
 import { DOC_LABELS } from '@/lib/constants';
-import { doc, serverTimestamp, updateDoc } from "firebase/firestore";
+import { doc, updateDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 
-// --- Componentes de Estado ---
+// --- Componentes de Estado (Loading, Error) ---
 const LoadingState = ({ message = "Carregando..." }: { message?: string }) => ( <div className="flex justify-center items-center h-64"><Loader2 className="h-8 w-8 animate-spin text-blue-600" /><p className="ml-3">{message}</p></div> );
 const ErrorState = ({ message, onRetry }: { message: string, onRetry: () => void }) => ( <div className="text-center p-6"><p className="text-red-600">{message}</p><Button onClick={onRetry} className="mt-4">Tentar Novamente</Button></div> );
 
@@ -104,7 +104,7 @@ export default function EditHospitalProfilePage() {
                     uploadedUrls[key] = downloadURL;
                 }
             }
-
+            
             const newHospitalDocs: Partial<HospitalDocumentsRef> = { ...profile.hospitalDocs };
             const newLegalRepDocs: Partial<LegalRepDocumentsRef> = { ...profile.legalRepDocuments };
             
@@ -120,9 +120,8 @@ export default function EditHospitalProfilePage() {
             await updateDoc(userDocRef, {
                 hospitalDocs: newHospitalDocs,
                 legalRepDocuments: newLegalRepDocs,
-                updatedAt: serverTimestamp()
             });
-
+            
             await updateUserVerificationStatus(user.uid, "PENDING_REVIEW", "Documentos reenviados pelo hospital para nova análise.");
 
             toast({ title: "Documentos Enviados!", description: "Seu cadastro foi reenviado para análise." });
@@ -138,13 +137,13 @@ export default function EditHospitalProfilePage() {
     if (isLoading) return <LoadingState />;
     if (error) return <ErrorState message={error} onRetry={fetchProfile} />;
     if (!profile) return <div className="p-4 text-center">Perfil não encontrado.</div>;
-
+    
     const hospitalDocKeys = Object.keys(profile.hospitalDocs || {}) as (keyof HospitalDocumentsRef)[];
     const legalRepDocKeys = Object.keys(profile.legalRepDocuments || {}) as (keyof LegalRepDocumentsRef)[];
 
     return (
         <div className="space-y-6 max-w-3xl mx-auto">
-            <h1 className="text-2xl md:text-3xl font-bold tracking-tight text-gray-800">Corrigir Documentação do Hospital</h1>
+            <h1 className="text-2xl md:text-3xl font-bold tracking-tight text-gray-800">Corrigir Documentação</h1>
             
             {profile.documentVerificationStatus === 'REJECTED_NEEDS_RESUBMISSION' && profile.adminVerificationNotes && (
                  <Card className="bg-red-50 border-red-200">
@@ -169,7 +168,7 @@ export default function EditHospitalProfilePage() {
                                onFileChange={handleFileChange}
                            />
                        ))}
-                       {hospitalDocKeys.length === 0 && <p className="text-sm text-gray-500 col-span-2">Nenhum documento da empresa foi encontrado.</p>}
+                       {hospitalDocKeys.length === 0 && <p className="text-sm text-gray-500 col-span-2">Nenhum documento da empresa foi encontrado no seu perfil.</p>}
                     </CardContent>
                 </Card>
 
@@ -187,7 +186,7 @@ export default function EditHospitalProfilePage() {
                                onFileChange={handleFileChange}
                            />
                        ))}
-                       {legalRepDocKeys.length === 0 && <p className="text-sm text-gray-500 col-span-2">Nenhum documento do responsável foi encontrado.</p>}
+                       {legalRepDocKeys.length === 0 && <p className="text-sm text-gray-500 col-span-2">Nenhum documento do responsável foi encontrado no seu perfil.</p>}
                     </CardContent>
                 </Card>
 
