@@ -24,6 +24,12 @@ export const ServiceTypeRates: { [key: string]: number } = {
   consulta_ambulatorial: 80,
   cirurgia_eletiva: 150,
   uti_adulto: 130,
+  medico_de_Guarda: 250,
+  medico_Diarista_uti: 300,
+  coordenador_medico: 200,
+  enfermaria: 120,
+  telemedicina: 90,
+
   // Adicione outros tipos de serviço conforme necessário
 };
 
