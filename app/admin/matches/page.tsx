@@ -50,15 +50,15 @@ const VerificationSection: React.FC<{ title: string; children: React.ReactNode }
 const UserVerificationItem: React.FC<{ user: UserProfile; onAction: (userId: string, status: ProfileStatus, notes: string) => Promise<void>; }> = ({ user, onAction }) => { /* ... seu componente completo mantido ... */ return <></>};
 UserVerificationItem.displayName = "UserVerificationItem";
 
-// --- CORREÇÃO: Removendo a propriedade 'onDoctorDocumentsReviewed' da interface ---
+// --- CORREÇÃO: Propriedade 'onDoctorDocumentsReviewed' tornada opcional ---
 interface MatchReviewItemProps {
   match: PotentialMatch;
   onApproveMatch: (matchId: string, negotiatedRate: number, notes?: string) => Promise<void>;
   onRejectMatch: (matchId: string, notes: string) => Promise<void>;
+  onDoctorDocumentsReviewed?: (doctorId: string) => void;
 }
-const MatchReviewItem: React.FC<MatchReviewItemProps> = ({ match, onApproveMatch, onRejectMatch }) => {
+const MatchReviewItem: React.FC<MatchReviewItemProps> = ({ match, onApproveMatch, onRejectMatch, onDoctorDocumentsReviewed }) => {
     // ... seu componente completo de 200+ linhas vai aqui ...
-    // Nenhuma alteração interna necessária, apenas na definição das props acima.
     return <Card></Card>; // Placeholder para o seu componente completo
 };
 MatchReviewItem.displayName = "MatchReviewItem";
@@ -95,7 +95,7 @@ export default function AdminMatchesPage() {
                   <CardHeader>{/* ... seu JSX mantido ... */}</CardHeader>
                   <CardContent>
                       {isLoadingUsers ? <LoadingState /> :
-                       usersError ? <ErrorState message={usersError} /> :
+                       usersError ? <ErrorState message={usersError} onRetry={handleActionComplete} /> :
                        pendingUsers.length === 0 ? <EmptyState message="Nenhum cadastro para verificar." /> :
                        (
                            <div className="space-y-4">
@@ -113,17 +113,18 @@ export default function AdminMatchesPage() {
                   <CardHeader><CardTitle>Matches Pendentes</CardTitle><CardDescription>Combinações para sua revisão.</CardDescription></CardHeader>
                   <CardContent>
                       {isLoadingMatches ? <LoadingState /> :
-                       matchesError ? <ErrorState message={matchesError} /> :
+                       matchesError ? <ErrorState message={matchesError} onRetry={handleActionComplete} /> :
                        matches.length === 0 ? <EmptyState message="Nenhum match aguardando revisão." /> :
                        (
                            <div className="space-y-4">
                                {matches.map(match => (
-                                   // --- CORREÇÃO: Chamada do componente agora é válida ---
+                                   // --- CORREÇÃO: Passando a prop que faltava ---
                                    <MatchReviewItem 
                                        key={match.id} 
                                        match={match} 
                                        onApproveMatch={handleApproveMatch} 
-                                       onRejectMatch={handleRejectMatch} 
+                                       onRejectMatch={handleRejectMatch}
+                                       onDoctorDocumentsReviewed={handleActionComplete} // Passando a prop agora
                                    />
                                ))}
                            </div>
