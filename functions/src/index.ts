@@ -1,20 +1,28 @@
 // functions/src/index.ts
 /* eslint-disable import/no-duplicates */
-import { onDocumentWritten, FirestoreEvent } from "firebase-functions/v2/firestore";
+import {
+  onDocumentWritten,
+  FirestoreEvent,
+} from "firebase-functions/v2/firestore";
 import { setGlobalOptions } from "firebase-functions/v2";
 import * as admin from "firebase-admin";
 import { logger } from "firebase-functions/v2";
 /* eslint-enable import/no-duplicates */
 import { Change } from "firebase-functions";
-import { DocumentSnapshot, FieldValue } from "firebase-admin/firestore";
+// --- CORREÇÃO: Adicionando as importações que faltavam ---
+import {
+  DocumentSnapshot,
+  FieldValue,
+  getFirestore,
+} from "firebase-admin/firestore";
 
 // --- Inicialização do Admin ---
 if (admin.apps.length === 0) {
   admin.initializeApp();
 }
-const db = admin.firestore();
+const db = getFirestore();
 
-// --- Interfaces (Como no seu arquivo) ---
+// --- Interfaces (Como no seu arquivo, sem alterações) ---
 interface ShiftRequirementData { hospitalId: string; hospitalName?: string; dates: admin.firestore.Timestamp[]; startTime: string; endTime: string; isOvernight: boolean; serviceType: string; specialtiesRequired: string[]; offeredRate: number; numberOfVacancies: number; status: string; notes?: string; city: string; state: string; }
 interface TimeSlotData { doctorId: string; doctorName?: string; date: admin.firestore.Timestamp; startTime: string; endTime: string; isOvernight: boolean; serviceType: string; specialties: string[]; desiredHourlyRate: number; state: string; city: string; status: string; notes?: string; }
 interface PotentialMatchInput { shiftRequirementId: string; hospitalId: string; hospitalName?: string; matchedDate: admin.firestore.Timestamp; originalShiftRequirementDates: admin.firestore.Timestamp[]; shiftRequirementStartTime: string; shiftRequirementEndTime: string; shiftRequirementIsOvernight: boolean; shiftRequirementServiceType: string; shiftRequirementSpecialties: string[]; offeredRateByHospital: number; shiftRequirementNotes?: string; numberOfVacanciesInRequirement: number; timeSlotId: string; doctorId: string; doctorName?: string; timeSlotStartTime: string; timeSlotEndTime: string; timeSlotIsOvernight: boolean; doctorDesiredRate: number; doctorSpecialties: string[]; doctorServiceType: string; status: string; createdAt: FieldValue; updatedAt: FieldValue; }
@@ -22,167 +30,178 @@ interface PotentialMatchInput { shiftRequirementId: string; hospitalId: string; 
 // --- Configurações Globais ---
 setGlobalOptions({ region: "southamerica-east1", memory: "256MiB" });
 
-// --- Funções Auxiliares ---
+// --- Funções Auxiliares (Melhoradas) ---
+
+/** Normaliza uma string para comparação (minúsculas, sem acentos/espaços extras) */
+const normalizeString = (str: string | undefined): string => {
+  if (!str) return "";
+  return str.trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+};
+
+/** Converte uma string 'HH:mm' para o total de minutos desde a meia-noite */
 const timeToMinutes = (timeStr: string): number => {
+  if (!timeStr || !timeStr.includes(":")) {
+    logger.warn("Formato de hora inválido recebido:", timeStr);
+    return 0;
+  }
   const [hours, minutes] = timeStr.split(":").map(Number);
   return hours * 60 + minutes;
 };
 
-/**
- * --- LÓGICA DE SOBREPOSIÇÃO CORRIGIDA ---
- * Verifica se dois intervalos de tempo se sobrepõem.
- * A sobreposição ocorre se o início de um for antes do fim do outro, E vice-versa.
- */
+/** Verifica se dois intervalos de tempo se sobrepõem de forma robusta */
 const doIntervalsOverlap = (
   startA: number, endA: number, isOvernightA: boolean,
-  startB: number, endB: number, isOvernightB: boolean,
+  startB: number, endB: number, isOvernightB: boolean
 ): boolean => {
-  // Converte para um sistema de 24h*60m = 1440 minutos
   const effectiveEndA = isOvernightA && endA <= startA ? endA + 1440 : endA;
   const effectiveEndB = isOvernightB && endB <= startB ? endB + 1440 : endB;
-
-  // A condição clássica de sobreposição de intervalos [startA, endA] e [startB, endB]
-  const overlap = startA < effectiveEndB && startB < effectiveEndA;
-
-  logger.debug("Verificando sobreposição de horários:", {
-    availability: { start: startA, end: effectiveEndA },
-    requirement: { start: startB, end: effectiveEndB },
-    isOverlapping: overlap,
-  });
-
-  return overlap;
+  return startA < effectiveEndB && startB < effectiveEndA;
 };
 
-// --- Cloud Function Principal ---
+
+// --- Cloud Function Principal (Revisada com Melhores Práticas) ---
+
 export const findMatchesOnShiftRequirementWrite = onDocumentWritten(
-  { document: "shiftRequirements/{requirementId}", timeoutSeconds: 120 },
+  { document: "shiftRequirements/{requirementId}" },
   async (event: FirestoreEvent<Change<DocumentSnapshot> | undefined, { requirementId: string }>): Promise<void> => {
     const { requirementId } = event.params;
     const change = event.data;
 
     if (!change?.after?.exists) {
-      logger.info(`Demanda ${requirementId} deletada ou evento inválido.`);
+      logger.info(`Demanda ${requirementId} deletada. Processo ignorado.`);
       return;
     }
 
-    const newData = change.after.data() as ShiftRequirementData;
-    const oldData = change.before?.exists ? change.before.data() as ShiftRequirementData : null;
+    const requirement = change.after.data() as ShiftRequirementData;
+    const oldRequirement = change.before?.exists ? change.before.data() as ShiftRequirementData : null;
 
-    logger.info(`Processando Req ${requirementId}. Novo Status: ${newData.status}.` + (oldData ? ` Status Antigo: ${oldData.status}` : " (Nova Demanda)"));
-
-    const isNewAndOpen = !oldData && newData.status === "OPEN";
-    const wasUpdatedToOpen = !!(oldData && oldData.status !== "OPEN" && newData.status === "OPEN");
+    const isNewAndOpen = !oldRequirement && requirement.status === "OPEN";
+    const wasUpdatedToOpen = !!(oldRequirement && oldRequirement.status !== "OPEN" && requirement.status === "OPEN");
 
     if (!isNewAndOpen && !wasUpdatedToOpen) {
-      logger.info(`Demanda ${requirementId} não está em um estado "OPEN" relevante para matching. Status: ${newData.status}.`);
+      logger.info(`Demanda ${requirementId} não está em um estado "OPEN" relevante para matching. Status: ${requirement.status}.`);
       return;
     }
-    
-    logger.info(`Iniciando busca de matches para Req ${requirementId}.`);
+
+    logger.info(`INICIANDO BUSCA DE MATCHES para a Demanda: ${requirementId} em ${requirement.city}/${requirement.state}.`);
 
     try {
-      const timeSlotsQuery = db.collection("doctorTimeSlots")
+      // Busca inicial mais ampla para otimizar leituras
+      const timeSlotsSnapshot = await db.collection("doctorTimeSlots")
         .where("status", "==", "AVAILABLE")
-        .where("state", "==", newData.state)
-        .where("city", "==", newData.city)
-        .where("serviceType", "==", newData.serviceType);
-        
-      const timeSlotsSnapshot = await timeSlotsQuery.get();
+        .get();
 
       if (timeSlotsSnapshot.empty) {
-        logger.info(`Nenhum TimeSlot compatível encontrado para ${requirementId} (filtros iniciais).`);
+        logger.info("Nenhum TimeSlot 'AVAILABLE' encontrado no banco de dados.");
         return;
       }
-      logger.info(`Encontrados ${timeSlotsSnapshot.docs.length} TimeSlots preliminares para ${requirementId}.`);
 
+      logger.info(`Encontrados ${timeSlotsSnapshot.docs.length} TimeSlots disponíveis no total. Iniciando filtros...`);
       const batch = db.batch();
       let matchesCreatedCount = 0;
 
+      const normalizedReqCity = normalizeString(requirement.city);
+      const normalizedReqState = normalizeString(requirement.state);
+      const normalizedReqServiceType = normalizeString(requirement.serviceType);
+
       for (const timeSlotDoc of timeSlotsSnapshot.docs) {
         const timeSlotId = timeSlotDoc.id;
-        const timeSlotData = timeSlotDoc.data() as TimeSlotData;
+        const timeSlot = timeSlotDoc.data() as TimeSlotData;
 
-        // Verifica se a data da disponibilidade está na lista de datas da demanda
-        const matchedReqDate = newData.dates.find((reqDate) => reqDate.isEqual(timeSlotData.date));
-        if (!matchedReqDate) {
-          continue; // Pula se as datas não baterem
+        // --- INÍCIO DOS FILTROS DE COMPATIBILIDADE (COM LOGS DETALHADOS) ---
+
+        // FILTRO 1: Localização (Flexível)
+        if (normalizeString(timeSlot.state) !== normalizedReqState || normalizeString(timeSlot.city) !== normalizedReqCity) {
+          continue; // Pula para o próximo se a localização não for a mesma
         }
 
-        // --- USA A LÓGICA DE SOBREPOSIÇÃO CORRIGIDA ---
-        if (!doIntervalsOverlap(
-          timeToMinutes(timeSlotData.startTime),
-          timeToMinutes(timeSlotData.endTime),
-          timeSlotData.isOvernight,
-          timeToMinutes(newData.startTime),
-          timeToMinutes(newData.endTime),
-          newData.isOvernight
-        )) {
-          continue; // Pula se os horários não se sobrepõem
+        // FILTRO 2: Tipo de Serviço (Flexível)
+        if (normalizeString(timeSlot.serviceType) !== normalizedReqServiceType) {
+          continue;
         }
 
-        // Verifica compatibilidade de especialidades
-        const hasSpecialtyMatch = newData.specialtiesRequired.length === 0 ||
-          newData.specialtiesRequired.some((reqSpec) => timeSlotData.specialties.includes(reqSpec));
+        // FILTRO 3: Valor/Hora
+        if (timeSlot.desiredHourlyRate > requirement.offeredRate) {
+          logger.debug(`Match pulado (Valor): TS ${timeSlotId} deseja ${timeSlot.desiredHourlyRate}, Req oferece ${requirement.offeredRate}.`);
+          continue;
+        }
+
+        // FILTRO 4: Data
+        const matchedDate = requirement.dates.find((reqDate) => reqDate.isEqual(timeSlot.date));
+        if (!matchedDate) {
+          continue;
+        }
+
+        // FILTRO 5: Sobreposição de Horário
+        if (!doIntervalsOverlap(timeToMinutes(timeSlot.startTime), timeToMinutes(timeSlot.endTime), timeSlot.isOvernight, timeToMinutes(requirement.startTime), timeToMinutes(requirement.endTime), requirement.isOvernight)) {
+          continue;
+        }
+
+        // FILTRO 6: Especialidade
+        const hasSpecialtyMatch = requirement.specialtiesRequired.length === 0 || requirement.specialtiesRequired.some((reqSpec) => timeSlot.specialties.includes(reqSpec));
         if (!hasSpecialtyMatch) {
-          continue; // Pula se as especialidades não baterem
+          continue;
         }
 
-        // Previne criação de matches duplicados
+        logger.info(`-> Match em potencial encontrado! Req: ${requirementId} | TS: ${timeSlotId}. Verificando duplicatas...`);
+
+        // FILTRO 7: Prevenção de Matches Duplicados
         const existingMatchQuery = await db.collection("potentialMatches")
           .where("shiftRequirementId", "==", requirementId)
           .where("timeSlotId", "==", timeSlotId)
-          .where("matchedDate", "==", timeSlotData.date)
+          .where("matchedDate", "==", timeSlot.date)
           .limit(1)
           .get();
 
         if (!existingMatchQuery.empty) {
-          logger.info(`Match já existente para Req ${requirementId} e TS ${timeSlotId}. Pulando.`);
+          logger.info(`--> Match já existente para Req ${requirementId} e TS ${timeSlotId}. Pulando.`);
           continue;
         }
 
-        logger.info(`CRIANDO Match: Req ${requirementId} com TS ${timeSlotId}.`);
+        // --- SUCESSO! TODOS OS FILTROS PASSARAM ---
+        logger.info(`-----> CRIANDO NOVO MATCH! Req: ${requirementId} | TS: ${timeSlotId}`);
+
         const newMatchRef = db.collection("potentialMatches").doc();
-        
-        const newPotentialMatchDataObject: PotentialMatchInput = {
+        const newPotentialMatchData: PotentialMatchInput = {
           shiftRequirementId: requirementId,
-          hospitalId: newData.hospitalId,
-          hospitalName: newData.hospitalName || "",
-          originalShiftRequirementDates: newData.dates,
-          matchedDate: timeSlotData.date,
-          shiftRequirementStartTime: newData.startTime,
-          shiftRequirementEndTime: newData.endTime,
-          shiftRequirementIsOvernight: newData.isOvernight,
-          shiftRequirementServiceType: newData.serviceType,
-          shiftRequirementSpecialties: newData.specialtiesRequired,
-          offeredRateByHospital: newData.offeredRate,
-          shiftRequirementNotes: newData.notes || "",
-          numberOfVacanciesInRequirement: newData.numberOfVacancies,
+          hospitalId: requirement.hospitalId,
+          hospitalName: requirement.hospitalName,
+          originalShiftRequirementDates: requirement.dates,
+          matchedDate: timeSlot.date,
+          shiftRequirementStartTime: requirement.startTime,
+          shiftRequirementEndTime: requirement.endTime,
+          shiftRequirementIsOvernight: requirement.isOvernight,
+          shiftRequirementServiceType: requirement.serviceType,
+          shiftRequirementSpecialties: requirement.specialtiesRequired,
+          offeredRateByHospital: requirement.offeredRate,
+          shiftRequirementNotes: requirement.notes,
+          numberOfVacanciesInRequirement: requirement.numberOfVacancies,
           timeSlotId: timeSlotId,
-          doctorId: timeSlotData.doctorId,
-          doctorName: timeSlotData.doctorName || "",
-          timeSlotStartTime: timeSlotData.startTime,
-          timeSlotEndTime: timeSlotData.endTime,
-          timeSlotIsOvernight: timeSlotData.isOvernight,
-          doctorDesiredRate: timeSlotData.desiredHourlyRate,
-          doctorSpecialties: timeSlotData.specialties,
-          doctorServiceType: timeSlotData.serviceType,
+          doctorId: timeSlot.doctorId,
+          doctorName: timeSlot.doctorName,
+          timeSlotStartTime: timeSlot.startTime,
+          timeSlotEndTime: timeSlot.endTime,
+          timeSlotIsOvernight: timeSlot.isOvernight,
+          doctorDesiredRate: timeSlot.desiredHourlyRate,
+          doctorSpecialties: timeSlot.specialties,
+          doctorServiceType: timeSlot.serviceType,
           status: "PENDING_BACKOFFICE_REVIEW",
           createdAt: FieldValue.serverTimestamp(),
           updatedAt: FieldValue.serverTimestamp(),
         };
 
-        batch.set(newMatchRef, newPotentialMatchDataObject);
+        batch.set(newMatchRef, newPotentialMatchData);
         matchesCreatedCount++;
       }
 
       if (matchesCreatedCount > 0) {
         await batch.commit();
-        logger.info(`SUCESSO: Criados ${matchesCreatedCount} potentialMatches para Req ${requirementId}.`);
+        logger.info(`OPERAÇÃO FINALIZADA: ${matchesCreatedCount} novo(s) potentialMatches foram criados para a Req ${requirementId}.`);
       } else {
-        logger.info(`Nenhum novo match criado para Req ${requirementId} após todas as verificações.`);
+        logger.info(`OPERAÇÃO FINALIZADA: Nenhum novo match compatível foi encontrado para a Req ${requirementId} após todos os filtros.`);
       }
     } catch (error) {
-      logger.error(`ERRO CRÍTICO ao processar matches para Req ${requirementId}:`, error);
+      logger.error(`ERRO CRÍTICO no processamento de matches para a Req ${requirementId}:`, error);
     }
   }
 );
