@@ -15,7 +15,7 @@ import {
 import { db, auth } from "./firebase";
 import { type ShiftProposal } from "./proposal-service";
 
-// Interface PotentialMatch (Mantida como no seu arquivo)
+// Interface PotentialMatch (Mantida 100% como no seu arquivo)
 export interface PotentialMatch {
   id: string;
   shiftRequirementId: string;
@@ -40,7 +40,14 @@ export interface PotentialMatch {
   doctorDesiredRate: number;
   doctorSpecialties: string[];
   doctorServiceType: string;
-  status: string;
+  status:
+    | "PENDING_BACKOFFICE_REVIEW" | "BACKOFFICE_APPROVED_PROPOSED_TO_DOCTOR"
+    | "BACKOFFICE_REJECTED" | "PROPOSED_TO_DOCTOR"
+    | "DOCTOR_ACCEPTED_PENDING_CONTRACT" | "DOCTOR_REJECTED"
+    | "CONTRACT_GENERATED_PENDING_SIGNATURES" | "CONTRACT_SIGNED_BY_DOCTOR"
+    | "CONTRACT_SIGNED_BY_HOSPITAL" | "CONTRACT_ACTIVE" | "SHIFT_COMPLETED"
+    | "PAYMENT_PROCESSED" | "CANCELLED_BY_BACKOFFICE"
+    | "CANCELLED_BY_HOSPITAL_POST_MATCH" | "CANCELLED_BY_DOCTOR_POST_ACCEPTANCE";
   backofficeReviewerId?: string;
   backofficeReviewedAt?: Timestamp;
   backofficeNotes?: string;
@@ -68,6 +75,9 @@ export const getMatchesForBackofficeReview = async (): Promise<PotentialMatch[]>
   }
 };
 
+/**
+ * --- LÓGICA DO FLUXO CORRIGIDA ---
+ */
 export const approveMatchAndProposeToDoctor = async (
   matchId: string,
   negotiatedRate: number,
@@ -82,11 +92,11 @@ export const approveMatchAndProposeToDoctor = async (
   try {
     const matchDocSnap = await getDoc(matchDocRef);
     if (!matchDocSnap.exists()) {
-      throw new Error("Match não encontrado.");
+      throw new Error("Match não encontrado. Pode já ter sido processado.");
     }
     const matchData = matchDocSnap.data() as PotentialMatch;
     
-    // Etapa 1: Atualiza o match
+    // Etapa 1: Atualiza o status do match original
     batch.update(matchDocRef, {
       status: "BACKOFFICE_APPROVED_PROPOSED_TO_DOCTOR",
       negotiatedRateForDoctor: negotiatedRate,
@@ -96,7 +106,7 @@ export const approveMatchAndProposeToDoctor = async (
       updatedAt: serverTimestamp(),
     });
 
-    // Etapa 2: Cria a proposta
+    // Etapa 2: Cria a nova proposta na coleção 'shiftProposals'
     const proposalRef = doc(collection(db, "shiftProposals"));
     
     const newProposalData: Omit<ShiftProposal, 'id'> = {
@@ -123,6 +133,8 @@ export const approveMatchAndProposeToDoctor = async (
     batch.set(proposalRef, newProposalData);
     await batch.commit();
     
+    console.log(`[MatchService] Match ${matchId} aprovado. Nova proposta ${proposalRef.id} criada.`);
+
   } catch (error) {
     console.error(`Falha ao aprovar match ${matchId}:`, error);
     throw new Error(`Falha ao aprovar match: ${(error as Error).message}`);
@@ -146,6 +158,7 @@ export const rejectMatchByBackoffice = async (
       backofficeNotes: rejectionNotes,
       updatedAt: serverTimestamp(),
     });
+     console.log(`[MatchService] Match ${matchId} foi rejeitado.`);
   } catch (error) {
     console.error(`Falha ao rejeitar match ${matchId}:`, error);
     throw new Error(`Falha ao rejeitar match: ${(error as Error).message}`);

@@ -13,9 +13,9 @@ import {
 import { db, auth } from "./firebase";
 
 export interface ShiftProposal {
-  id: string;
+  id: string; 
   originalShiftRequirementId: string;
-  potentialMatchId?: string; // <<< CORREÇÃO: CAMPO ADICIONADO AQUI
+  potentialMatchId?: string; // <<< CORREÇÃO: CAMPO ADICIONADO AQUI PARA LIGAR AO MATCH
   hospitalId: string;
   hospitalName: string;
   hospitalCity: string;

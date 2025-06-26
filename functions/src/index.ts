@@ -9,7 +9,7 @@ import * as admin from "firebase-admin";
 import { logger } from "firebase-functions/v2";
 /* eslint-enable import/no-duplicates */
 import { Change } from "firebase-functions";
-// --- CORREÇÃO: Adicionando as importações que faltavam ---
+// --- CORREÇÃO: Removendo 'getDocs' e usando apenas o necessário ---
 import {
   DocumentSnapshot,
   FieldValue,
@@ -31,14 +31,11 @@ interface PotentialMatchInput { shiftRequirementId: string; hospitalId: string; 
 setGlobalOptions({ region: "southamerica-east1", memory: "256MiB" });
 
 // --- Funções Auxiliares (Melhoradas) ---
-
-/** Normaliza uma string para comparação (minúsculas, sem acentos/espaços extras) */
 const normalizeString = (str: string | undefined): string => {
   if (!str) return "";
   return str.trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
 };
 
-/** Converte uma string 'HH:mm' para o total de minutos desde a meia-noite */
 const timeToMinutes = (timeStr: string): number => {
   if (!timeStr || !timeStr.includes(":")) {
     logger.warn("Formato de hora inválido recebido:", timeStr);
@@ -48,7 +45,6 @@ const timeToMinutes = (timeStr: string): number => {
   return hours * 60 + minutes;
 };
 
-/** Verifica se dois intervalos de tempo se sobrepõem de forma robusta */
 const doIntervalsOverlap = (
   startA: number, endA: number, isOvernightA: boolean,
   startB: number, endB: number, isOvernightB: boolean
@@ -59,8 +55,7 @@ const doIntervalsOverlap = (
 };
 
 
-// --- Cloud Function Principal (Revisada com Melhores Práticas) ---
-
+// --- Cloud Function Principal (Revisada com Sintaxe Correta) ---
 export const findMatchesOnShiftRequirementWrite = onDocumentWritten(
   { document: "shiftRequirements/{requirementId}" },
   async (event: FirestoreEvent<Change<DocumentSnapshot> | undefined, { requirementId: string }>): Promise<void> => {
@@ -79,24 +74,24 @@ export const findMatchesOnShiftRequirementWrite = onDocumentWritten(
     const wasUpdatedToOpen = !!(oldRequirement && oldRequirement.status !== "OPEN" && requirement.status === "OPEN");
 
     if (!isNewAndOpen && !wasUpdatedToOpen) {
-      logger.info(`Demanda ${requirementId} não está em um estado "OPEN" relevante para matching. Status: ${requirement.status}.`);
+      logger.info(`Demanda ${requirementId} não está em estado "OPEN". Status: ${requirement.status}.`);
       return;
     }
 
-    logger.info(`INICIANDO BUSCA DE MATCHES para a Demanda: ${requirementId} em ${requirement.city}/${requirement.state}.`);
+    logger.info(`INICIANDO BUSCA DE MATCHES para a Demanda: ${requirementId}`);
 
     try {
-      // Busca inicial mais ampla para otimizar leituras
+      // --- CORREÇÃO: USANDO A SINTAXE .get() do Admin SDK ---
       const timeSlotsSnapshot = await db.collection("doctorTimeSlots")
         .where("status", "==", "AVAILABLE")
         .get();
 
       if (timeSlotsSnapshot.empty) {
-        logger.info("Nenhum TimeSlot 'AVAILABLE' encontrado no banco de dados.");
+        logger.info("Nenhum TimeSlot 'AVAILABLE' encontrado.");
         return;
       }
 
-      logger.info(`Encontrados ${timeSlotsSnapshot.docs.length} TimeSlots disponíveis no total. Iniciando filtros...`);
+      logger.info(`Encontrados ${timeSlotsSnapshot.docs.length} TimeSlots disponíveis. Iniciando filtros...`);
       const batch = db.batch();
       let matchesCreatedCount = 0;
 
@@ -108,44 +103,22 @@ export const findMatchesOnShiftRequirementWrite = onDocumentWritten(
         const timeSlotId = timeSlotDoc.id;
         const timeSlot = timeSlotDoc.data() as TimeSlotData;
 
-        // --- INÍCIO DOS FILTROS DE COMPATIBILIDADE (COM LOGS DETALHADOS) ---
-
-        // FILTRO 1: Localização (Flexível)
-        if (normalizeString(timeSlot.state) !== normalizedReqState || normalizeString(timeSlot.city) !== normalizedReqCity) {
-          continue; // Pula para o próximo se a localização não for a mesma
-        }
-
-        // FILTRO 2: Tipo de Serviço (Flexível)
-        if (normalizeString(timeSlot.serviceType) !== normalizedReqServiceType) {
-          continue;
-        }
-
-        // FILTRO 3: Valor/Hora
+        // --- FILTROS DE COMPATIBILIDADE ---
+        if (normalizeString(timeSlot.state) !== normalizedReqState || normalizeString(timeSlot.city) !== normalizedReqCity) continue;
+        if (normalizeString(timeSlot.serviceType) !== normalizedReqServiceType) continue;
         if (timeSlot.desiredHourlyRate > requirement.offeredRate) {
-          logger.debug(`Match pulado (Valor): TS ${timeSlotId} deseja ${timeSlot.desiredHourlyRate}, Req oferece ${requirement.offeredRate}.`);
+          logger.debug(`Match pulado (Valor): TS ${timeSlotId} deseja R$${timeSlot.desiredHourlyRate}, Req oferece R$${requirement.offeredRate}.`);
           continue;
         }
-
-        // FILTRO 4: Data
         const matchedDate = requirement.dates.find((reqDate) => reqDate.isEqual(timeSlot.date));
-        if (!matchedDate) {
-          continue;
-        }
-
-        // FILTRO 5: Sobreposição de Horário
-        if (!doIntervalsOverlap(timeToMinutes(timeSlot.startTime), timeToMinutes(timeSlot.endTime), timeSlot.isOvernight, timeToMinutes(requirement.startTime), timeToMinutes(requirement.endTime), requirement.isOvernight)) {
-          continue;
-        }
-
-        // FILTRO 6: Especialidade
+        if (!matchedDate) continue;
+        if (!doIntervalsOverlap(timeToMinutes(timeSlot.startTime), timeToMinutes(timeSlot.endTime), timeSlot.isOvernight, timeToMinutes(requirement.startTime), timeToMinutes(requirement.endTime), requirement.isOvernight)) continue;
         const hasSpecialtyMatch = requirement.specialtiesRequired.length === 0 || requirement.specialtiesRequired.some((reqSpec) => timeSlot.specialties.includes(reqSpec));
-        if (!hasSpecialtyMatch) {
-          continue;
-        }
+        if (!hasSpecialtyMatch) continue;
 
         logger.info(`-> Match em potencial encontrado! Req: ${requirementId} | TS: ${timeSlotId}. Verificando duplicatas...`);
 
-        // FILTRO 7: Prevenção de Matches Duplicados
+        // --- CORREÇÃO: USANDO A SINTAXE .get() do Admin SDK ---
         const existingMatchQuery = await db.collection("potentialMatches")
           .where("shiftRequirementId", "==", requirementId)
           .where("timeSlotId", "==", timeSlotId)
@@ -158,8 +131,7 @@ export const findMatchesOnShiftRequirementWrite = onDocumentWritten(
           continue;
         }
 
-        // --- SUCESSO! TODOS OS FILTROS PASSARAM ---
-        logger.info(`-----> CRIANDO NOVO MATCH! Req: ${requirementId} | TS: ${timeSlotId}`);
+        logger.info(`-----> SUCESSO! CRIANDO NOVO MATCH: Req ${requirementId} | TS: ${timeSlotId}`);
 
         const newMatchRef = db.collection("potentialMatches").doc();
         const newPotentialMatchData: PotentialMatchInput = {
@@ -189,7 +161,6 @@ export const findMatchesOnShiftRequirementWrite = onDocumentWritten(
           createdAt: FieldValue.serverTimestamp(),
           updatedAt: FieldValue.serverTimestamp(),
         };
-
         batch.set(newMatchRef, newPotentialMatchData);
         matchesCreatedCount++;
       }
