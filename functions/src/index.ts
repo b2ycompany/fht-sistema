@@ -88,7 +88,7 @@ export const findMatchesOnShiftRequirementWrite = onDocumentWritten(
 
         if (!doIntervalsOverlap(timeToMinutes(timeSlot.startTime), timeToMinutes(timeSlot.endTime), timeSlot.isOvernight, timeToMinutes(requirement.startTime), timeToMinutes(requirement.endTime), requirement.isOvernight)) continue;
         
-        const hasSpecialtyMatch = requirement.specialtiesRequired.length === 0 || requirement.specialtiesRequired.some((reqSpec) => timeSlot.specialties.includes(reqSpec));
+        const hasSpecialtyMatch = requirement.specialtiesRequired.length === 0 || requirement.specialtiesRequired.some((reqSpec) => (timeSlot.specialties || []).includes(reqSpec));
         if (!hasSpecialtyMatch) continue;
 
         // Prevenção de duplicatas
@@ -110,7 +110,7 @@ export const findMatchesOnShiftRequirementWrite = onDocumentWritten(
           shiftRequirementEndTime: requirement.endTime,
           shiftRequirementIsOvernight: requirement.isOvernight,
           shiftRequirementServiceType: requirement.serviceType,
-          shiftRequirementSpecialties: requirement.specialtiesRequired,
+          shiftRequirementSpecialties: requirement.specialtiesRequired || [],
           offeredRateByHospital: requirement.offeredRate,
           shiftRequirementNotes: requirement.notes || "", // Default para string vazia
           numberOfVacanciesInRequirement: requirement.numberOfVacancies,
@@ -121,7 +121,7 @@ export const findMatchesOnShiftRequirementWrite = onDocumentWritten(
           timeSlotEndTime: timeSlot.endTime,
           timeSlotIsOvernight: timeSlot.isOvernight,
           doctorDesiredRate: timeSlot.desiredHourlyRate,
-          doctorSpecialties: timeSlot.specialties,
+          doctorSpecialties: timeSlot.specialties || [],
           doctorServiceType: timeSlot.serviceType,
           status: "PENDING_BACKOFFICE_REVIEW",
           createdAt: FieldValue.serverTimestamp(),
