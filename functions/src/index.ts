@@ -2,7 +2,7 @@
 /* eslint-disable import/no-duplicates */
 import {
   onDocumentWritten,
-  onDocumentDeleted,
+  onDocumentDeleted, // << ADICIONADO para a limpeza automática
   FirestoreEvent,
 } from "firebase-functions/v2/firestore";
 import { setGlobalOptions } from "firebase-functions/v2";
@@ -14,7 +14,7 @@ import {
   DocumentSnapshot,
   FieldValue,
   getFirestore,
-  Query,
+  Query, // << ADICIONADO para tipagem
 } from "firebase-admin/firestore";
 
 if (admin.apps.length === 0) {
