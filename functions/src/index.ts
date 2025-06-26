@@ -24,7 +24,8 @@ const db = getFirestore();
 
 interface ShiftRequirementData { hospitalId: string; hospitalName?: string; dates: admin.firestore.Timestamp[]; startTime: string; endTime: string; isOvernight: boolean; serviceType: string; specialtiesRequired: string[]; offeredRate: number; numberOfVacancies: number; status: string; notes?: string; city: string; state: string; }
 interface TimeSlotData { doctorId: string; doctorName?: string; date: admin.firestore.Timestamp; startTime: string; endTime: string; isOvernight: boolean; serviceType: string; specialties: string[]; desiredHourlyRate: number; state: string; city: string; status: string; notes?: string; }
-interface PotentialMatchInput { shiftRequirementId: string; hospitalId: string; hospitalName: string; matchedDate: admin.firestore.Timestamp; originalShiftRequirementDates: admin.firestore.Timestamp[]; shiftRequirementStartTime: string; shiftRequirementEndTime: string; shiftRequirementIsOvernight: boolean; shiftRequirementServiceType: string; shiftRequirementSpecialties: string[]; offeredRateByHospital: number; shiftRequirementNotes: string; numberOfVacanciesInRequirement: number; timeSlotId: string; doctorId: string; doctorName: string; timeSlotStartTime: string; timeSlotEndTime: string; timeSlotIsOvernight: boolean; doctorDesiredRate: number; doctorSpecialties: string[]; doctorServiceType: string; status: string; createdAt: FieldValue; updatedAt: FieldValue; city: string; state: string; }
+// A interface foi ajustada para incluir shiftCity e shiftState, compatível com seu `match-types.ts`
+interface PotentialMatchInput { shiftRequirementId: string; hospitalId: string; hospitalName: string; matchedDate: admin.firestore.Timestamp; originalShiftRequirementDates: admin.firestore.Timestamp[]; shiftRequirementStartTime: string; shiftRequirementEndTime: string; shiftRequirementIsOvernight: boolean; shiftRequirementServiceType: string; shiftRequirementSpecialties: string[]; offeredRateByHospital: number; shiftRequirementNotes: string; numberOfVacanciesInRequirement: number; timeSlotId: string; doctorId: string; doctorName: string; timeSlotStartTime: string; timeSlotEndTime: string; timeSlotIsOvernight: boolean; doctorDesiredRate: number; doctorSpecialties: string[]; doctorServiceType: string; status: string; createdAt: FieldValue; updatedAt: FieldValue; shiftCity: string; shiftState: string; }
 
 setGlobalOptions({ region: "southamerica-east1", memory: "256MiB" });
 
@@ -87,7 +88,10 @@ export const findMatchesOnShiftRequirementWrite = onDocumentWritten(
           timeSlotId: timeSlotDoc.id, doctorId: timeSlot.doctorId, doctorName: timeSlot.doctorName || "", timeSlotStartTime: timeSlot.startTime,
           timeSlotEndTime: timeSlot.endTime, timeSlotIsOvernight: timeSlot.isOvernight, doctorDesiredRate: timeSlot.desiredHourlyRate,
           doctorSpecialties: timeSlot.specialties || [], doctorServiceType: timeSlot.serviceType, status: "PENDING_BACKOFFICE_REVIEW",
-          createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp(), city: requirement.city, state: requirement.state,
+          createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp(), 
+          // --- ÚNICA ALTERAÇÃO NECESSÁRIA ESTÁ AQUI ---
+          shiftCity: requirement.city, 
+          shiftState: requirement.state,
         };
         batch.set(matchRef, newPotentialMatchData);
       }
