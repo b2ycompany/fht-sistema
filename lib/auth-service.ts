@@ -44,7 +44,7 @@ export interface AddressInfo {
   state: string;
 }
 export interface LegalRepresentativeInfo {
-  name: string;
+  name:string;
   dob: string;
   rg: string;
   cpf: string;
@@ -108,12 +108,13 @@ export interface UserProfileBase {
   role: UserType;
   createdAt: Timestamp;
   updatedAt: Timestamp;
+  adminVerificationNotes?: string;
+  documentRejectionReasons?: Record<string, string>;
 }
 
 export interface DoctorProfile extends UserProfileBase, DoctorRegistrationPayload {
   role: "doctor";
   documentVerificationStatus?: ProfileStatus;
-  adminVerificationNotes?: string;
 }
 
 export interface HospitalProfile extends UserProfileBase {
@@ -128,19 +129,16 @@ export interface HospitalProfile extends UserProfileBase {
   hospitalDocs?: Partial<HospitalDocumentsRef>;
   legalRepDocuments?: Partial<LegalRepDocumentsRef>;
   documentVerificationStatus?: ProfileStatus;
-  adminVerificationNotes?: string;
 }
 export interface AdminProfile extends UserProfileBase {
   role: "admin" | "backoffice";
   permissions?: string[];
-  adminVerificationNotes?: string;
 }
 
 export type UserProfile = DoctorProfile | HospitalProfile | AdminProfile;
 
-// Interface para os dados de atualização do perfil do médico
 export interface DoctorProfileUpdatePayload {
-  displayName?: string; // <<< CAMPO CORRIGIDO/ADICIONADO
+  displayName?: string;
   name?: string;
   dob?: string;
   rg?: string;
@@ -152,7 +150,6 @@ export interface DoctorProfileUpdatePayload {
   documentVerificationStatus?: ProfileStatus;
   adminVerificationNotes?: string;
 }
-
 
 export const createAuthUser = async (
   email: string,
@@ -194,7 +191,6 @@ export const completeUserRegistration = async (
   } else if (role === "hospital") {
     const { hospitalDocs, legalRepDocuments, ...hospitalDetails } = registrationData as HospitalRegistrationPayload;
     userProfileDataSpecific = {
-      // O seu código original estava correto, mas faltavam os campos de status
       companyInfo: {
         cnpj: (hospitalDetails as any).cnpj,
         stateRegistration: (hospitalDetails as any).stateRegistration,
@@ -204,7 +200,6 @@ export const completeUserRegistration = async (
       legalRepresentativeInfo: (hospitalDetails as any).legalRepresentativeInfo,
       hospitalDocs,
       legalRepDocuments,
-      // *** ALTERAÇÃO APLICADA AQUI ***
       documentVerificationStatus: "PENDING_REVIEW",
       adminVerificationNotes: "",
     };
@@ -329,8 +324,6 @@ export const updateDoctorProfileData = async (
   }
 };
 
-// --- NOVAS FUNÇÕES PARA O ADMIN ---
-
 export const getUsersForVerification = async (): Promise<UserProfile[]> => {
     try {
       const usersRef = collection(db, "users");
@@ -351,7 +344,8 @@ export const getUsersForVerification = async (): Promise<UserProfile[]> => {
 export const updateUserVerificationStatus = async (
     userId: string,
     status: ProfileStatus,
-    notes = ""
+    notes = "",
+    rejectionReasons: Record<string, string> = {}
 ): Promise<void> => {
     if (!userId) throw new Error("ID do usuário não fornecido.");
   
@@ -359,8 +353,14 @@ export const updateUserVerificationStatus = async (
     const payload: any = {
       documentVerificationStatus: status,
       adminVerificationNotes: notes,
+      documentRejectionReasons: rejectionReasons,
       updatedAt: serverTimestamp(),
     };
+    
+    if (status === 'APPROVED') {
+      payload.documentRejectionReasons = {};
+      payload.adminVerificationNotes = "";
+    }
     
     try {
       await updateDoc(userRef, payload);
