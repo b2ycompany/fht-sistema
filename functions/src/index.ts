@@ -2,7 +2,7 @@
 /* eslint-disable import/no-duplicates */
 import {
   onDocumentWritten,
-  onDocumentDeleted, // << ADICIONADO para a limpeza automática
+  onDocumentDeleted,
   FirestoreEvent,
 } from "firebase-functions/v2/firestore";
 import { setGlobalOptions } from "firebase-functions/v2";
@@ -14,21 +14,19 @@ import {
   DocumentSnapshot,
   FieldValue,
   getFirestore,
-  Query, // << ADICIONADO para tipagem
+  Query,
 } from "firebase-admin/firestore";
 
-// --- Inicialização do Admin ---
 if (admin.apps.length === 0) {
   admin.initializeApp();
 }
 const db = getFirestore();
 
-// --- Interfaces (Como nos seus arquivos) ---
+// --- Interfaces ---
 interface ShiftRequirementData { hospitalId: string; hospitalName?: string; dates: admin.firestore.Timestamp[]; startTime: string; endTime: string; isOvernight: boolean; serviceType: string; specialtiesRequired: string[]; offeredRate: number; numberOfVacancies: number; status: string; notes?: string; city: string; state: string; }
 interface TimeSlotData { doctorId: string; doctorName?: string; date: admin.firestore.Timestamp; startTime: string; endTime: string; isOvernight: boolean; serviceType: string; specialties: string[]; desiredHourlyRate: number; state: string; city: string; status: string; notes?: string; }
 interface PotentialMatchInput { shiftRequirementId: string; hospitalId: string; hospitalName: string; matchedDate: admin.firestore.Timestamp; originalShiftRequirementDates: admin.firestore.Timestamp[]; shiftRequirementStartTime: string; shiftRequirementEndTime: string; shiftRequirementIsOvernight: boolean; shiftRequirementServiceType: string; shiftRequirementSpecialties: string[]; offeredRateByHospital: number; shiftRequirementNotes: string; numberOfVacanciesInRequirement: number; timeSlotId: string; doctorId: string; doctorName: string; timeSlotStartTime: string; timeSlotEndTime: string; timeSlotIsOvernight: boolean; doctorDesiredRate: number; doctorSpecialties: string[]; doctorServiceType: string; status: string; createdAt: FieldValue; updatedAt: FieldValue; }
 
-// --- Configurações Globais ---
 setGlobalOptions({ region: "southamerica-east1", memory: "256MiB" });
 
 // --- Funções Auxiliares ---
