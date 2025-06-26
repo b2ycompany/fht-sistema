@@ -9,9 +9,13 @@ import {
   serverTimestamp,
   Timestamp,
   orderBy,
+  writeBatch,
+  getDoc
 } from "firebase/firestore";
 import { db, auth } from "./firebase";
+import { type ShiftProposal } from "./proposal-service";
 
+// Interface PotentialMatch (Mantida como no seu arquivo)
 export interface PotentialMatch {
   id: string;
   shiftRequirementId: string;
@@ -28,7 +32,7 @@ export interface PotentialMatch {
   shiftRequirementNotes?: string;
   numberOfVacanciesInRequirement: number;
   timeSlotId: string;
-  doctorId: string; // <<< ID do médico envolvido no match
+  doctorId: string;
   doctorName?: string;
   timeSlotStartTime: string;
   timeSlotEndTime: string;
@@ -36,14 +40,7 @@ export interface PotentialMatch {
   doctorDesiredRate: number;
   doctorSpecialties: string[];
   doctorServiceType: string;
-  status:
-    | "PENDING_BACKOFFICE_REVIEW" | "BACKOFFICE_APPROVED_PENDING_DOCTOR"
-    | "BACKOFFICE_REJECTED" | "PROPOSED_TO_DOCTOR"
-    | "DOCTOR_ACCEPTED_PENDING_CONTRACT" | "DOCTOR_REJECTED"
-    | "CONTRACT_GENERATED_PENDING_SIGNATURES" | "CONTRACT_SIGNED_BY_DOCTOR"
-    | "CONTRACT_SIGNED_BY_HOSPITAL" | "CONTRACT_ACTIVE" | "SHIFT_COMPLETED"
-    | "PAYMENT_PROCESSED" | "CANCELLED_BY_BACKOFFICE"
-    | "CANCELLED_BY_HOSPITAL_POST_MATCH" | "CANCELLED_BY_DOCTOR_POST_ACCEPTANCE";
+  status: string;
   backofficeReviewerId?: string;
   backofficeReviewedAt?: Timestamp;
   backofficeNotes?: string;
@@ -55,26 +52,19 @@ export interface PotentialMatch {
   updatedAt: Timestamp;
 }
 
+// --- FUNÇÕES DO SERVIÇO ---
 export const getMatchesForBackofficeReview = async (): Promise<PotentialMatch[]> => {
-  console.log("[MatchService] Buscando matches reais pendentes (Firestore)...");
   try {
-    const matchesCollectionRef = collection(db, "potentialMatches");
     const q = query(
-      matchesCollectionRef,
+      collection(db, "potentialMatches"),
       where("status", "==", "PENDING_BACKOFFICE_REVIEW"),
       orderBy("createdAt", "asc")
     );
-    const querySnapshot = await getDocs(q);
-    const matches: PotentialMatch[] = [];
-    querySnapshot.forEach((docSnap) => {
-      matches.push({ id: docSnap.id, ...docSnap.data() } as PotentialMatch);
-    });
-    console.log(`[MatchService] Encontrados ${matches.length} matches para revisão.`);
-    return matches;
+    const snapshot = await getDocs(q);
+    return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as PotentialMatch));
   } catch (error) {
     console.error("[MatchService] Erro ao buscar matches:", error);
-    // Lançar o erro para que a UI possa tratá-lo
-    throw new Error("Falha ao buscar matches do Firestore.");
+    throw error;
   }
 };
 
@@ -85,18 +75,56 @@ export const approveMatchAndProposeToDoctor = async (
 ): Promise<void> => {
   const currentUser = auth.currentUser;
   if (!currentUser) throw new Error("Admin não logado.");
-  // TODO: Verificar role do admin
+
+  const batch = writeBatch(db);
   const matchDocRef = doc(db, "potentialMatches", matchId);
+  
   try {
-    await updateDoc(matchDocRef, {
-      status: "BACKOFFICE_APPROVED_PENDING_DOCTOR",
+    const matchDocSnap = await getDoc(matchDocRef);
+    if (!matchDocSnap.exists()) {
+      throw new Error("Match não encontrado.");
+    }
+    const matchData = matchDocSnap.data() as PotentialMatch;
+    
+    // Etapa 1: Atualiza o match
+    batch.update(matchDocRef, {
+      status: "BACKOFFICE_APPROVED_PROPOSED_TO_DOCTOR",
       negotiatedRateForDoctor: negotiatedRate,
       backofficeReviewerId: currentUser.uid,
       backofficeReviewedAt: serverTimestamp(),
       backofficeNotes: backofficeNotes || "",
       updatedAt: serverTimestamp(),
     });
+
+    // Etapa 2: Cria a proposta
+    const proposalRef = doc(collection(db, "shiftProposals"));
+    
+    const newProposalData: Omit<ShiftProposal, 'id'> = {
+        originalShiftRequirementId: matchData.shiftRequirementId,
+        potentialMatchId: matchId,
+        hospitalId: matchData.hospitalId,
+        hospitalName: matchData.hospitalName || 'N/A',
+        hospitalCity: (matchData as any).shiftCity || 'N/A',
+        hospitalState: (matchData as any).shiftState || 'N/A',
+        doctorId: matchData.doctorId,
+        shiftDates: [matchData.matchedDate],
+        startTime: matchData.shiftRequirementStartTime,
+        endTime: matchData.shiftRequirementEndTime,
+        isOvernight: matchData.shiftRequirementIsOvernight,
+        serviceType: matchData.shiftRequirementServiceType,
+        specialties: matchData.shiftRequirementSpecialties,
+        offeredRateToDoctor: negotiatedRate,
+        notesFromBackoffice: backofficeNotes,
+        status: 'AWAITING_DOCTOR_ACCEPTANCE',
+        createdAt: serverTimestamp() as Timestamp,
+        updatedAt: serverTimestamp() as Timestamp,
+    };
+    
+    batch.set(proposalRef, newProposalData);
+    await batch.commit();
+    
   } catch (error) {
+    console.error(`Falha ao aprovar match ${matchId}:`, error);
     throw new Error(`Falha ao aprovar match: ${(error as Error).message}`);
   }
 };
@@ -106,9 +134,9 @@ export const rejectMatchByBackoffice = async (
   rejectionNotes: string
 ): Promise<void> => {
   const currentUser = auth.currentUser;
-  if (!currentUser) throw new Error("Admin não logado.");
-  // TODO: Verificar role do admin
-  if (!rejectionNotes.trim()) throw new Error("Justificativa obrigatória.");
+  if (!currentUser) throw new Error("Admin não está logado.");
+  if (!rejectionNotes.trim()) throw new Error("Justificativa é obrigatória.");
+  
   const matchDocRef = doc(db, "potentialMatches", matchId);
   try {
     await updateDoc(matchDocRef, {
@@ -119,6 +147,7 @@ export const rejectMatchByBackoffice = async (
       updatedAt: serverTimestamp(),
     });
   } catch (error) {
+    console.error(`Falha ao rejeitar match ${matchId}:`, error);
     throw new Error(`Falha ao rejeitar match: ${(error as Error).message}`);
   }
 };

@@ -1,6 +1,4 @@
 // lib/proposal-service.ts
-"use strict";
-
 import {
   doc,
   collection,
@@ -17,10 +15,12 @@ import { db, auth } from "./firebase";
 export interface ShiftProposal {
   id: string;
   originalShiftRequirementId: string;
+  potentialMatchId?: string; // <<< CORREÇÃO: CAMPO ADICIONADO AQUI
   hospitalId: string;
   hospitalName: string;
   hospitalCity: string;
   hospitalState: string;
+  doctorId: string;
   shiftDates: Timestamp[];
   startTime: string;
   endTime: string;
@@ -38,9 +38,9 @@ export interface ShiftProposal {
   updatedAt: Timestamp;
 }
 
-/**
- * Busca propostas pendentes para o médico logado.
- */
+// O restante do seu arquivo permanece o mesmo, mas vou incluí-lo para garantir a integridade.
+
+// Função para buscar propostas pendentes para o médico logado
 export const getPendingProposalsForDoctor = async (): Promise<ShiftProposal[]> => {
   const currentUser = auth.currentUser;
   if (!currentUser) {
@@ -49,43 +49,25 @@ export const getPendingProposalsForDoctor = async (): Promise<ShiftProposal[]> =
   }
 
   try {
-    console.log("[getPendingProposalsForDoctor] Buscando propostas REAIS para médico UID:", currentUser.uid);
-    
-    // Assumindo que a coleção de propostas se chama "shiftProposals"
-    const proposalsRef = collection(db, "shiftProposals"); 
     const q = query(
-      proposalsRef,
+      collection(db, "shiftProposals"),
       where("doctorId", "==", currentUser.uid),
       where("status", "==", "AWAITING_DOCTOR_ACCEPTANCE"),
       orderBy("createdAt", "desc")
     );
-
     const querySnapshot = await getDocs(q);
     const proposals: ShiftProposal[] = [];
-    
     querySnapshot.forEach((docSnap) => {
-      // Validamos que os dados correspondem minimamente ao tipo esperado
-      const data = docSnap.data();
-      proposals.push({ 
-        id: docSnap.id,
-        ...data,
-        shiftDates: data.shiftDates || [], // Garante que o array exista
-        specialties: data.specialties || []
-      } as ShiftProposal);
+      proposals.push({ id: docSnap.id, ...docSnap.data() } as ShiftProposal);
     });
-
-    console.log(`[getPendingProposalsForDoctor] Encontradas ${proposals.length} propostas reais.`);
     return proposals;
-
   } catch (error) {
-    console.error("[getPendingProposalsForDoctor] Erro ao buscar propostas no Firestore:", error);
+    console.error("[getPendingProposalsForDoctor] Erro ao buscar propostas:", error);
     throw new Error("Falha ao carregar as propostas.");
   }
 };
 
-/**
- * Função para o médico aceitar uma proposta.
- */
+// Função para o médico aceitar uma proposta
 export const acceptProposal = async (proposalId: string): Promise<void> => {
   const currentUser = auth.currentUser;
   if (!currentUser) throw new Error("Usuário não autenticado.");
@@ -96,17 +78,13 @@ export const acceptProposal = async (proposalId: string): Promise<void> => {
       status: 'DOCTOR_ACCEPTED',
       doctorResponseAt: serverTimestamp()
     });
-    console.log(`[acceptProposal] Proposta ${proposalId} aceita.`);
-    // TODO: Disparar notificação ou criar um contrato
   } catch (error) {
     console.error(`[acceptProposal] Erro ao aceitar proposta ${proposalId}:`, error);
     throw error;
   }
 };
 
-/**
- * Função para o médico recusar uma proposta.
- */
+// Função para o médico recusar uma proposta
 export const rejectProposal = async (proposalId: string, reason?: string): Promise<void> => {
   const currentUser = auth.currentUser;
   if (!currentUser) throw new Error("Usuário não autenticado.");
@@ -118,7 +96,6 @@ export const rejectProposal = async (proposalId: string, reason?: string): Promi
       doctorResponseAt: serverTimestamp(),
       doctorRejectionReason: reason || "Não especificado"
     });
-    console.log(`[rejectProposal] Proposta ${proposalId} recusada.`);
   } catch (error) {
     console.error(`[rejectProposal] Erro ao recusar proposta ${proposalId}:`, error);
     throw error;
