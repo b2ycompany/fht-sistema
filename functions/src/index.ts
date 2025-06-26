@@ -24,7 +24,6 @@ const db = getFirestore();
 
 interface ShiftRequirementData { hospitalId: string; hospitalName?: string; dates: admin.firestore.Timestamp[]; startTime: string; endTime: string; isOvernight: boolean; serviceType: string; specialtiesRequired: string[]; offeredRate: number; numberOfVacancies: number; status: string; notes?: string; city: string; state: string; }
 interface TimeSlotData { doctorId: string; doctorName?: string; date: admin.firestore.Timestamp; startTime: string; endTime: string; isOvernight: boolean; serviceType: string; specialties: string[]; desiredHourlyRate: number; state: string; city: string; status: string; notes?: string; }
-// A interface foi ajustada para incluir shiftCity e shiftState, compatível com seu `match-types.ts`
 interface PotentialMatchInput { shiftRequirementId: string; hospitalId: string; hospitalName: string; matchedDate: admin.firestore.Timestamp; originalShiftRequirementDates: admin.firestore.Timestamp[]; shiftRequirementStartTime: string; shiftRequirementEndTime: string; shiftRequirementIsOvernight: boolean; shiftRequirementServiceType: string; shiftRequirementSpecialties: string[]; offeredRateByHospital: number; shiftRequirementNotes: string; numberOfVacanciesInRequirement: number; timeSlotId: string; doctorId: string; doctorName: string; timeSlotStartTime: string; timeSlotEndTime: string; timeSlotIsOvernight: boolean; doctorDesiredRate: number; doctorSpecialties: string[]; doctorServiceType: string; status: string; createdAt: FieldValue; updatedAt: FieldValue; shiftCity: string; shiftState: string; }
 
 setGlobalOptions({ region: "southamerica-east1", memory: "256MiB" });
@@ -44,15 +43,23 @@ const doIntervalsOverlap = (startA: number, endA: number, isOvernightA: boolean,
 export const findMatchesOnShiftRequirementWrite = onDocumentWritten(
   { document: "shiftRequirements/{requirementId}" },
   async (event: FirestoreEvent<Change<DocumentSnapshot> | undefined, { requirementId: string }>): Promise<void> => {
+    // --- CORREÇÃO: A linha abaixo foi adicionada novamente ---
     const { requirementId } = event.params;
     const change = event.data;
+    if (!change) return;
 
-    if (!change?.after?.exists || change.after.data()?.status !== "OPEN") {
-      logger.info(`Demanda ${requirementId} não está 'OPEN' ou foi deletada. Ignorando.`);
-      return;
+    const dataAfter = change.after.data() as ShiftRequirementData | undefined;
+    const dataBefore = change.before?.data() as ShiftRequirementData | undefined;
+
+    const isNewOpenRequirement = (!dataBefore && dataAfter?.status === 'OPEN') || (dataBefore?.status !== 'OPEN' && dataAfter?.status === 'OPEN');
+
+    if (!isNewOpenRequirement) {
+        logger.info(`Gatilho ignorado para Req ${requirementId} para evitar duplicação. Status não é uma nova criação OPEN.`);
+        return;
     }
-    const requirement = change.after.data() as ShiftRequirementData;
-    logger.info(`INICIANDO BUSCA DE MATCHES para a Demanda: ${requirementId}`);
+
+    const requirement = dataAfter!;
+    logger.info(`INICIANDO BUSCA DE MATCHES para a Nova Demanda OPEN: ${requirementId}`);
 
     try {
       const timeSlotsSnapshot = await db.collection("doctorTimeSlots").where("status", "==", "AVAILABLE").get();
@@ -66,8 +73,10 @@ export const findMatchesOnShiftRequirementWrite = onDocumentWritten(
         if (normalizeString(timeSlot.city) !== normalizeString(requirement.city)) continue;
         if (normalizeString(timeSlot.serviceType) !== normalizeString(requirement.serviceType)) continue;
         if (timeSlot.desiredHourlyRate > requirement.offeredRate) continue;
+        
         const matchedDate = requirement.dates.find((reqDate) => reqDate.isEqual(timeSlot.date));
         if (!matchedDate) continue;
+
         if (!doIntervalsOverlap(timeToMinutes(timeSlot.startTime), timeToMinutes(timeSlot.endTime), timeSlot.isOvernight, timeToMinutes(requirement.startTime), timeToMinutes(requirement.endTime), requirement.isOvernight)) continue;
         const hasSpecialtyMatch = (requirement.specialtiesRequired || []).length === 0 || (requirement.specialtiesRequired || []).some((reqSpec) => (timeSlot.specialties || []).includes(reqSpec));
         if (!hasSpecialtyMatch) continue;
@@ -76,7 +85,10 @@ export const findMatchesOnShiftRequirementWrite = onDocumentWritten(
         const matchRef = db.collection("potentialMatches").doc(deterministicMatchId);
         
         const matchSnap = await matchRef.get();
-        if (matchSnap.exists) { continue; }
+        if (matchSnap.exists) {
+            logger.info(`Match ${deterministicMatchId} já existe, pulando criação.`);
+            continue; 
+        }
 
         logger.info(`-----> SUCESSO! CRIANDO NOVO MATCH: ${deterministicMatchId}`);
         const newPotentialMatchData: PotentialMatchInput = {
@@ -89,7 +101,6 @@ export const findMatchesOnShiftRequirementWrite = onDocumentWritten(
           timeSlotEndTime: timeSlot.endTime, timeSlotIsOvernight: timeSlot.isOvernight, doctorDesiredRate: timeSlot.desiredHourlyRate,
           doctorSpecialties: timeSlot.specialties || [], doctorServiceType: timeSlot.serviceType, status: "PENDING_BACKOFFICE_REVIEW",
           createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp(), 
-          // --- ÚNICA ALTERAÇÃO NECESSÁRIA ESTÁ AQUI ---
           shiftCity: requirement.city, 
           shiftState: requirement.state,
         };
