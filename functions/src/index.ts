@@ -2,7 +2,7 @@
 /* eslint-disable import/no-duplicates */
 import {
   onDocumentWritten,
-  onDocumentDeleted, // << ADICIONADO para a limpeza automática
+  onDocumentDeleted,
   FirestoreEvent,
 } from "firebase-functions/v2/firestore";
 import { setGlobalOptions } from "firebase-functions/v2";
@@ -14,7 +14,7 @@ import {
   DocumentSnapshot,
   FieldValue,
   getFirestore,
-  Query, // << ADICIONADO para tipagem
+  Query,
 } from "firebase-admin/firestore";
 
 if (admin.apps.length === 0) {
@@ -25,7 +25,7 @@ const db = getFirestore();
 // --- Interfaces ---
 interface ShiftRequirementData { hospitalId: string; hospitalName?: string; dates: admin.firestore.Timestamp[]; startTime: string; endTime: string; isOvernight: boolean; serviceType: string; specialtiesRequired: string[]; offeredRate: number; numberOfVacancies: number; status: string; notes?: string; city: string; state: string; }
 interface TimeSlotData { doctorId: string; doctorName?: string; date: admin.firestore.Timestamp; startTime: string; endTime: string; isOvernight: boolean; serviceType: string; specialties: string[]; desiredHourlyRate: number; state: string; city: string; status: string; notes?: string; }
-interface PotentialMatchInput { shiftRequirementId: string; hospitalId: string; hospitalName: string; matchedDate: admin.firestore.Timestamp; originalShiftRequirementDates: admin.firestore.Timestamp[]; shiftRequirementStartTime: string; shiftRequirementEndTime: string; shiftRequirementIsOvernight: boolean; shiftRequirementServiceType: string; shiftRequirementSpecialties: string[]; offeredRateByHospital: number; shiftRequirementNotes: string; numberOfVacanciesInRequirement: number; timeSlotId: string; doctorId: string; doctorName: string; timeSlotStartTime: string; timeSlotEndTime: string; timeSlotIsOvernight: boolean; doctorDesiredRate: number; doctorSpecialties: string[]; doctorServiceType: string; status: string; createdAt: FieldValue; updatedAt: FieldValue; }
+interface PotentialMatchInput { shiftRequirementId: string; hospitalId: string; hospitalName: string; matchedDate: admin.firestore.Timestamp; originalShiftRequirementDates: admin.firestore.Timestamp[]; shiftRequirementStartTime: string; shiftRequirementEndTime: string; shiftRequirementIsOvernight: boolean; shiftRequirementServiceType: string; shiftRequirementSpecialties: string[]; offeredRateByHospital: number; shiftRequirementNotes: string; numberOfVacanciesInRequirement: number; timeSlotId: string; doctorId: string; doctorName: string; timeSlotStartTime: string; timeSlotEndTime: string; timeSlotIsOvernight: boolean; doctorDesiredRate: number; doctorSpecialties: string[]; doctorServiceType: string; status: string; createdAt: FieldValue; updatedAt: FieldValue; city: string; state: string; }
 
 setGlobalOptions({ region: "southamerica-east1", memory: "256MiB" });
 
@@ -47,7 +47,7 @@ const doIntervalsOverlap = (startA: number, endA: number, isOvernightA: boolean,
 export const findMatchesOnShiftRequirementWrite = onDocumentWritten(
   { document: "shiftRequirements/{requirementId}" },
   async (event: FirestoreEvent<Change<DocumentSnapshot> | undefined, { requirementId: string }>): Promise<void> => {
-    const { requirementId } = event.params; // CORREÇÃO: Captura o ID aqui para usar em todo o corpo
+    const { requirementId } = event.params;
     const change = event.data;
 
     if (!change?.after?.exists || change.after.data()?.status !== "OPEN") {
@@ -112,6 +112,8 @@ export const findMatchesOnShiftRequirementWrite = onDocumentWritten(
           status: "PENDING_BACKOFFICE_REVIEW",
           createdAt: FieldValue.serverTimestamp(),
           updatedAt: FieldValue.serverTimestamp(),
+          city: requirement.city,
+          state: requirement.state,
         };
         batch.set(matchRef, newPotentialMatchData);
         matchesCreatedCount++;
@@ -124,10 +126,6 @@ export const findMatchesOnShiftRequirementWrite = onDocumentWritten(
   }
 );
 
-/**
- * --- NOVA FUNÇÃO ---
- * Limpa os matches pendentes se uma demanda de hospital for deletada.
- */
 export const onShiftRequirementDelete = onDocumentDeleted("shiftRequirements/{requirementId}", async (event) => {
     const { requirementId } = event.params;
     logger.info(`Demanda ${requirementId} deletada. Removendo matches associados.`);
@@ -138,10 +136,6 @@ export const onShiftRequirementDelete = onDocumentDeleted("shiftRequirements/{re
     return deleteQueryBatch(q, `matches para a demanda ${requirementId}`);
 });
 
-/**
- * --- NOVA FUNÇÃO ---
- * Limpa os matches pendentes se uma disponibilidade de médico for deletada.
- */
 export const onTimeSlotDelete = onDocumentDeleted("doctorTimeSlots/{timeSlotId}", async (event) => {
     const { timeSlotId } = event.params;
     logger.info(`Disponibilidade ${timeSlotId} deletada. Removendo matches associados.`);
@@ -152,7 +146,6 @@ export const onTimeSlotDelete = onDocumentDeleted("doctorTimeSlots/{timeSlotId}"
     return deleteQueryBatch(q, `matches para a disponibilidade ${timeSlotId}`);
 });
 
-/** Função auxiliar para deletar documentos de uma query em lotes */
 async function deleteQueryBatch(query: Query, context: string) {
     const snapshot = await query.get();
     if (snapshot.size === 0) {
