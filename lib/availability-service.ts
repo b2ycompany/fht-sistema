@@ -30,6 +30,9 @@ export const ServiceTypeRates: { [key: string]: number } = {
   enfermaria: 120,
   telemedicina: 90,
   medico_prescritor: 200,
+  intensivista: 125,
+  medico_sala_emergencia: 125,
+  medico_visitador: 125,
 
   // Adicione outros tipos de serviço conforme necessário
 };

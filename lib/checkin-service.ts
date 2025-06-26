@@ -1,149 +1,154 @@
 // lib/checkin-service.ts
+"use strict";
+
 import {
   doc,
   collection,
   query,
   where,
   getDocs,
+  getDoc,
   updateDoc,
+  writeBatch,
   serverTimestamp,
   Timestamp,
-  orderBy,
-  addDoc // Para criar novos registros de check-in se necessário
+  orderBy
 } from "firebase/firestore";
 import { db, auth } from "./firebase";
 
 export interface CheckinRecord {
-  id: string; // ID do documento Firestore
-  contractId: string; // ID do contrato ou da alocação do plantão
-  shiftRequirementId: string; // ID da demanda original do hospital
+  id: string; // ID do documento na coleção checkinRecords (será o mesmo que o contractId)
+  contractId: string;
+  shiftRequirementId: string;
   doctorId: string;
   hospitalId: string;
-  hospitalName: string; // Denormalizado
+  hospitalName: string;
 
-  shiftDate: Timestamp; // A data específica deste plantão
-  expectedStartTime: string; // Ex: "07:00"
-  expectedEndTime: string;   // Ex: "19:00"
+  shiftDate: Timestamp;
+  expectedStartTime: string;
+  expectedEndTime: string;
 
   checkinAt?: Timestamp;
   checkinLatitude?: number;
   checkinLongitude?: number;
-  checkinPhotoUrl?: string; // Para leitura facial no futuro
+  checkinPhotoUrl?: string;
 
   checkoutAt?: Timestamp;
   checkoutLatitude?: number;
   checkoutLongitude?: number;
   checkoutPhotoUrl?: string;
 
-  // Status do plantão em relação ao ponto
   status: 'SCHEDULED' | 'CHECKED_IN' | 'CHECKED_OUT' | 'MISSED' | 'CANCELLED_CONFIRMED_SHIFT'; 
-  // Outros campos: horas trabalhadas (calculado), etc.
 }
 
-// Função para buscar plantões agendados e ativos para check-in/out
+/**
+ * Busca plantões confirmados do médico e garante que exista um registro de ponto para cada um.
+ * Retorna os registros de ponto que ainda precisam de ação (check-in ou check-out).
+ */
 export const getActiveShiftsForCheckin = async (): Promise<CheckinRecord[]> => {
   const currentUser = auth.currentUser;
   if (!currentUser) {
     console.warn("[getActiveShiftsForCheckin] Usuário não autenticado.");
     return [];
   }
-  console.log("[getActiveShiftsForCheckin] Buscando plantões para check-in/out para médico UID:", currentUser.uid);
+  const doctorId = currentUser.uid;
+  console.log(`[getActiveShiftsForCheckin] Buscando plantões para médico: ${doctorId}`);
 
-  // SIMULAÇÃO DE DADOS MOCADOS
-  await new Promise(resolve => setTimeout(resolve, 800));
-  const today = new Date();
-  const tomorrow = new Date(today);
-  tomorrow.setDate(today.getDate() + 1);
-  const yesterday = new Date(today);
-  yesterday.setDate(today.getDate() -1);
+  // 1. Encontrar todos os 'contratos' confirmados para o médico.
+  // Ajuste "contracts" se o nome da sua coleção for diferente.
+  const contractsRef = collection(db, "contracts"); 
+  const q = query(
+    contractsRef,
+    where("doctorId", "==", doctorId),
+    where("status", "==", "CONFIRMED")
+  );
 
-
-  const mockRecords: CheckinRecord[] = [
-    {
-      id: "checkin001",
-      contractId: "contract003", // ID de um contrato ativo
-      shiftRequirementId: "reqJKL",
-      doctorId: currentUser.uid,
-      hospitalId: "hospLMN",
-      hospitalName: "Hospital Esperança",
-      shiftDate: Timestamp.fromDate(today), // Plantão hoje
-      expectedStartTime: "07:00",
-      expectedEndTime: "19:00",
-      status: 'SCHEDULED', // Ainda não fez check-in
-    },
-    {
-      id: "checkin002",
-      contractId: "contract004",
-      shiftRequirementId: "reqMNO",
-      doctorId: currentUser.uid,
-      hospitalId: "hospABC",
-      hospitalName: "Pronto Atendimento Veloz",
-      shiftDate: Timestamp.fromDate(yesterday), // Plantão de ontem que o médico já fez check-in
-      expectedStartTime: "19:00",
-      expectedEndTime: "07:00", // Overnight
-      checkinAt: Timestamp.fromDate(new Date(yesterday.setHours(18, 55))), // Check-in 5 min antes
-      checkinLatitude: -23.5505,
-      checkinLongitude: -46.6333,
-      status: 'CHECKED_IN', 
-    },
-    {
-      id: "checkin003",
-      contractId: "contract005",
-      shiftRequirementId: "reqPQR",
-      doctorId: currentUser.uid,
-      hospitalId: "hospDEF",
-      hospitalName: "Hospital Municipal",
-      shiftDate: Timestamp.fromDate(tomorrow), // Plantão de amanhã
-      expectedStartTime: "13:00",
-      expectedEndTime: "19:00",
-      status: 'SCHEDULED',
-    }
-  ];
+  const contractSnapshots = await getDocs(q);
+  if (contractSnapshots.empty) {
+    console.log("[getActiveShiftsForCheckin] Nenhum contrato confirmado encontrado.");
+    return [];
+  }
   
-  // Em um sistema real, a query seria algo como:
-  // const q = query(
-  //   collection(db, "checkinRecords"), // ou "shiftAllocations"
-  //   where("doctorId", "==", currentUser.uid),
-  //   where("status", "in", ["SCHEDULED", "CHECKED_IN"]), // Plantões que precisam de ação
-  //   orderBy("shiftDate", "asc"),
-  //   orderBy("expectedStartTime", "asc")
-  // );
-  // const querySnapshot = await getDocs(q);
-  // ... mapear para CheckinRecord[] ...
+  const batch = writeBatch(db);
+  const recordsToReturn: CheckinRecord[] = [];
 
-  return mockRecords.filter(r => r.status === 'SCHEDULED' || r.status === 'CHECKED_IN');
+  // 2. Para cada contrato, verificar se um 'checkinRecord' correspondente já existe.
+  for (const contractDoc of contractSnapshots.docs) {
+    const contractData = contractDoc.data();
+    const contractId = contractDoc.id;
+
+    // Usamos o ID do contrato como ID do registro de ponto para facilitar a busca.
+    const checkinRecordRef = doc(db, "checkinRecords", contractId);
+    const checkinRecordSnap = await getDoc(checkinRecordRef);
+
+    if (!checkinRecordSnap.exists()) {
+      // 3. Se não existir, criamos um novo 'checkinRecord' com status 'SCHEDULED'.
+      console.log(`[getActiveShiftsForCheckin] Criando checkinRecord para contrato: ${contractId}`);
+
+      // Busca o nome do hospital (denormalização)
+      const hospitalDoc = await getDoc(doc(db, "hospitals", contractData.hospitalId));
+      const hospitalName = hospitalDoc.exists() ? hospitalDoc.data().name : "Hospital Desconhecido";
+
+      const newRecordData = {
+        contractId: contractId,
+        shiftRequirementId: contractData.shiftRequirementId,
+        doctorId: doctorId,
+        hospitalId: contractData.hospitalId,
+        hospitalName: hospitalName,
+        shiftDate: contractData.shiftDate, // Deve ser um Timestamp
+        expectedStartTime: contractData.startTime,
+        expectedEndTime: contractData.endTime,
+        status: 'SCHEDULED',
+        createdAt: serverTimestamp()
+      };
+      
+      batch.set(checkinRecordRef, newRecordData);
+      
+      // Adiciona o novo registro à lista que será retornada para a UI
+      recordsToReturn.push({ id: contractId, ...newRecordData } as CheckinRecord);
+
+    } else {
+      // 4. Se já existe, apenas o adicionamos à lista de retorno, se o status for relevante.
+      const existingRecord = checkinRecordSnap.data();
+      if (existingRecord.status === 'SCHEDULED' || existingRecord.status === 'CHECKED_IN') {
+        recordsToReturn.push({ id: checkinRecordSnap.id, ...existingRecord } as CheckinRecord);
+      }
+    }
+  }
+
+  // 5. Executa a criação de todos os novos registros de uma vez.
+  await batch.commit();
+  console.log(`[getActiveShiftsForCheckin] Processo finalizado. Retornando ${recordsToReturn.length} registros.`);
+  
+  // Ordena por data para exibir na ordem correta na UI
+  return recordsToReturn.sort((a, b) => a.shiftDate.toMillis() - b.shiftDate.toMillis());
 };
+
 
 // Função para realizar o check-in
 export const performCheckin = async (
-  recordId: string, // ID do CheckinRecord ou da Alocação
+  recordId: string,
   latitude: number,
   longitude: number,
-  photoUrl?: string // Opcional para leitura facial
+  photoUrl?: string 
 ): Promise<void> => {
-  const currentUser = auth.currentUser;
-  if (!currentUser) throw new Error("Usuário não autenticado.");
+  if (!auth.currentUser) throw new Error("Usuário não autenticado.");
+  
+  console.log(`[performCheckin] Realizando check-in para o registro: ${recordId}`);
+  const recordRef = doc(db, "checkinRecords", recordId);
 
-  console.log(`[performCheckin] Médico ${currentUser.uid} fazendo check-in para registro ${recordId}`);
-  const recordRef = doc(db, "checkinRecords", recordId); // Ajuste a coleção se necessário
-
-  // TODO: Validações (se o registro pertence ao médico, se o status é 'SCHEDULED', se está dentro do horário permitido para check-in)
-
-  try {
-    await updateDoc(recordRef, {
-      status: 'CHECKED_IN',
-      checkinAt: serverTimestamp(),
-      checkinLatitude: latitude,
-      checkinLongitude: longitude,
-      ...(photoUrl && { checkinPhotoUrl: photoUrl }), // Adiciona foto se fornecida
-      updatedAt: serverTimestamp()
-    });
-    console.log(`[performCheckin] Check-in realizado para ${recordId}.`);
-  } catch (error) {
-    console.error(`[performCheckin] Erro ao realizar check-in para ${recordId}:`, error);
-    throw error;
-  }
+  // TODO: Adicionar validações de segurança no futuro (regras do Firestore)
+  await updateDoc(recordRef, {
+    status: 'CHECKED_IN',
+    checkinAt: serverTimestamp(),
+    checkinLatitude: latitude,
+    checkinLongitude: longitude,
+    ...(photoUrl && { checkinPhotoUrl: photoUrl }),
+    updatedAt: serverTimestamp()
+  });
+  console.log(`[performCheckin] Check-in para ${recordId} concluído.`);
 };
+
 
 // Função para realizar o check-out
 export const performCheckout = async (
@@ -152,26 +157,19 @@ export const performCheckout = async (
   longitude: number,
   photoUrl?: string
 ): Promise<void> => {
-  const currentUser = auth.currentUser;
-  if (!currentUser) throw new Error("Usuário não autenticado.");
+  if (!auth.currentUser) throw new Error("Usuário não autenticado.");
 
-  console.log(`[performCheckout] Médico ${currentUser.uid} fazendo check-out para registro ${recordId}`);
-  const recordRef = doc(db, "checkinRecords", recordId); // Ajuste a coleção
+  console.log(`[performCheckout] Realizando check-out para o registro: ${recordId}`);
+  const recordRef = doc(db, "checkinRecords", recordId);
 
-  // TODO: Validações (se o status é 'CHECKED_IN', etc.)
-
-  try {
-    await updateDoc(recordRef, {
-      status: 'CHECKED_OUT',
-      checkoutAt: serverTimestamp(),
-      checkoutLatitude: latitude,
-      checkoutLongitude: longitude,
-      ...(photoUrl && { checkoutPhotoUrl: photoUrl }),
-      updatedAt: serverTimestamp()
-    });
-    console.log(`[performCheckout] Check-out realizado para ${recordId}.`);
-  } catch (error) {
-    console.error(`[performCheckout] Erro ao realizar check-out para ${recordId}:`, error);
-    throw error;
-  }
+  // TODO: Adicionar validações de segurança no futuro (regras do Firestore)
+  await updateDoc(recordRef, {
+    status: 'CHECKED_OUT',
+    checkoutAt: serverTimestamp(),
+    checkoutLatitude: latitude,
+    checkoutLongitude: longitude,
+    ...(photoUrl && { checkoutPhotoUrl: photoUrl }),
+    updatedAt: serverTimestamp()
+  });
+  console.log(`[performCheckout] Check-out para ${recordId} concluído.`);
 };
