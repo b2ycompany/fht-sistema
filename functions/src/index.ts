@@ -9,7 +9,7 @@ import * as admin from "firebase-admin";
 import { logger } from "firebase-functions/v2";
 /* eslint-enable import/no-duplicates */
 import { Change } from "firebase-functions";
-// --- CORREÇÃO: Removendo 'getDocs' e usando apenas o necessário ---
+// --- CORREÇÃO: Removendo importações inválidas e usando apenas o necessário ---
 import {
   DocumentSnapshot,
   FieldValue,
@@ -103,7 +103,6 @@ export const findMatchesOnShiftRequirementWrite = onDocumentWritten(
         const timeSlotId = timeSlotDoc.id;
         const timeSlot = timeSlotDoc.data() as TimeSlotData;
 
-        // --- FILTROS DE COMPATIBILIDADE ---
         if (normalizeString(timeSlot.state) !== normalizedReqState || normalizeString(timeSlot.city) !== normalizedReqCity) continue;
         if (normalizeString(timeSlot.serviceType) !== normalizedReqServiceType) continue;
         if (timeSlot.desiredHourlyRate > requirement.offeredRate) {
