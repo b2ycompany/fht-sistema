@@ -1,63 +1,57 @@
-// app/hospital/profile/edit/page.tsx
+// app/hospital/profile/page.tsx
 "use client";
 
-import React, { useState, useEffect, useCallback, ChangeEvent, ReactNode } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
-import { useToast } from "@/hooks/use-toast";
-import { Loader2, Save, XCircle, AlertTriangle, FileUp, ExternalLink, Building, User } from 'lucide-react';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { useAuth } from '@/components/auth-provider';
-import {
-  getCurrentUserData,
-  updateUserVerificationStatus,
-  type HospitalProfile,
-  type HospitalDocumentsRef,
-  type LegalRepDocumentsRef
-} from "@/lib/auth-service";
-import { uploadFileToStorage } from '@/lib/storage-service';
+import { getCurrentUserData, type HospitalProfile } from "@/lib/auth-service";
+import { Loader2, AlertTriangle, Building, User, Mail, Phone, MapPin, Edit, CheckCircle, Clock } from 'lucide-react';
 import { DOC_LABELS } from '@/lib/constants';
-import { doc, serverTimestamp, updateDoc } from "firebase/firestore";
-import { db } from "@/lib/firebase";
 
 // --- Componentes de Estado ---
-const LoadingState = ({ message = "Carregando..." }: { message?: string }) => ( <div className="flex justify-center items-center h-64"><Loader2 className="h-8 w-8 animate-spin text-blue-600" /><p className="ml-3">{message}</p></div> );
+const LoadingState = () => ( <div className="flex justify-center items-center h-64"><Loader2 className="h-8 w-8 animate-spin text-blue-600" /><p className="ml-3">Carregando perfil...</p></div> );
 const ErrorState = ({ message, onRetry }: { message: string, onRetry: () => void }) => ( <div className="text-center p-6"><p className="text-red-600">{message}</p><Button onClick={onRetry} className="mt-4">Tentar Novamente</Button></div> );
 
-// --- Componente de Upload de Arquivo ---
-const FileUploadField = ({ docKey, label, currentFileUrl, onFileChange }: { docKey: string, label: string, currentFileUrl?: string, onFileChange: (key: string, file: File | null) => void }) => {
-    const [fileName, setFileName] = useState<string | null>(null);
-
-    const handleFileChange = (e: ChangeEvent<HTMLInputElement>) => {
-        const file = e.target.files?.[0] || null;
-        setFileName(file?.name || null);
-        onFileChange(docKey, file);
-    };
-
-    return (
-        <div className="p-3 border rounded-lg bg-gray-50/80">
-            <Label htmlFor={docKey} className="text-sm font-medium text-gray-700">{label}</Label>
-            <div className="flex items-center gap-3 mt-1.5">
-                <Input id={docKey} type="file" onChange={handleFileChange} className="text-xs file:mr-2 file:text-xs file:rounded-md file:border-0 file:bg-slate-100 file:px-2 file:py-1 file:font-medium file:text-slate-700 hover:file:bg-slate-200 cursor-pointer" />
-                {currentFileUrl && (<a href={currentFileUrl} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-600 hover:underline shrink-0 flex items-center gap-1">Ver atual <ExternalLink size={12}/></a>)}
-            </div>
-            {fileName && <p className="text-xs text-green-700 mt-1.5 truncate" title={fileName}>Novo arquivo: {fileName}</p>}
+// --- Componentes de UI ---
+const ProfileField = ({ icon: Icon, label, value }: { icon: React.ElementType, label: string, value?: string | null }) => (
+    <div className="flex items-start gap-3">
+        <Icon className="h-4 w-4 text-gray-500 mt-1 flex-shrink-0" />
+        <div>
+            <p className="text-xs text-gray-500">{label}</p>
+            <p className="text-sm font-medium text-gray-800 break-words">{value || '-'}</p>
         </div>
-    );
-};
+    </div>
+);
 
+const DocumentLink = ({ label, url }: { label: string, url?: string }) => (
+    <div className="flex justify-between items-center text-sm p-2 bg-slate-50 rounded-md border">
+        <span className="text-gray-700">{label.replace('*', '')}</span>
+        {url ? (
+            <a href={url} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline font-medium text-xs">Ver Documento</a>
+        ) : (
+            <span className="text-xs text-gray-400 italic">Não enviado</span>
+        )}
+    </div>
+);
 
-export default function EditHospitalProfilePage() {
+const SectionTitle = ({ icon: Icon, title }: { icon: React.ElementType, title: string }) => (
+    <h3 className="text-lg font-semibold text-gray-800 flex items-center gap-2 mb-4 border-b pb-2">
+        <Icon size={18} className="text-blue-700" />
+        {title}
+    </h3>
+);
+
+// --- Componente Principal ---
+export default function HospitalProfilePage() {
     const { user } = useAuth();
     const router = useRouter();
-    const { toast } = useToast();
-    
+
     const [profile, setProfile] = useState<HospitalProfile | null>(null);
     const [isLoading, setIsLoading] = useState(true);
-    const [isSubmitting, setIsSubmitting] = useState(false);
-    const [filesToUpdate, setFilesToUpdate] = useState<Record<string, File | null>>({});
     const [error, setError] = useState<string | null>(null);
 
     const fetchProfile = useCallback(async () => {
@@ -71,7 +65,7 @@ export default function EditHospitalProfilePage() {
                 setError("Perfil de hospital não encontrado.");
             }
         } catch (err: any) {
-            setError(err.message);
+            setError(err.message || "Ocorreu um erro ao buscar os dados do perfil.");
         } finally {
             setIsLoading(false);
         }
@@ -81,124 +75,104 @@ export default function EditHospitalProfilePage() {
         fetchProfile();
     }, [fetchProfile]);
 
-    const handleFileChange = useCallback((key: string, file: File | null) => {
-        setFilesToUpdate(prev => ({ ...prev, [key]: file }));
-    }, []);
+    if (isLoading) return <LoadingState />;
+    if (error) return <ErrorState message={error} onRetry={fetchProfile} />;
+    if (!profile) return <div className="p-4 text-center">Não foi possível carregar o perfil.</div>;
 
-    const handleSubmit = async (e: React.FormEvent) => {
-        e.preventDefault();
-        if (!user?.uid || !profile) return;
-        if (Object.keys(filesToUpdate).length === 0) {
-            toast({ title: "Nenhuma alteração", description: "Nenhum novo documento foi selecionado." });
-            return;
-        }
+    // Desestruturando para facilitar o acesso
+    const { 
+        companyInfo, 
+        legalRepresentativeInfo, 
+        hospitalDocs, 
+        legalRepDocuments, 
+        documentVerificationStatus, 
+        adminVerificationNotes 
+    } = profile;
 
-        setIsSubmitting(true);
-        try {
-            const uploadedUrls: Record<string, string> = {};
-            for (const key in filesToUpdate) {
-                const file = filesToUpdate[key];
-                if (file) {
-                    const storagePath = `hospital_documents/${user.uid}/${key}_${Date.now()}_${file.name}`;
-                    const downloadURL = await uploadFileToStorage(file, storagePath, () => {});
-                    uploadedUrls[key] = downloadURL;
-                }
-            }
-
-            const newHospitalDocs: Partial<HospitalDocumentsRef> = { ...profile.hospitalDocs };
-            const newLegalRepDocs: Partial<LegalRepDocumentsRef> = { ...profile.legalRepDocuments };
-            
-            Object.keys(uploadedUrls).forEach(key => {
-                if (key in (profile.legalRepDocuments || {})) {
-                    (newLegalRepDocs as any)[key] = uploadedUrls[key];
-                } else {
-                    (newHospitalDocs as any)[key] = uploadedUrls[key];
-                }
-            });
-
-            const userDocRef = doc(db, "users", user.uid);
-            await updateDoc(userDocRef, {
-                hospitalDocs: newHospitalDocs,
-                legalRepDocuments: newLegalRepDocs,
-                updatedAt: serverTimestamp()
-            });
-
-            await updateUserVerificationStatus(user.uid, "PENDING_REVIEW", "Documentos reenviados pelo hospital para nova análise.");
-
-            toast({ title: "Documentos Enviados!", description: "Seu cadastro foi reenviado para análise." });
-            router.push('/hospital/dashboard');
-            
-        } catch (error: any) {
-            toast({ title: "Erro ao Enviar", description: error.message, variant: "destructive" });
-        } finally {
-            setIsSubmitting(false);
+    const VerificationStatusAlert = () => {
+        switch (documentVerificationStatus) {
+            case 'APPROVED':
+                return (
+                    <Alert variant="default" className="bg-green-50 border-green-200 text-green-800">
+                        <CheckCircle className="h-4 w-4" />
+                        <AlertTitle>Cadastro Aprovado</AlertTitle>
+                        <AlertDescription>Seu perfil foi verificado e está tudo certo.</AlertDescription>
+                    </Alert>
+                );
+            case 'PENDING_REVIEW':
+                return (
+                    <Alert className="bg-blue-50 border-blue-200 text-blue-800">
+                        <Clock className="h-4 w-4" />
+                        <AlertTitle>Cadastro em Análise</AlertTitle>
+                        <AlertDescription>Seus dados e documentos estão sendo verificados pela nossa equipe.</AlertDescription>
+                    </Alert>
+                );
+            case 'REJECTED_NEEDS_RESUBMISSION':
+                return (
+                     <Alert variant="destructive">
+                        <AlertTriangle className="h-4 w-4" />
+                        <AlertTitle>Correções Necessárias</AlertTitle>
+                        <AlertDescription className="flex flex-col items-start gap-2">
+                           <p>Encontramos um problema com seus documentos. Por favor, revise as notas do administrador e reenvie o que for necessário.</p>
+                           {adminVerificationNotes && <p className="text-xs font-semibold p-2 bg-red-100 rounded w-full"><strong>Nota do Admin:</strong> {adminVerificationNotes}</p>}
+                           <Button size="sm" onClick={() => router.push('/hospital/profile/edit')} className="mt-2">
+                                <Edit className="mr-2 h-4 w-4"/> Corrigir Documentação
+                           </Button>
+                        </AlertDescription>
+                    </Alert>
+                );
+            default:
+                return null;
         }
     };
     
-    if (isLoading) return <LoadingState />;
-    if (error) return <ErrorState message={error} onRetry={fetchProfile} />;
-    if (!profile) return <div className="p-4 text-center">Perfil não encontrado.</div>;
-
-    const hospitalDocKeys = Object.keys(profile.hospitalDocs || {}) as (keyof HospitalDocumentsRef)[];
-    const legalRepDocKeys = Object.keys(profile.legalRepDocuments || {}) as (keyof LegalRepDocumentsRef)[];
-
     return (
-        <div className="space-y-6 max-w-3xl mx-auto">
-            <h1 className="text-2xl md:text-3xl font-bold tracking-tight text-gray-800">Corrigir Documentação do Hospital</h1>
+        <div className="space-y-8">
+            <h1 className="text-2xl md:text-3xl font-bold tracking-tight text-gray-800">Perfil da Empresa</h1>
             
-            {profile.documentVerificationStatus === 'REJECTED_NEEDS_RESUBMISSION' && profile.adminVerificationNotes && (
-                 <Card className="bg-red-50 border-red-200">
-                    <CardHeader className="flex-row items-center gap-3 space-y-0"><AlertTriangle className="h-6 w-6 text-red-600" /><CardTitle className="text-red-800">Correções Necessárias</CardTitle></CardHeader>
-                    <CardContent><p className="font-semibold">Observações do administrador:</p><p className="text-red-700 whitespace-pre-wrap">{profile.adminVerificationNotes}</p></CardContent>
-                 </Card>
-            )}
+            <VerificationStatusAlert />
 
-            <form onSubmit={handleSubmit}>
-                <Card className="shadow-lg mb-6">
-                    <CardHeader>
-                        <CardTitle className="flex items-center gap-2"><Building size={18}/> Documentos da Empresa</CardTitle>
-                        <CardDescription>Envie novamente os documentos solicitados. Os outros serão mantidos.</CardDescription>
-                    </CardHeader>
-                    <CardContent className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                       {hospitalDocKeys.map(key => (
-                           <FileUploadField 
-                               key={key} 
-                               docKey={key}
-                               label={DOC_LABELS[key] || key}
-                               currentFileUrl={profile.hospitalDocs?.[key]}
-                               onFileChange={handleFileChange}
-                           />
-                       ))}
-                       {hospitalDocKeys.length === 0 && <p className="text-sm text-gray-500 col-span-2">Nenhum documento da empresa foi encontrado.</p>}
-                    </CardContent>
-                </Card>
+            <Card className="shadow-lg">
+                <CardHeader><CardTitle>Informações da Empresa</CardTitle></CardHeader>
+                <CardContent className="grid md:grid-cols-2 gap-x-6 gap-y-4">
+                    <ProfileField icon={Building} label="Razão Social" value={profile.displayName} />
+                    <ProfileField icon={Building} label="CNPJ" value={companyInfo.cnpj} />
+                    {/* --- LINHA CORRIGIDA --- */}
+                    <ProfileField icon={Mail} label="Email de Contato (Login)" value={profile.email} />
+                    <ProfileField icon={Phone} label="Telefone" value={companyInfo.phone} />
+                    <ProfileField icon={MapPin} label="Endereço" value={`${companyInfo.address.street}, ${companyInfo.address.number} - ${companyInfo.address.city}, ${companyInfo.address.state}`} />
+                    <ProfileField icon={Building} label="Inscrição Estadual" value={companyInfo.stateRegistration} />
+                </CardContent>
+            </Card>
+            
+            <Card className="shadow-lg">
+                <CardHeader><CardTitle>Documentos da Empresa</CardTitle></CardHeader>
+                <CardContent className="grid md:grid-cols-2 gap-3">
+                    {Object.keys(DOC_LABELS).filter(key => key in (hospitalDocs || {})).map(key => (
+                        <DocumentLink key={key} label={DOC_LABELS[key]} url={(hospitalDocs as any)?.[key]} />
+                    ))}
+                </CardContent>
+            </Card>
 
-                <Card className="shadow-lg">
-                    <CardHeader>
-                        <CardTitle className="flex items-center gap-2"><User size={18}/> Documentos do Responsável Legal</CardTitle>
-                    </CardHeader>
-                    <CardContent className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                        {legalRepDocKeys.map(key => (
-                           <FileUploadField 
-                               key={key} 
-                               docKey={key}
-                               label={DOC_LABELS[key] || key}
-                               currentFileUrl={profile.legalRepDocuments?.[key]}
-                               onFileChange={handleFileChange}
-                           />
-                       ))}
-                       {legalRepDocKeys.length === 0 && <p className="text-sm text-gray-500 col-span-2">Nenhum documento do responsável foi encontrado.</p>}
-                    </CardContent>
-                </Card>
+            <Card className="shadow-lg">
+                <CardHeader><CardTitle>Responsável Legal</CardTitle></CardHeader>
+                 <CardContent className="grid md:grid-cols-2 gap-x-6 gap-y-4">
+                    <ProfileField icon={User} label="Nome" value={legalRepresentativeInfo.name} />
+                    <ProfileField icon={User} label="CPF" value={legalRepresentativeInfo.cpf} />
+                    <ProfileField icon={User} label="Cargo" value={legalRepresentativeInfo.position} />
+                    <ProfileField icon={Mail} label="Email" value={legalRepresentativeInfo.email} />
+                    <ProfileField icon={Phone} label="Telefone" value={legalRepresentativeInfo.phone} />
+                </CardContent>
+            </Card>
 
-                <CardFooter className="mt-6 flex justify-end gap-3 pt-6 border-t bg-gray-50 -mx-6 -mb-6 px-6 pb-4 rounded-b-lg">
-                    <Button type="button" variant="outline" onClick={() => router.push("/hospital/dashboard")} disabled={isSubmitting}><XCircle className="mr-2 h-4 w-4"/> Cancelar</Button>
-                    <Button type="submit" disabled={isSubmitting} className="bg-blue-600 hover:bg-blue-700 text-white">
-                        {isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FileUp className="mr-2 h-4 w-4" />}
-                        Salvar e Reenviar para Análise
-                    </Button>
-                </CardFooter>
-            </form>
+            <Card className="shadow-lg">
+                <CardHeader><CardTitle>Documentos do Responsável</CardTitle></CardHeader>
+                <CardContent className="grid md:grid-cols-2 gap-3">
+                     {Object.keys(DOC_LABELS).filter(key => key in (legalRepDocuments || {})).map(key => (
+                        <DocumentLink key={key} label={DOC_LABELS[key]} url={(legalRepDocuments as any)?.[key]} />
+                    ))}
+                </CardContent>
+            </Card>
         </div>
     );
 }
