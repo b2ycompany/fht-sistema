@@ -56,8 +56,8 @@ export interface PotentialMatch {
   contractId?: string;
   createdAt: Timestamp;
   updatedAt: Timestamp;
-  shiftCity?: string; // Campo que vem do seu backend
-  shiftState?: string; // Campo que vem do seu backend
+  shiftCity?: string;
+  shiftState?: string;
 }
 
 export const getMatchesForBackofficeReview = async (): Promise<PotentialMatch[]> => {
@@ -107,14 +107,13 @@ export const approveMatchAndProposeToDoctor = async (
     const newProposalData: Omit<ShiftProposal, 'id'> = {
         originalShiftRequirementId: matchData.shiftRequirementId,
         potentialMatchId: matchId,
-        // --- ALTERAÇÃO APLICADA AQUI ---
-        // Adicionando o ID da disponibilidade original para podermos bloqueá-la depois.
         originalTimeSlotId: matchData.timeSlotId, 
         hospitalId: matchData.hospitalId,
         hospitalName: matchData.hospitalName || 'N/A',
         hospitalCity: matchData.shiftCity || 'N/A',
         hospitalState: matchData.shiftState || 'N/A',
         doctorId: matchData.doctorId,
+        doctorName: matchData.doctorName || 'N/A', // <<< ALTERAÇÃO APLICADA AQUI
         shiftDates: [matchData.matchedDate],
         startTime: matchData.shiftRequirementStartTime,
         endTime: matchData.shiftRequirementEndTime,
