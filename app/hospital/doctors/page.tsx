@@ -14,7 +14,7 @@ import {
     Users as UsersIconPageTitle, UserPlus, Edit3, Trash2, Search, Loader2, AlertTriangle, ClipboardList, RotateCcw
 } from "lucide-react";
 import {
-  getManagedDoctorsForHospital,
+  getHospitalDoctors, // <<< NOME CORRIGIDO AQUI
   addOrInviteDoctorToHospital,
   updateManagedDoctor,
   type HospitalManagedDoctor,
@@ -23,15 +23,10 @@ import {
 import { cn } from "@/lib/utils";
 import { auth } from "@/lib/firebase";
 
-// --- COMPONENTES DE ESTADO ---
 const LoadingState = React.memo(({ message = "Carregando..." }: { message?: string }) => ( <div className="flex items-center justify-center py-10 text-sm text-gray-500"><Loader2 className="h-6 w-6 animate-spin mr-2"/>{message}</div> ));
-LoadingState.displayName = 'LoadingState';
 const EmptyState = React.memo(({ message, onActionClick, actionLabel }: { message: string; onActionClick?: () => void; actionLabel?: string; }) => ( <div className="text-center py-10 border-2 border-dashed border-gray-300 rounded-lg"><ClipboardList className="mx-auto h-12 w-12 text-gray-400"/><h3 className="mt-2 text-sm font-semibold text-gray-900">{message}</h3>{onActionClick && actionLabel && (<Button onClick={onActionClick} size="sm" className="mt-4"><UserPlus className="mr-2 h-4 w-4"/>{actionLabel}</Button>)}</div> ));
-EmptyState.displayName = 'EmptyState';
 const ErrorState = React.memo(({ message, onRetry }: { message: string; onRetry?: () => void; }) => ( <div className="text-center py-10 bg-red-50 p-4 rounded-md border border-red-200"><AlertTriangle className="mx-auto h-10 w-10 text-red-400"/><h3 className="mt-2 text-sm font-semibold text-red-700">{message}</h3>{onRetry && <Button variant="destructive" onClick={onRetry} size="sm" className="mt-3"><RotateCcw className="mr-2 h-4 w-4"/>Tentar Novamente</Button>}</div> ));
-ErrorState.displayName = 'ErrorState';
 
-// --- COMPONENTE ITEM DA LISTA ---
 interface DoctorListItemProps {
   doctor: HospitalManagedDoctor;
   onEdit: (doctor: HospitalManagedDoctor) => void;
@@ -77,25 +72,16 @@ const DoctorListItem: React.FC<DoctorListItemProps> = ({ doctor, onEdit }) => {
     </Card>
   );
 };
-DoctorListItem.displayName = "DoctorListItem";
 
-// --- COMPONENTE DO MODAL/FORMULÁRIO ---
 interface DoctorFormDialogProps {
   initialData?: HospitalManagedDoctor | null;
   onFormSubmitted: () => void;
   onClose: () => void;
 }
-
 const DoctorFormDialog: React.FC<DoctorFormDialogProps> = ({ initialData, onFormSubmitted, onClose }) => {
     const { toast } = useToast();
     const isEditing = !!initialData;
-    const [formData, setFormData] = useState({
-        name: initialData?.name || "",
-        crm: initialData?.crm || "",
-        email: initialData?.email || "",
-        phone: initialData?.phone || "",
-        specialties: initialData?.specialties?.join(', ') || "",
-    });
+    const [formData, setFormData] = useState({ name: initialData?.name || "", crm: initialData?.crm || "", email: initialData?.email || "", phone: initialData?.phone || "", specialties: initialData?.specialties?.join(', ') || "", });
     const [isSubmitting, setIsSubmitting] = useState(false);
     const hospitalId = auth.currentUser?.uid;
 
@@ -114,19 +100,11 @@ const DoctorFormDialog: React.FC<DoctorFormDialogProps> = ({ initialData, onForm
 
         try {
             if (isEditing && initialData) {
-                const updatePayload: Partial<HospitalManagedDoctor> = {
-                   name: formData.name.trim(), crm: formData.crm.trim(),
-                   email: formData.email.trim() || undefined, phone: formData.phone.trim() || undefined,
-                   specialties: specialtiesArray,
-                };
+                const updatePayload: Partial<HospitalManagedDoctor> = { name: formData.name.trim(), crm: formData.crm.trim(), email: formData.email.trim() || undefined, phone: formData.phone.trim() || undefined, specialties: specialtiesArray, };
                 await updateManagedDoctor(hospitalId, initialData.id, updatePayload);
                 toast({ title: "Médico Atualizado!", variant: "default" });
             } else {
-                const addPayload: AddDoctorToHospitalPayload = {
-                   name: formData.name.trim(), crm: formData.crm.trim(),
-                   email: formData.email.trim() || undefined, phone: formData.phone.trim() || undefined,
-                   specialties: specialtiesArray, source: 'EXTERNAL', // Sempre externo neste formulário
-                };
+                const addPayload: AddDoctorToHospitalPayload = { name: formData.name.trim(), crm: formData.crm.trim(), email: formData.email.trim() || undefined, phone: formData.phone.trim() || undefined, specialties: specialtiesArray, source: 'EXTERNAL', };
                 await addOrInviteDoctorToHospital(hospitalId, addPayload);
                 toast({ title: "Médico Externo Adicionado!", variant: "default" });
             }
@@ -140,32 +118,19 @@ const DoctorFormDialog: React.FC<DoctorFormDialogProps> = ({ initialData, onForm
 
     return (
         <DialogContent className="sm:max-w-lg">
-            <DialogHeader>
-                <DialogTitle>{isEditing ? "Editar Médico" : "Cadastrar Médico Externo"}</DialogTitle>
-                <DialogDescription>
-                    {isEditing ? "Atualize os dados do médico." : "Preencha os dados para adicionar um médico à sua gestão."}
-                </DialogDescription>
-            </DialogHeader>
+            <DialogHeader><DialogTitle>{isEditing ? "Editar Médico" : "Cadastrar Médico Externo"}</DialogTitle><DialogDescription>{isEditing ? "Atualize os dados do médico." : "Preencha os dados para adicionar um médico à sua gestão."}</DialogDescription></DialogHeader>
             <form onSubmit={handleSubmit} className="space-y-4 py-4">
                 <div className="space-y-1.5"><Label htmlFor="name">Nome Completo*</Label><Input id="name" name="name" value={formData.name} onChange={handleInputChange} required /></div>
                 <div className="space-y-1.5"><Label htmlFor="crm">CRM*</Label><Input id="crm" name="crm" value={formData.crm} onChange={handleInputChange} required placeholder="123456SP" /></div>
                 <div className="space-y-1.5"><Label htmlFor="email">Email</Label><Input id="email" name="email" type="email" value={formData.email} onChange={handleInputChange} /></div>
                 <div className="space-y-1.5"><Label htmlFor="phone">Telefone</Label><Input id="phone" name="phone" value={formData.phone} onChange={handleInputChange} /></div>
                 <div className="space-y-1.5"><Label htmlFor="specialties">Especialidades</Label><Input id="specialties" name="specialties" value={formData.specialties} onChange={handleInputChange} placeholder="Cardiologia, Pediatria..." /><p className="text-xs text-muted-foreground">Separe por vírgulas.</p></div>
-                <DialogFooter className="pt-4">
-                    <Button type="button" variant="outline" onClick={onClose}>Cancelar</Button>
-                    <Button type="submit" disabled={isSubmitting}>
-                        {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                        {isEditing ? "Salvar Alterações" : "Adicionar Médico"}
-                    </Button>
-                </DialogFooter>
+                <DialogFooter className="pt-4"><Button type="button" variant="outline" onClick={onClose}>Cancelar</Button><Button type="submit" disabled={isSubmitting}>{isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}{isEditing ? "Salvar Alterações" : "Adicionar Médico"}</Button></DialogFooter>
             </form>
         </DialogContent>
     );
 };
-DoctorFormDialog.displayName = "DoctorFormDialog";
 
-// --- PÁGINA PRINCIPAL ---
 export default function HospitalDoctorsPage() {
     const [doctors, setDoctors] = useState<HospitalManagedDoctor[]>([]);
     const [isLoading, setIsLoading] = useState(true);
@@ -177,7 +142,8 @@ export default function HospitalDoctorsPage() {
     const fetchDoctors = useCallback(async () => {
         setIsLoading(true); setError(null);
         try {
-            const data = await getManagedDoctorsForHospital();
+            // --- NOME CORRIGIDO AQUI ---
+            const data = await getHospitalDoctors();
             setDoctors(data);
         } catch (err: any) {
             setError(err.message || "Falha ao carregar médicos.");
@@ -204,38 +170,16 @@ export default function HospitalDoctorsPage() {
     return (
         <div className="space-y-6">
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-                <h1 className="text-2xl md:text-3xl font-bold tracking-tight text-gray-800 flex items-center gap-2">
-                    <UsersIconPageTitle size={28} /> Gestão de Médicos
-                </h1>
-                <Dialog open={isFormOpen} onOpenChange={setIsFormOpen}>
-                    <DialogTrigger asChild>
-                        <Button size="sm" onClick={handleAddDoctor}>
-                            <UserPlus className="mr-2 h-4 w-4" /> Adicionar Médico
-                        </Button>
-                    </DialogTrigger>
-                    <DoctorFormDialog key={editingDoctor ? editingDoctor.id : 'new'} initialData={editingDoctor} onFormSubmitted={onFormSubmitted} onClose={onDialogClose} />
-                </Dialog>
+                <h1 className="text-2xl md:text-3xl font-bold tracking-tight text-gray-800 flex items-center gap-2"><UsersIconPageTitle size={28} /> Gestão de Médicos</h1>
+                <Dialog open={isFormOpen} onOpenChange={setIsFormOpen}><DialogTrigger asChild><Button size="sm" onClick={handleAddDoctor}><UserPlus className="mr-2 h-4 w-4" /> Adicionar Médico</Button></DialogTrigger><DoctorFormDialog key={editingDoctor ? editingDoctor.id : 'new'} initialData={editingDoctor} onFormSubmitted={onFormSubmitted} onClose={onDialogClose} /></Dialog>
             </div>
-
-            <div className="relative">
-                <Input type="search" placeholder="Buscar por nome, CRM ou especialidade..." className="pl-10" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
-            </div>
-
+            <div className="relative"><Input type="search" placeholder="Buscar por nome, CRM ou especialidade..." className="pl-10" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} /><Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" /></div>
             {isLoading && <LoadingState message="Buscando médicos..." />}
             {!isLoading && error && <ErrorState message={error} onRetry={fetchDoctors} />}
-            {!isLoading && !error && filteredDoctors.length === 0 && (
-                <EmptyState 
-                    message={searchTerm ? "Nenhum médico encontrado com sua busca." : "Nenhum médico cadastrado ou associado."}
-                    actionLabel="Adicionar seu primeiro médico"
-                    onActionClick={handleAddDoctor}
-                />
-            )}
+            {!isLoading && !error && filteredDoctors.length === 0 && (<EmptyState message={searchTerm ? "Nenhum médico encontrado com sua busca." : "Nenhum médico cadastrado ou associado."} actionLabel="Adicionar seu primeiro médico" onActionClick={handleAddDoctor}/>)}
             {!isLoading && !error && filteredDoctors.length > 0 && (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                    {filteredDoctors.map(doctor => (
-                        <DoctorListItem key={doctor.id} doctor={doctor} onEdit={handleEditDoctor} />
-                    ))}
+                    {filteredDoctors.map(doctor => (<DoctorListItem key={doctor.id} doctor={doctor} onEdit={handleEditDoctor} />))}
                 </div>
             )}
         </div>

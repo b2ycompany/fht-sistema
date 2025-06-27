@@ -11,12 +11,13 @@ import {
   serverTimestamp,
   Timestamp,
   orderBy,
-  documentId
+  documentId,
+  setDoc,
+  getDoc
 } from "firebase/firestore";
 import { db, auth } from "./firebase";
 import { getCurrentUserData, type HospitalProfile, type DoctorProfile } from "./auth-service";
 
-// --- TIPOS ESSENCIAIS PARA PLANTÕES ---
 export interface ShiftRequirement {
   id?: string;
   hospitalId: string;
@@ -53,7 +54,6 @@ export type ShiftUpdatePayload = Partial<Omit<ShiftRequirement,
   "publishedByUID" | "publishedByName" | "status" | "dates" 
 >>;
 
-// --- Tipos para o Dashboard do Hospital ---
 export interface HospitalKPIs {
   openShiftsCount: number;
   pendingActionCount: number;
@@ -67,7 +67,6 @@ export interface MonthlyCostData { name: string; valor: number; }
 export interface SpecialtyDemandData { name: string; valor: number; }
 export interface DashboardData { kpis: HospitalKPIs; monthlyCosts: MonthlyCostData[]; specialtyDemand: SpecialtyDemandData[]; }
 
-// --- FUNÇÕES DE SERVIÇO PARA PLANTÕES ---
 export const addShiftRequirement = async ( shiftPayload: ShiftFormPayload ): Promise<string> => {
   const currentUser = auth.currentUser;
   if (!currentUser) throw new Error("Usuário não autenticado.");
@@ -123,7 +122,6 @@ export const deleteShiftRequirement = async (shiftId: string): Promise<void> => 
   } catch (error) { console.error("[SERVICE] Erro ao deletar demanda:", error); throw error; }
 };
 
-// --- FUNÇÃO DO DASHBOARD COM DADOS REAIS ---
 export const getHospitalDashboardData = async (hospitalId: string): Promise<DashboardData> => {
     if (!hospitalId) {
       throw new Error("ID do hospital não fornecido.");
@@ -165,18 +163,17 @@ export const getHospitalDashboardData = async (hospitalId: string): Promise<Dash
       const topSpecialtyDemand = Object.entries(specialtyCount).sort((a, b) => b[1] - a[1])[0]?.[0] || 'Nenhuma';
       const specialtyDemand = Object.entries(specialtyCount).map(([name, value]) => ({ name, valor: value })).sort((a, b) => b.valor - a.valor).slice(0, 6);
   
-      // TODO: Estes KPIs precisam de lógicas e coleções adicionais (ex: 'users', 'contracts')
       const pendingActionCount = 0; 
       const totalDoctorsOnPlatform = 0;
       const fillRateLast30Days = 0;
       const avgTimeToFillHours = 0;
-      const monthlyCosts: MonthlyCostData[] = []; // <<< CORREÇÃO 1: Adicionado tipo explícito
+      const monthlyCosts: MonthlyCostData[] = [];
 
       const kpis: HospitalKPIs = {
         openShiftsCount,
         pendingActionCount,
         totalDoctorsOnPlatform,
-        costLast30Days: totalCostLast30Days, // <<< CORREÇÃO 2: Atribuição explícita
+        costLast30Days: totalCostLast30Days,
         fillRateLast30Days,
         avgTimeToFillHours,
         topSpecialtyDemand,
@@ -194,12 +191,10 @@ export const getHospitalDashboardData = async (hospitalId: string): Promise<Dash
     }
 };
 
-// --- OUTRAS FUNÇÕES DE LISTAGEM ---
-export const getPendingActionShifts = async (): Promise<ShiftRequirement[]> => { /* ... */ return []; };
-export const getConfirmedShiftsForHospital = async (): Promise<ShiftRequirement[]> => { /* ... */ return []; };
-export const getPastShiftsForHospital = async (): Promise<ShiftRequirement[]> => { /* ... */ return []; };
+export const getPendingActionShifts = async (): Promise<ShiftRequirement[]> => { return []; };
+export const getConfirmedShiftsForHospital = async (): Promise<ShiftRequirement[]> => { return []; };
+export const getPastShiftsForHospital = async (): Promise<ShiftRequirement[]> => { return []; };
 
-// --- TIPOS E FUNÇÕES PARA GERENCIAMENTO DE MÉDICOS ---
 export interface HospitalManagedDoctor {
   id: string; 
   name: string;
@@ -211,37 +206,25 @@ export interface HospitalManagedDoctor {
   source: 'PLATFORM' | 'EXTERNAL';
 }
 
-export const getManagedDoctorsForHospital = async (): Promise<HospitalManagedDoctor[]> => {
+// --- FUNÇÃO CORRIGIDA ---
+// Agora esta função se chama 'getHospitalDoctors' para corresponder ao que a UI espera
+export const getHospitalDoctors = async (): Promise<HospitalManagedDoctor[]> => {
     const currentUser = auth.currentUser;
     if (!currentUser) return [];
 
     try {
-        const contractsRef = collection(db, "contracts");
-        const q = query(contractsRef, where("hospitalId", "==", currentUser.uid), where("status", "==", "ACTIVE_SIGNED"));
+        const doctorsRef = collection(db, "users", currentUser.uid, "hospitalDoctors");
+        const q = query(doctorsRef, orderBy("name", "asc"));
+        
         const snapshot = await getDocs(q);
 
         if (snapshot.empty) return [];
 
-        const doctorIds = Array.from(new Set(snapshot.docs.map(doc => doc.data().doctorId)));
-
-        if (doctorIds.length === 0) return [];
-        
-        const doctorsRef = collection(db, "users");
-        const doctorsQuery = query(doctorsRef, where(documentId(), "in", doctorIds));
-        const doctorsSnapshot = await getDocs(doctorsQuery);
-
-        return doctorsSnapshot.docs.map(doc => {
-            const profile = doc.data() as DoctorProfile;
+        return snapshot.docs.map(doc => {
             return {
-                id: profile.uid,
-                name: profile.displayName,
-                crm: profile.professionalCrm,
-                specialties: profile.specialties,
-                email: profile.email,
-                phone: profile.phone,
-                status: 'ACTIVE_PLATFORM',
-                source: 'PLATFORM'
-            };
+                id: doc.id,
+                ...doc.data()
+            } as HospitalManagedDoctor;
         });
     } catch (error) {
         console.error("Erro ao buscar médicos gerenciados:", error);
@@ -267,8 +250,10 @@ export const addOrInviteDoctorToHospital = async (hospitalId: string, doctorData
     return { success: true, message: `Convite simulado para ${doctorData.name}.`};
   } else { 
     const newExternalDoctorId = `ext_${Date.now()}`;
-    console.log(`  Simulando cadastro de médico externo ${doctorData.name} com ID ${newExternalDoctorId}`);
-    return { success: true, message: `Médico externo ${doctorData.name} cadastrado (mock).`, doctorId: newExternalDoctorId };
+    const hospitalDoctorRef = doc(collection(db, 'users', hospitalId, 'hospitalDoctors'), newExternalDoctorId);
+    await setDoc(hospitalDoctorRef, { ...doctorData, status: 'ACTIVE_EXTERNAL' });
+    console.log(`  Médico externo ${doctorData.name} cadastrado com ID ${newExternalDoctorId}`);
+    return { success: true, message: `Médico externo ${doctorData.name} cadastrado.`, doctorId: newExternalDoctorId };
   }
 };
 

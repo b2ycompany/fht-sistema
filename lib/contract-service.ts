@@ -12,64 +12,62 @@ import {
   Timestamp,
   orderBy,
   runTransaction,
-  writeBatch,
   getDoc
 } from "firebase/firestore";
 import { db, auth } from "./firebase";
 import { type ShiftProposal } from "./proposal-service";
 import { type PotentialMatch } from "./match-service";
+import { type DoctorProfile } from "./auth-service";
 
 export interface Contract {
-  id: string;
-  proposalId: string;
-  shiftRequirementId: string;
-  timeSlotId: string;
-  doctorId: string;
-  hospitalId: string;
-  shiftDetails: {
-    hospitalName: string;
-    doctorName: string;
-    shiftDate: Timestamp;
-    startTime: string;
-    endTime: string;
-    isOvernight: boolean;
-    serviceType: string;
-    specialties: string[];
-    locationCity: string;
-    locationState: string;
-  };
-  financials: {
-    ratePaidByHospital: number;
-    rateReceivedByDoctor: number;
-    platformMargin: number;
-  };
-  status: 'ACTIVE' | 'COMPLETED' | 'CANCELLED';
-  signedByDoctorAt: Timestamp;
-  signedByHospitalAt: Timestamp;
-  createdAt: Timestamp;
-  updatedAt: Timestamp;
+  id: string; proposalId: string; shiftRequirementId: string; doctorId: string; hospitalId: string; hospitalName: string; doctorName: string;
+  shiftDates: Timestamp[]; startTime: string; endTime: string; isOvernight: boolean; serviceType: string; specialties: string[];
+  locationCity: string; locationState: string; contractedRate: number; contractDocumentUrl?: string; contractTermsPreview?: string;
+  status: 'PENDING_DOCTOR_SIGNATURE' | 'PENDING_HOSPITAL_SIGNATURE' | 'ACTIVE_SIGNED' | 'CANCELLED' | 'COMPLETED' | 'REJECTED';
+  doctorSignature?: { signedAt: Timestamp; ipAddress?: string; };
+  hospitalSignature?: { signedAt: Timestamp; signedByUID: string; };
+  createdAt: Timestamp; updatedAt: Timestamp;
 }
 
-// Suas funções originais getContractsForDoctor e signContractByDoctor permanecem aqui
-export const getContractsForDoctor = async (statuses: string[]): Promise<any[]> => { /* ... seu código original ... */ return []; };
-export const signContractByDoctor = async (contractId: string): Promise<void> => { /* ... seu código original ... */ };
+export const getContractsForDoctor = async (statuses: Contract['status'][]): Promise<Contract[]> => {
+  const currentUser = auth.currentUser;
+  if (!currentUser) { console.warn("[getContractsForDoctor] Usuário não autenticado."); return []; }
+  if (!statuses || statuses.length === 0) { console.warn("[getContractsForDoctor] Nenhum status fornecido."); return []; }
+  try {
+    const contractsRef = collection(db, "contracts");
+    const q = query(contractsRef, where("doctorId", "==", currentUser.uid), where("status", "in", statuses), orderBy("createdAt", "desc"));
+    const querySnapshot = await getDocs(q);
+    const contracts: Contract[] = [];
+    querySnapshot.forEach((docSnap) => { contracts.push({ id: docSnap.id, ...docSnap.data() } as Contract); });
+    return contracts;
+  } catch(error) {
+    console.error("[getContractsForDoctor] Erro:", error);
+    throw new Error("Falha ao carregar os contratos.");
+  }
+};
 
+export const signContractByDoctor = async (contractId: string): Promise<void> => {
+  const currentUser = auth.currentUser;
+  if (!currentUser) throw new Error("Usuário não autenticado.");
+  const contractRef = doc(db, "contracts", contractId);
+  try {
+    await updateDoc(contractRef, { status: 'PENDING_HOSPITAL_SIGNATURE', doctorSignature: { signedAt: serverTimestamp() }, updatedAt: serverTimestamp() });
+  } catch (error) {
+    console.error(`[signContractByDoctor] Erro ao assinar ${contractId}:`, error);
+    throw error;
+  }
+};
 
 export const getPendingContractsForHospital = async (hospitalId: string): Promise<ShiftProposal[]> => {
   if (!hospitalId) return [];
   const proposalsRef = collection(db, "shiftProposals");
-  const q = query(
-    proposalsRef,
-    where("hospitalId", "==", hospitalId),
-    where("status", "==", "DOCTOR_ACCEPTED_PENDING_CONTRACT"),
-    orderBy("updatedAt", "desc")
-  );
+  const q = query(proposalsRef, where("hospitalId", "==", hospitalId), where("status", "==", "DOCTOR_ACCEPTED_PENDING_CONTRACT"), orderBy("updatedAt", "desc"));
   try {
     const querySnapshot = await getDocs(q);
     return querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as ShiftProposal));
   } catch (error) {
-    console.error("Erro ao buscar contratos pendentes para o hospital:", error);
-    throw new Error("Não foi possível carregar os contratos pendentes. Verifique se o índice do Firestore foi criado.");
+    console.error("Erro ao buscar contratos pendentes:", error);
+    throw new Error("Não foi possível carregar os contratos pendentes.");
   }
 };
 
@@ -86,85 +84,33 @@ export const signContractByHospital = async (proposalId: string): Promise<void> 
                 throw new Error("Este contrato não está mais aguardando sua assinatura.");
             }
             const proposalData = proposalDoc.data() as ShiftProposal;
-            const matchId = proposalData.potentialMatchId;
-            if (!matchId) throw new Error("ID do Match original não encontrado na proposta.");
+            const doctorId = proposalData.doctorId;
 
-            const matchRef = doc(db, "potentialMatches", matchId);
-            const matchDoc = await transaction.get(matchRef);
-            if (!matchDoc.exists()) throw new Error("Match original não encontrado.");
-            const matchData = matchDoc.data() as PotentialMatch;
+            const doctorRef = doc(db, "users", doctorId);
+            const doctorDoc = await transaction.get(doctorRef);
+            if (!doctorDoc.exists()) throw new Error("Perfil do médico não encontrado.");
+            const doctorData = doctorDoc.data() as DoctorProfile;
+            
+            const shiftRequirementRef = doc(db, "shiftRequirements", proposalData.originalShiftRequirementId);
 
-            const newContractRef = doc(collection(db, "contracts"));
-            const finalContractData: Omit<Contract, 'id'> = {
-                proposalId: proposalId,
-                shiftRequirementId: proposalData.originalShiftRequirementId,
-                timeSlotId: proposalData.originalTimeSlotId || 'N/A',
-                doctorId: proposalData.doctorId,
-                hospitalId: proposalData.hospitalId,
-                shiftDetails: {
-                    hospitalName: proposalData.hospitalName,
-                    doctorName: proposalData.doctorName || 'N/A',
-                    shiftDate: proposalData.shiftDates[0],
-                    startTime: proposalData.startTime,
-                    endTime: proposalData.endTime,
-                    isOvernight: proposalData.isOvernight,
-                    serviceType: proposalData.serviceType,
-                    specialties: proposalData.specialties,
-                    locationCity: proposalData.hospitalCity,
-                    locationState: proposalData.hospitalState,
-                },
-                financials: {
-                    ratePaidByHospital: matchData.offeredRateByHospital,
-                    rateReceivedByDoctor: proposalData.offeredRateToDoctor,
-                    platformMargin: matchData.offeredRateByHospital - proposalData.offeredRateToDoctor,
-                },
-                status: 'ACTIVE',
-                signedByDoctorAt: proposalData.doctorResponseAt || Timestamp.now(),
-                signedByHospitalAt: serverTimestamp() as Timestamp,
-                createdAt: serverTimestamp() as Timestamp,
-                updatedAt: serverTimestamp() as Timestamp,
-            };
-            transaction.set(newContractRef, finalContractData);
+            transaction.update(proposalRef, { status: 'CONTRACT_SIGNED_BY_HOSPITAL', updatedAt: serverTimestamp() });
+            
+            transaction.update(shiftRequirementRef, { status: 'CONFIRMED', updatedAt: serverTimestamp() });
 
-            transaction.update(proposalRef, {
-                status: 'CONTRACT_SENT_TO_HOSPITAL',
-                contractId: newContractRef.id,
-                updatedAt: serverTimestamp()
-            });
-
-            const hospitalRef = doc(db, "users", hospitalId);
-            const contractedDoctorRef = doc(collection(hospitalRef, 'contractedDoctors'), proposalData.doctorId);
-            transaction.set(contractedDoctorRef, {
-                doctorId: proposalData.doctorId,
-                doctorName: proposalData.doctorName || "N/A",
-                contractId: newContractRef.id,
-                shiftDate: proposalData.shiftDates[0],
-                shiftStartTime: proposalData.startTime,
-                shiftEndTime: proposalData.endTime,
-                serviceType: proposalData.serviceType,
-                specialties: proposalData.specialties,
-                contractedAt: serverTimestamp()
+            const hospitalDoctorRef = doc(collection(db, 'users', hospitalId, 'hospitalDoctors'), doctorId);
+            transaction.set(hospitalDoctorRef, {
+                name: doctorData.displayName,
+                crm: doctorData.professionalCrm,
+                email: doctorData.email,
+                phone: doctorData.phone,
+                specialties: doctorData.specialties,
+                status: 'ACTIVE_PLATFORM',
+                source: 'PLATFORM',
+                addedAt: serverTimestamp()
             });
         });
     } catch (error) {
         console.error("Erro na transação de assinatura do hospital:", error);
         throw error;
-    }
-};
-
-// --- NOVIDADE: Função para buscar os médicos já contratados pelo hospital ---
-export const getContractedDoctorsForHospital = async (hospitalId: string): Promise<any[]> => {
-    if (!hospitalId) return [];
-    
-    // Busca na subcoleção 'contractedDoctors' do hospital
-    const contractedDoctorsRef = collection(db, "users", hospitalId, "contractedDoctors");
-    const q = query(contractedDoctorsRef, orderBy("contractedAt", "desc"));
-  
-    try {
-      const querySnapshot = await getDocs(q);
-      return querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-    } catch (error) {
-      console.error("Erro ao buscar médicos contratados:", error);
-      throw new Error("Não foi possível carregar a lista de médicos contratados.");
     }
 };
