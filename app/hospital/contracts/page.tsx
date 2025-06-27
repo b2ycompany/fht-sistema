@@ -11,6 +11,7 @@ import { getPendingContractsForHospital, signContractByHospital } from '@/lib/co
 import type { ShiftProposal } from '@/lib/proposal-service';
 import { formatCurrency } from '@/lib/utils';
 
+// Componente para exibir cada card de contrato pendente
 const ContractItem: React.FC<{ proposal: ShiftProposal, onAction: () => void }> = ({ proposal, onAction }) => {
     const [isProcessing, setIsProcessing] = useState(false);
     const { toast } = useToast();
@@ -20,7 +21,7 @@ const ContractItem: React.FC<{ proposal: ShiftProposal, onAction: () => void }> 
         try {
             await signContractByHospital(proposal.id);
             toast({ title: "Contrato Assinado!", description: `O(A) Dr(a). ${proposal.doctorName} foi adicionado(a) à sua equipe para este plantão.`});
-            onAction();
+            onAction(); // Para remover o card da lista após a ação
         } catch (error: any) {
             toast({ title: "Erro ao assinar", description: error.message, variant: "destructive" });
             setIsProcessing(false);
@@ -49,6 +50,7 @@ const ContractItem: React.FC<{ proposal: ShiftProposal, onAction: () => void }> 
     );
 }
 
+// Componente principal da página de contratos do hospital
 export default function HospitalContractsPage() {
     const { user, loading: authLoading } = useAuth();
     const [contracts, setContracts] = useState<ShiftProposal[]>([]);
@@ -60,6 +62,7 @@ export default function HospitalContractsPage() {
             setIsLoading(true);
             setError(null);
             try {
+                // Esta função busca no 'contract-service' as propostas com o status correto
                 const data = await getPendingContractsForHospital(user.uid);
                 setContracts(data);
             } catch (err: any) {
