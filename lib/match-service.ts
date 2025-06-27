@@ -15,7 +15,6 @@ import {
 import { db, auth } from "./firebase";
 import { type ShiftProposal } from "./proposal-service";
 
-// Interface PotentialMatch (Mantida 100% como no seu arquivo)
 export interface PotentialMatch {
   id: string;
   shiftRequirementId: string;
@@ -57,9 +56,10 @@ export interface PotentialMatch {
   contractId?: string;
   createdAt: Timestamp;
   updatedAt: Timestamp;
+  shiftCity?: string; // Campo que vem do seu backend
+  shiftState?: string; // Campo que vem do seu backend
 }
 
-// --- FUNÇÕES DO SERVIÇO ---
 export const getMatchesForBackofficeReview = async (): Promise<PotentialMatch[]> => {
   try {
     const q = query(
@@ -75,9 +75,6 @@ export const getMatchesForBackofficeReview = async (): Promise<PotentialMatch[]>
   }
 };
 
-/**
- * --- LÓGICA DO FLUXO CORRIGIDA ---
- */
 export const approveMatchAndProposeToDoctor = async (
   matchId: string,
   negotiatedRate: number,
@@ -96,7 +93,6 @@ export const approveMatchAndProposeToDoctor = async (
     }
     const matchData = matchDocSnap.data() as PotentialMatch;
     
-    // Etapa 1: Atualiza o status do match original
     batch.update(matchDocRef, {
       status: "BACKOFFICE_APPROVED_PROPOSED_TO_DOCTOR",
       negotiatedRateForDoctor: negotiatedRate,
@@ -106,16 +102,18 @@ export const approveMatchAndProposeToDoctor = async (
       updatedAt: serverTimestamp(),
     });
 
-    // Etapa 2: Cria a nova proposta na coleção 'shiftProposals'
     const proposalRef = doc(collection(db, "shiftProposals"));
     
     const newProposalData: Omit<ShiftProposal, 'id'> = {
         originalShiftRequirementId: matchData.shiftRequirementId,
         potentialMatchId: matchId,
+        // --- ALTERAÇÃO APLICADA AQUI ---
+        // Adicionando o ID da disponibilidade original para podermos bloqueá-la depois.
+        originalTimeSlotId: matchData.timeSlotId, 
         hospitalId: matchData.hospitalId,
         hospitalName: matchData.hospitalName || 'N/A',
-        hospitalCity: (matchData as any).shiftCity || 'N/A',
-        hospitalState: (matchData as any).shiftState || 'N/A',
+        hospitalCity: matchData.shiftCity || 'N/A',
+        hospitalState: matchData.shiftState || 'N/A',
         doctorId: matchData.doctorId,
         shiftDates: [matchData.matchedDate],
         startTime: matchData.shiftRequirementStartTime,

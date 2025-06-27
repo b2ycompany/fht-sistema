@@ -8,14 +8,17 @@ import {
   updateDoc,
   serverTimestamp,
   Timestamp,
-  orderBy
+  orderBy,
+  runTransaction, // <<< IMPORTANTE: Adicionado para transações
+  getDoc
 } from "firebase/firestore";
 import { db, auth } from "./firebase";
 
 export interface ShiftProposal {
   id: string; 
   originalShiftRequirementId: string;
-  potentialMatchId?: string; // <<< CORREÇÃO: CAMPO ADICIONADO AQUI PARA LIGAR AO MATCH
+  potentialMatchId?: string;
+  originalTimeSlotId?: string; // <<< ALTERAÇÃO: Campo adicionado
   hospitalId: string;
   hospitalName: string;
   hospitalCity: string;
@@ -30,7 +33,9 @@ export interface ShiftProposal {
   offeredRateToDoctor: number;
   notesFromHospital?: string;
   notesFromBackoffice?: string;
-  status: 'AWAITING_DOCTOR_ACCEPTANCE' | 'DOCTOR_ACCEPTED' | 'DOCTOR_REJECTED' | 'EXPIRED';
+  status: 
+    | 'AWAITING_DOCTOR_ACCEPTANCE' | 'DOCTOR_ACCEPTED_PENDING_CONTRACT' | 'DOCTOR_REJECTED' 
+    | 'CONTRACT_SENT_TO_HOSPITAL' | 'EXPIRED'; // <<< ALTERAÇÃO: Status mais descritivo
   deadlineForDoctorResponse?: Timestamp;
   doctorResponseAt?: Timestamp;
   doctorRejectionReason?: string;
@@ -38,9 +43,6 @@ export interface ShiftProposal {
   updatedAt: Timestamp;
 }
 
-// O restante do seu arquivo permanece o mesmo, mas vou incluí-lo para garantir a integridade.
-
-// Função para buscar propostas pendentes para o médico logado
 export const getPendingProposalsForDoctor = async (): Promise<ShiftProposal[]> => {
   const currentUser = auth.currentUser;
   if (!currentUser) {
@@ -67,19 +69,42 @@ export const getPendingProposalsForDoctor = async (): Promise<ShiftProposal[]> =
   }
 };
 
-// Função para o médico aceitar uma proposta
-export const acceptProposal = async (proposalId: string): Promise<void> => {
+// --- LÓGICA ATUALIZADA ---
+// Função para o médico aceitar uma proposta usando uma transação
+export const acceptProposal = async (proposalId: string, timeSlotId: string): Promise<void> => {
   const currentUser = auth.currentUser;
   if (!currentUser) throw new Error("Usuário não autenticado.");
+  if (!timeSlotId) throw new Error("ID da disponibilidade original não fornecido.");
 
   const proposalRef = doc(db, "shiftProposals", proposalId);
+  const timeSlotRef = doc(db, "doctorTimeSlots", timeSlotId);
+
   try {
-    await updateDoc(proposalRef, {
-      status: 'DOCTOR_ACCEPTED',
-      doctorResponseAt: serverTimestamp()
+    await runTransaction(db, async (transaction) => {
+      const proposalDoc = await transaction.get(proposalRef);
+      if (!proposalDoc.exists() || proposalDoc.data().status !== 'AWAITING_DOCTOR_ACCEPTANCE') {
+        throw new Error("Esta proposta não está mais disponível.");
+      }
+
+      // 1. Atualiza o status da Proposta
+      transaction.update(proposalRef, {
+        status: 'DOCTOR_ACCEPTED_PENDING_CONTRACT',
+        doctorResponseAt: serverTimestamp()
+      });
+
+      // 2. Atualiza a Disponibilidade original do Médico para "BOOKED"
+      transaction.update(timeSlotRef, {
+        status: 'BOOKED',
+        updatedAt: serverTimestamp()
+      });
+
+      // PONTO DE INTEGRAÇÃO FUTURO:
+      // Aqui você chamaria a API do serviço de assinatura de contrato
+      // Ex: await Clicksign.createContract(proposalDoc.data());
     });
+    console.log(`Proposta ${proposalId} aceita e disponibilidade ${timeSlotId} reservada.`);
   } catch (error) {
-    console.error(`[acceptProposal] Erro ao aceitar proposta ${proposalId}:`, error);
+    console.error(`[acceptProposal] Erro na transação para aceitar proposta ${proposalId}:`, error);
     throw error;
   }
 };

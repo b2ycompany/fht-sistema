@@ -3,7 +3,6 @@
 
 import React, { useState, useEffect, useCallback } from "react";
 import { Button } from "@/components/ui/button";
-// import type { VariantProps } from "class-variance-authority"; // Não usado diretamente aqui
 import { Card, CardContent, CardDescription, CardHeader, CardFooter, CardTitle } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
 import { Timestamp } from "firebase/firestore";
@@ -11,8 +10,8 @@ import {
   AlertTriangle, CheckCircle, XCircle, CalendarDays, Clock, MapPinIcon, DollarSign, Briefcase, Info, ChevronDown, ChevronUp, MessageSquare,
   Loader2,
   ClipboardList,
-  AlertCircle, // <<< ADICIONADO
-  RotateCcw   // <<< ADICIONADO
+  AlertCircle,
+  RotateCcw
 } from "lucide-react";
 import {
   getPendingProposalsForDoctor,
@@ -23,7 +22,6 @@ import {
 import { cn, formatCurrency } from "@/lib/utils";
 import {
     AlertDialog,
-    // AlertDialogAction, // Não usado diretamente
     AlertDialogCancel,
     AlertDialogContent,
     AlertDialogDescription,
@@ -35,43 +33,17 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 
-// --- COMPONENTES DE ESTADO (Loading, Empty, Error) ---
-const LoadingState = React.memo(({ message = "Carregando dados..." }: { message?: string }) => (
-    <div className="flex flex-col justify-center items-center text-center py-10 min-h-[150px] w-full">
-        <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
-        <span className="ml-3 text-sm text-gray-600 mt-3">{message}</span>
-    </div>
-));
+const LoadingState = React.memo(({ message = "Carregando dados..." }: { message?: string }) => ( <div className="flex flex-col justify-center items-center text-center py-10 min-h-[150px] w-full"><Loader2 className="h-8 w-8 animate-spin text-blue-600" /><span className="ml-3 text-sm text-gray-600 mt-3">{message}</span></div> ));
 LoadingState.displayName = 'LoadingState';
-
-const EmptyState = React.memo(({ message, actionButton }: { message: string; actionButton?: React.ReactNode }) => (
-    <div className="text-center text-sm text-gray-500 py-10 min-h-[150px] flex flex-col items-center justify-center bg-gray-50/70 rounded-md border border-dashed border-gray-300 w-full">
-        <ClipboardList className="w-12 h-12 text-gray-400 mb-4"/>
-        <p className="font-medium text-gray-600 mb-1">Nada por aqui ainda!</p>
-        <p className="max-w-xs">{message}</p>
-        {actionButton && <div className="mt-4">{actionButton}</div>}
-    </div>
-));
+const EmptyState = React.memo(({ message, actionButton }: { message: string; actionButton?: React.ReactNode }) => ( <div className="text-center text-sm text-gray-500 py-10 min-h-[150px] flex flex-col items-center justify-center bg-gray-50/70 rounded-md border border-dashed border-gray-300 w-full"><ClipboardList className="w-12 h-12 text-gray-400 mb-4"/><p className="font-medium text-gray-600 mb-1">Nada por aqui ainda!</p><p className="max-w-xs">{message}</p>{actionButton && <div className="mt-4">{actionButton}</div>}</div> ));
 EmptyState.displayName = 'EmptyState';
-
-const ErrorState = React.memo(({ message, onRetry }: { message: string; onRetry?: () => void }) => (
-    <div className="text-center text-sm text-red-600 py-10 min-h-[150px] flex flex-col items-center justify-center bg-red-50/70 rounded-md border border-dashed border-red-300 w-full">
-        <AlertCircle className="w-12 h-12 text-red-400 mb-4"/>
-        <p className="font-semibold text-red-700 mb-1 text-base">Oops! Algo deu errado.</p>
-        <p className="max-w-md text-red-600">{message || "Não foi possível carregar os dados. Por favor, tente novamente."}</p>
-        {onRetry && (
-            <Button variant="destructive" size="sm" onClick={onRetry} className="mt-4 bg-red-600 hover:bg-red-700 text-white">
-                <RotateCcw className="mr-2 h-4 w-4" /> Tentar Novamente
-            </Button>
-        )}
-    </div>
-));
+const ErrorState = React.memo(({ message, onRetry }: { message: string; onRetry?: () => void }) => ( <div className="text-center text-sm text-red-600 py-10 min-h-[150px] flex flex-col items-center justify-center bg-red-50/70 rounded-md border border-dashed border-red-300 w-full"><AlertCircle className="w-12 h-12 text-red-400 mb-4"/><p className="font-semibold text-red-700 mb-1 text-base">Oops! Algo deu errado.</p><p className="max-w-md text-red-600">{message || "Não foi possível carregar os dados. Por favor, tente novamente."}</p>{onRetry && ( <Button variant="destructive" size="sm" onClick={onRetry} className="mt-4 bg-red-600 hover:bg-red-700 text-white"><RotateCcw className="mr-2 h-4 w-4" /> Tentar Novamente</Button> )}</div> ));
 ErrorState.displayName = 'ErrorState';
 
 
 interface ProposalListItemProps {
   proposal: ShiftProposal;
-  onAccept: (proposalId: string) => Promise<void>;
+  onAccept: (proposalId: string, timeSlotId: string) => Promise<void>; // <<< ALTERAÇÃO
   onReject: (proposalId: string, reason?: string) => Promise<void>;
 }
 
@@ -80,22 +52,24 @@ const ProposalListItem: React.FC<ProposalListItemProps> = ({ proposal, onAccept,
   const [isAccepting, setIsAccepting] = useState(false);
   const [isRejecting, setIsRejecting] = useState(false);
   const [rejectionReason, setRejectionReason] = useState("");
+  const { toast } = useToast();
 
   const firstDate = proposal.shiftDates?.[0] instanceof Timestamp ? proposal.shiftDates[0].toDate() : null;
   const displayDates = proposal.shiftDates?.map(ts => ts.toDate().toLocaleDateString('pt-BR', { day: '2-digit', month: 'short'})).join(', ') || "N/A";
 
   const handleAccept = async () => {
+    // --- LÓGICA ATUALIZADA ---
+    if (!proposal.originalTimeSlotId) {
+        toast({ title: "Erro de Dados", description: "Não foi possível encontrar a referência da sua disponibilidade original. Contacte o suporte.", variant: "destructive"});
+        return;
+    }
     setIsAccepting(true);
-    await onAccept(proposal.id);
-    // O estado isAccepting será resetado se o componente for removido da lista após aceitar
-    // Se não for removido imediatamente, setar setIsAccepting(false) no final.
-    // Como fetchProposals() é chamado, o componente pode re-renderizar ou sumir.
+    await onAccept(proposal.id, proposal.originalTimeSlotId);
   };
 
   const handleRejectWithReason = async () => {
     setIsRejecting(true);
     await onReject(proposal.id, rejectionReason);
-    // Similar ao handleAccept, o estado pode ser resetado pela re-renderização.
   };
 
   return (
@@ -103,23 +77,14 @@ const ProposalListItem: React.FC<ProposalListItemProps> = ({ proposal, onAccept,
       <CardHeader className="pb-3 cursor-pointer flex flex-row justify-between items-start" onClick={() => setIsExpanded(!isExpanded)}>
         <div>
           <CardTitle className="text-lg mb-1">{proposal.hospitalName}</CardTitle>
-          <CardDescription className="text-xs flex items-center">
-            <MapPinIcon className="inline h-3 w-3 mr-1 text-gray-500" />{proposal.hospitalCity}, {proposal.hospitalState}
-          </CardDescription>
+          <CardDescription className="text-xs flex items-center"><MapPinIcon className="inline h-3 w-3 mr-1 text-gray-500" />{proposal.hospitalCity}, {proposal.hospitalState}</CardDescription>
         </div>
         {isExpanded ? <ChevronUp size={20} className="text-gray-500"/> : <ChevronDown size={20} className="text-gray-500"/>}
       </CardHeader>
       
       <CardContent className="text-sm pt-0 pb-3 border-b">
-        <div className="flex items-center mb-1">
-            <CalendarDays className="h-4 w-4 mr-2 text-blue-600" />
-            <span>{displayDates}</span>
-        </div>
-        <div className="flex items-center">
-            <Clock className="h-4 w-4 mr-2 text-blue-600" />
-            <span>{proposal.startTime} - {proposal.endTime}</span>
-            {proposal.isOvernight && <Badge variant="outline" className="ml-2 text-xs">Noturno (Vira o dia)</Badge>}
-        </div>
+        <div className="flex items-center mb-1"><CalendarDays className="h-4 w-4 mr-2 text-blue-600" /><span>{displayDates}</span></div>
+        <div className="flex items-center"><Clock className="h-4 w-4 mr-2 text-blue-600" /><span>{proposal.startTime} - {proposal.endTime}</span>{proposal.isOvernight && <Badge variant="outline" className="ml-2 text-xs">Noturno (Vira o dia)</Badge>}</div>
       </CardContent>
 
       {isExpanded && (
@@ -128,15 +93,7 @@ const ProposalListItem: React.FC<ProposalListItemProps> = ({ proposal, onAccept,
             <div className="flex items-center mb-1"><Briefcase size={14} className="mr-2 text-cyan-600" /><strong>Tipo:</strong><span className="ml-1">{proposal.serviceType.replace(/_/g, ' ')}</span></div>
             <div className="flex items-center mb-1"><DollarSign size={14} className="mr-2 text-green-600" /><strong>Valor Hora Ofertado:</strong><span className="ml-1">{formatCurrency(proposal.offeredRateToDoctor)}</span></div>
             {proposal.specialties && proposal.specialties.length > 0 && (
-              <div className="flex items-start mb-1">
-                <ClipboardList size={14} className="mr-2 mt-0.5 text-purple-600 shrink-0" />
-                <div className="flex-1">
-                    <strong>Especialidades:</strong>
-                    <div className="flex flex-wrap gap-1 mt-0.5">
-                        {proposal.specialties.map(spec => <Badge key={spec} variant="secondary" className="text-xs">{spec}</Badge>)}
-                    </div>
-                </div>
-              </div>
+              <div className="flex items-start mb-1"><ClipboardList size={14} className="mr-2 mt-0.5 text-purple-600 shrink-0" /><div className="flex-1"><strong>Especialidades:</strong><div className="flex flex-wrap gap-1 mt-0.5">{proposal.specialties.map(spec => <Badge key={spec} variant="secondary" className="text-xs">{spec}</Badge>)}</div></div></div>
             )}
             {proposal.notesFromHospital && <div className="flex items-start text-xs text-gray-600"><Info size={14} className="mr-2 mt-0.5 text-gray-500 shrink-0"/><div><strong>Obs. Hospital:</strong> {proposal.notesFromHospital}</div></div>}
             {proposal.notesFromBackoffice && <div className="flex items-start text-xs text-gray-600 mt-1"><Info size={14} className="mr-2 mt-0.5 text-gray-500 shrink-0"/><div><strong>Obs. Plataforma:</strong> {proposal.notesFromBackoffice}</div></div>}
@@ -146,37 +103,14 @@ const ProposalListItem: React.FC<ProposalListItemProps> = ({ proposal, onAccept,
       )}
       <CardFooter className="flex justify-end gap-2 pt-4">
         <AlertDialog>
-            <AlertDialogTrigger asChild>
-                <Button variant="outline" size="sm" disabled={isAccepting || isRejecting}>
-                    <XCircle className="mr-2 h-4 w-4" /> Recusar
-                </Button>
-            </AlertDialogTrigger>
+            <AlertDialogTrigger asChild><Button variant="outline" size="sm" disabled={isAccepting || isRejecting}><XCircle className="mr-2 h-4 w-4" /> Recusar</Button></AlertDialogTrigger>
             <AlertDialogContent>
-                <AlertDialogHeader>
-                    <AlertDialogTitle>Confirmar Recusa da Proposta?</AlertDialogTitle>
-                    <AlertDialogDescription>
-                        Por favor, informe o motivo da recusa (opcional). Esta informação nos ajuda a melhorar as sugestões futuras.
-                    </AlertDialogDescription>
-                </AlertDialogHeader>
-                <Textarea
-                    placeholder="Motivo da recusa (opcional)..."
-                    value={rejectionReason}
-                    onChange={(e) => setRejectionReason(e.target.value)}
-                    className="min-h-[80px]"
-                />
-                <AlertDialogFooter>
-                    <AlertDialogCancel disabled={isRejecting}>Voltar</AlertDialogCancel>
-                    <Button variant="destructive" onClick={handleRejectWithReason} disabled={isRejecting}>
-                        {isRejecting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                        Confirmar Recusa
-                    </Button>
-                </AlertDialogFooter>
+                <AlertDialogHeader><AlertDialogTitle>Confirmar Recusa da Proposta?</AlertDialogTitle><AlertDialogDescription>Por favor, informe o motivo da recusa (opcional). Esta informação nos ajuda a melhorar as sugestões futuras.</AlertDialogDescription></AlertDialogHeader>
+                <Textarea placeholder="Motivo da recusa (opcional)..." value={rejectionReason} onChange={(e) => setRejectionReason(e.target.value)} className="min-h-[80px]"/>
+                <AlertDialogFooter><AlertDialogCancel disabled={isRejecting}>Voltar</AlertDialogCancel><Button variant="destructive" onClick={handleRejectWithReason} disabled={isRejecting}>{isRejecting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Confirmar Recusa</Button></AlertDialogFooter>
             </AlertDialogContent>
         </AlertDialog>
-        <Button onClick={handleAccept} size="sm" className="bg-green-600 hover:bg-green-700" disabled={isAccepting || isRejecting}>
-          {isAccepting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-          <CheckCircle className="mr-2 h-4 w-4" /> Aceitar Proposta
-        </Button>
+        <Button onClick={handleAccept} size="sm" className="bg-green-600 hover:bg-green-700" disabled={isAccepting || isRejecting}>{isAccepting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}<CheckCircle className="mr-2 h-4 w-4" /> Aceitar Proposta</Button>
       </CardFooter>
     </Card>
   );
@@ -210,11 +144,12 @@ export default function DoctorProposalsPage() {
     fetchProposals();
   }, [fetchProposals]);
 
-  const handleAccept = async (proposalId: string) => {
+  // --- LÓGICA ATUALIZADA ---
+  const handleAccept = async (proposalId: string, timeSlotId: string) => {
     try {
-      await acceptProposal(proposalId);
-      toast({ title: "Proposta Aceita!", description: "O hospital será notificado.", variant: "default" });
-      fetchProposals();
+      await acceptProposal(proposalId, timeSlotId);
+      toast({ title: "Proposta Aceita!", description: "Sua disponibilidade foi reservada. O hospital será notificado.", variant: "default" });
+      fetchProposals(); // Atualiza a lista para remover a proposta aceita
     } catch (err: any) {
       toast({ title: "Erro ao Aceitar", description: err.message, variant: "destructive" });
     }
@@ -224,7 +159,7 @@ export default function DoctorProposalsPage() {
     try {
       await rejectProposal(proposalId, reason);
       toast({ title: "Proposta Recusada", variant: "default" });
-      fetchProposals();
+      fetchProposals(); // Atualiza a lista para remover a proposta recusada
     } catch (err: any) {
       toast({ title: "Erro ao Recusar", description: err.message, variant: "destructive" });
     }
@@ -232,26 +167,14 @@ export default function DoctorProposalsPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl md:text-3xl font-bold tracking-tight text-gray-800 flex items-center gap-2">
-            <MessageSquare size={28}/> Propostas Recebidas
-        </h1>
-      </div>
-
+      <div className="flex items-center justify-between"><h1 className="text-2xl md:text-3xl font-bold tracking-tight text-gray-800 flex items-center gap-2"><MessageSquare size={28}/> Propostas Recebidas</h1></div>
       {isLoading && <LoadingState message="Buscando propostas para você..." />}
       {!isLoading && error && <ErrorState message={error} onRetry={fetchProposals} />}
-      {!isLoading && !error && proposals.length === 0 && (
-        <EmptyState message="Você não tem nenhuma proposta pendente no momento." />
-      )}
+      {!isLoading && !error && proposals.length === 0 && ( <EmptyState message="Você não tem nenhuma proposta pendente no momento." /> )}
       {!isLoading && !error && proposals.length > 0 && (
         <div className="space-y-4">
           {proposals.map(proposal => (
-            <ProposalListItem
-              key={proposal.id}
-              proposal={proposal}
-              onAccept={handleAccept}
-              onReject={handleReject}
-            />
+            <ProposalListItem key={proposal.id} proposal={proposal} onAccept={handleAccept} onReject={handleReject} />
           ))}
         </div>
       )}
