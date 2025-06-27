@@ -6,13 +6,14 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useToast } from "@/hooks/use-toast";
 import { cn, formatCurrency, formatPercentage, formatHours } from "@/lib/utils";
 import {
     getHospitalDashboardData,
-    type DashboardData
+    type DashboardData // <<< CORREÇÃO: Adicionado de volta
 } from "@/lib/hospital-shift-service";
-import { getPendingContractsForHospital, signContractByHospital } from "@/lib/contract-service";
+import { getContractedDoctorsForHospital, getPendingContractsForHospital, signContractByHospital } from "@/lib/contract-service";
 import type { ShiftProposal } from "@/lib/proposal-service";
 import { 
     Loader2, AlertCircle, Users, DollarSign, TrendingUp, WalletCards, Target, Clock, Hourglass, FileSignature, ClipboardList, UserCheck, CalendarDays,
@@ -22,24 +23,23 @@ import { useAuth } from '@/components/auth-provider';
 import { getCurrentUserData, type HospitalProfile } from '@/lib/auth-service';
 import ProfileStatusAlert, { type ProfileStatus } from '@/components/ui/ProfileStatusAlert';
 import Link from "next/link";
+import { Timestamp } from "firebase/firestore";
 import { SimpleBarChart } from "@/components/charts/SimpleBarChart";
 import { SimpleLineChart } from "@/components/charts/SimpleLineChart";
 
-// --- CORREÇÃO: Componentes auxiliares re-incluídos aqui ---
+// --- Componentes Auxiliares ---
 const LoadingState = React.memo(({ message = "Carregando..." }: { message?: string }) => ( <div className="flex flex-col items-center justify-center py-10 min-h-[150px] w-full"><Loader2 className="h-8 w-8 animate-spin text-blue-600" /><p className="mt-3 text-sm text-gray-600">{message}</p></div> ));
 const EmptyState = React.memo(({ title, message }: { title: string, message: string; }) => ( <div className="text-center text-sm text-gray-500 py-10 min-h-[150px] flex flex-col items-center justify-center bg-gray-50/70 rounded-md border border-dashed"><ClipboardList className="w-12 h-12 text-gray-400 mb-4"/><p className="font-medium text-gray-600 mb-1">{title}</p><p>{message}</p></div> ));
 const ErrorState = React.memo(({ message, onRetry }: { message: string; onRetry?: () => void }) => ( <div className="flex flex-col items-center justify-center py-10 min-h-[150px] w-full text-center text-sm text-red-600 bg-red-50/70 rounded-md border border-dashed border-red-300"><LucideAlertTriangle className="w-12 h-12 text-red-400 mb-4"/><p className="text-base font-semibold text-red-700 mb-1">Oops!</p><p>{message || "Não foi possível carregar."}</p>{onRetry && <Button variant="destructive" size="sm" onClick={onRetry} className="mt-4"><RotateCcw className="mr-2 h-4 w-4" />Tentar Novamente</Button>}</div> ));
 
-// --- Componente para o Card de Contrato ---
 const ContractItem: React.FC<{ proposal: ShiftProposal, onAction: () => void }> = ({ proposal, onAction }) => {
     const [isProcessing, setIsProcessing] = useState(false);
     const { toast } = useToast();
-
     const handleSign = async () => {
         setIsProcessing(true);
         try {
             await signContractByHospital(proposal.id);
-            toast({ title: "Contrato Assinado!", description: `O(A) Dr(a). ${proposal.doctorName} foi adicionado(a) à sua equipe para este plantão.`});
+            toast({ title: "Contrato Assinado!", description: `O(A) Dr(a). ${proposal.doctorName} foi adicionado(a) à sua equipe.`});
             onAction();
         } catch (error: any) {
             toast({ title: "Erro ao assinar", description: error.message, variant: "destructive" });
@@ -47,30 +47,20 @@ const ContractItem: React.FC<{ proposal: ShiftProposal, onAction: () => void }> 
             setIsProcessing(false);
         }
     };
-
     return (
         <Card className="border-l-4 border-indigo-500">
-            <CardHeader>
-                <CardTitle className="flex items-center gap-2"><UserCheck size={20}/> Contratação Pendente: Dr(a). {proposal.doctorName || 'N/A'}</CardTitle>
-                <CardDescription>Especialidades: {proposal.specialties.join(', ')}</CardDescription>
-            </CardHeader>
+            <CardHeader><CardTitle className="flex items-center gap-2"><UserCheck size={20}/> Contratação Pendente: Dr(a). {proposal.doctorName || 'N/A'}</CardTitle><CardDescription>Especialidades: {proposal.specialties.join(', ')}</CardDescription></CardHeader>
             <CardContent className="space-y-2 text-sm">
                 <p className="flex items-center gap-2"><CalendarDays size={14}/> <strong>Data do Plantão:</strong> {proposal.shiftDates[0].toDate().toLocaleDateString('pt-BR')}</p>
                 <p className="flex items-center gap-2"><Clock size={14}/> <strong>Horário:</strong> {proposal.startTime} - {proposal.endTime}</p>
                 <p className="flex items-center gap-2"><DollarSign size={14}/> <strong>Valor Acordado:</strong> {formatCurrency(proposal.offeredRateToDoctor)}/h</p>
-                <p className="text-xs text-gray-600 mt-3 pt-3 border-t">O médico aceitou a proposta. A sua assinatura é necessária para visualizar o contrato e formalizar a contratação.</p>
+                <p className="text-xs text-gray-600 mt-3 pt-3 border-t">O médico aceitou a proposta. A sua assinatura é necessária para formalizar a contratação.</p>
             </CardContent>
-            <CardFooter className="flex justify-end">
-                <Button onClick={handleSign} disabled={isProcessing}>
-                    {isProcessing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FileSignature className="mr-2 h-4 w-4" />}
-                    Visualizar e Assinar Contrato
-                </Button>
-            </CardFooter>
+            <CardFooter className="flex justify-end"><Button onClick={handleSign} disabled={isProcessing}>{isProcessing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FileSignature className="mr-2 h-4 w-4" />}Visualizar e Assinar Contrato</Button></CardFooter>
         </Card>
     );
-}
+};
 
-// --- Componente para o Card de KPI ---
 const KPICard: React.FC<{ title: string; value: string | number; description?: string; icon: React.ElementType; isLoading: boolean; href?: string; }> = ({ title, value, description, icon: Icon, isLoading, href }) => {
     const cardContent = (
         <Card className={cn("shadow-sm transition-shadow duration-200 min-w-0", href ? "hover:shadow-md hover:border-primary cursor-pointer" : "")}>
@@ -85,136 +75,124 @@ const KPICard: React.FC<{ title: string; value: string | number; description?: s
     return cardContent;
 };
 
-// --- Componente Principal da Página ---
 export default function HospitalDashboardPage() {
     const { toast } = useToast();
     const { user, loading: authLoading } = useAuth();
     
     const [dashboardData, setDashboardData] = useState<DashboardData | null>(null);
     const [hospitalProfile, setHospitalProfile] = useState<HospitalProfile | null>(null);
-    const [isLoadingData, setIsLoadingData] = useState(true);
-    const [fetchError, setFetchError] = useState<string | null>(null);
-
     const [pendingContracts, setPendingContracts] = useState<ShiftProposal[]>([]);
-    const [isLoadingContracts, setIsLoadingContracts] = useState(true);
-    const [contractsError, setContractsError] = useState<string | null>(null);
+    const [contractedDoctors, setContractedDoctors] = useState<any[]>([]);
+    
+    const [isLoading, setIsLoading] = useState(true);
+    const [error, setError] = useState<string | null>(null);
 
     const loadAllData = useCallback(async () => {
-        if (!user) {
-            setIsLoadingData(false);
-            setIsLoadingContracts(false);
-            return;
-        }
-        setIsLoadingData(true);
-        setIsLoadingContracts(true);
-        setFetchError(null);
-        setContractsError(null);
-
+        if (!user) { setIsLoading(false); return; }
+        setIsLoading(true);
+        setError(null);
         try {
-            const [profile, specificData, contracts] = await Promise.all([
+            const [profile, specificData, contracts, doctors] = await Promise.all([
                 getCurrentUserData(),
                 getHospitalDashboardData(user.uid),
-                getPendingContractsForHospital(user.uid)
+                getPendingContractsForHospital(user.uid),
+                getContractedDoctorsForHospital(user.uid)
             ]);
-
-            if (profile && profile.role === 'hospital') {
-                setHospitalProfile(profile as HospitalProfile);
-            } else if (profile) {
-                setFetchError("Tipo de perfil inválido para este dashboard.");
-            }
+            if (profile?.role === 'hospital') setHospitalProfile(profile as HospitalProfile);
             setDashboardData(specificData);
             setPendingContracts(contracts);
-
+            setContractedDoctors(doctors);
         } catch (error: any) {
-            console.error("Error fetching hospital dashboard page data:", error);
-            const errorMsg = error.message || "Erro ao carregar dados.";
-            setFetchError(errorMsg);
-            setContractsError(errorMsg);
-            toast({ title: "Erro nos Dados", description: errorMsg, variant: "destructive" });
+            setError(error.message || "Erro ao carregar dados.");
+            toast({ title: "Erro nos Dados", description: error.message, variant: "destructive" });
         } finally {
-            setIsLoadingData(false);
-            setIsLoadingContracts(false);
+            setIsLoading(false);
         }
     }, [user, toast]);
 
     useEffect(() => {
-        if (!authLoading && user) {
-            loadAllData();
-        } else if (!authLoading && !user) {
-            setIsLoadingData(false);
-            setIsLoadingContracts(false);
-        }
+        if (!authLoading && user) loadAllData();
+        else if (!authLoading && !user) setIsLoading(false);
     }, [user, authLoading, loadAllData]);
 
-    if (authLoading || (isLoadingData && !hospitalProfile)) {
-        return <div className="p-6"><LoadingState message="Carregando dashboard do hospital..." /></div>;
-    }
+    if (isLoading && !hospitalProfile) return <div className="p-6"><LoadingState message="Carregando dashboard..." /></div>;
     
     return (
         <div className="flex flex-col gap-6 md:gap-8">
-            <h1 className="text-2xl md:text-3xl font-bold tracking-tight text-gray-800">
-                Visão Geral: {hospitalProfile?.displayName || user?.displayName || "Hospital"}
-            </h1>
-
-            {hospitalProfile && (
-                <ProfileStatusAlert
-                    status={hospitalProfile.documentVerificationStatus as ProfileStatus | undefined}
-                    adminNotes={hospitalProfile.adminVerificationNotes}
-                    userType="hospital"
-                    editProfileLink={"/hospital/profile/edit"}
-                />
-            )}
+            <h1 className="text-2xl md:text-3xl font-bold tracking-tight text-gray-800">Visão Geral: {hospitalProfile?.displayName || "Hospital"}</h1>
+            {hospitalProfile && <ProfileStatusAlert status={hospitalProfile.documentVerificationStatus as ProfileStatus | undefined} adminNotes={hospitalProfile.adminVerificationNotes} userType="hospital" editProfileLink={"/hospital/profile/edit"}/>}
 
             <Tabs defaultValue="overview" className="w-full">
-                <TabsList className="grid w-full grid-cols-2">
+                <TabsList className="grid w-full grid-cols-3">
                     <TabsTrigger value="overview">Visão Geral</TabsTrigger>
-                    <TabsTrigger value="contracts">
-                        Contratos para Assinatura
-                        {pendingContracts.length > 0 && (
-                            <Badge variant="destructive" className="ml-2">{pendingContracts.length}</Badge>
-                        )}
-                    </TabsTrigger>
+                    <TabsTrigger value="contracts">Contratos Pendentes<Badge variant={pendingContracts.length > 0 ? "destructive" : "secondary"} className="ml-2">{isLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : pendingContracts.length}</Badge></TabsTrigger>
+                    <TabsTrigger value="doctors">Médicos Contratados<Badge variant="secondary" className="ml-2">{isLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : contractedDoctors.length}</Badge></TabsTrigger>
                 </TabsList>
                 
                 <TabsContent value="overview" className="mt-4">
                     <section aria-labelledby="kpi-heading">
                         <h2 id="kpi-heading" className="sr-only">Indicadores Chave</h2>
                         <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7">
-                            <KPICard title="Vagas Abertas" value={dashboardData?.kpis?.openShiftsCount ?? '-'} icon={AlertCircle} isLoading={isLoadingData} description="Aguardando médicos" />
-                            <KPICard title="Pendentes Ação" value={pendingContracts.length} icon={Hourglass} isLoading={isLoadingContracts} description="Contratos para assinar" />
-                            <KPICard title="Taxa Preenchim. (30d)" value={formatPercentage(dashboardData?.kpis?.fillRateLast30Days)} icon={Target} isLoading={isLoadingData} description="Eficiência" />
-                            <KPICard title="Custo Estimado (30d)" value={formatCurrency(dashboardData?.kpis?.costLast30Days)} icon={WalletCards} isLoading={isLoadingData} description="Gasto com plantões" />
-                            <KPICard title="Tempo Médio Preench." value={formatHours(dashboardData?.kpis?.avgTimeToFillHours)} icon={Clock} isLoading={isLoadingData} description="Agilidade (horas)" />
-                            <KPICard title="Médicos na Plataforma" value={dashboardData?.kpis?.totalDoctorsOnPlatform ?? '-'} icon={Users} isLoading={isLoadingData} description="Total cadastrados" />
-                            <KPICard title="Top Demanda (Espec.)" value={dashboardData?.kpis?.topSpecialtyDemand ?? '-'} icon={TrendingUp} isLoading={isLoadingData} description="Mais requisitada" />
+                            <KPICard title="Vagas Abertas" value={dashboardData?.kpis?.openShiftsCount ?? '-'} icon={AlertCircle} isLoading={isLoading} description="Aguardando médicos" />
+                            <KPICard title="Pendentes Ação" value={pendingContracts.length} icon={Hourglass} isLoading={isLoading} description="Contratos para assinar" />
+                            <KPICard title="Taxa Preenchim. (30d)" value={formatPercentage(dashboardData?.kpis?.fillRateLast30Days)} icon={Target} isLoading={isLoading} description="Eficiência" />
+                            <KPICard title="Custo Estimado (30d)" value={formatCurrency(dashboardData?.kpis?.costLast30Days)} icon={WalletCards} isLoading={isLoading} description="Gasto com plantões" />
+                            <KPICard title="Tempo Médio Preench." value={formatHours(dashboardData?.kpis?.avgTimeToFillHours)} icon={Clock} isLoading={isLoading} description="Agilidade (horas)" />
+                            <KPICard title="Médicos na Plataforma" value={dashboardData?.kpis?.totalDoctorsOnPlatform ?? '-'} icon={Users} isLoading={isLoading} description="Total cadastrados" />
+                            <KPICard title="Top Demanda (Espec.)" value={dashboardData?.kpis?.topSpecialtyDemand ?? '-'} icon={TrendingUp} isLoading={isLoading} description="Mais requisitada" />
                         </div>
                     </section>
                     <section aria-labelledby="charts-heading">
                         <h2 id="charts-heading" className="text-xl font-semibold mb-4 mt-4 text-gray-700">Análises Gráficas</h2>
-                        {fetchError && <ErrorState message={`Erro ao carregar dados para gráficos: ${fetchError}`} onRetry={loadAllData} />}
+                        {error && (!dashboardData?.monthlyCosts || !dashboardData?.specialtyDemand) && (<ErrorState message={`Erro ao carregar dados para gráficos: ${error}`} onRetry={loadAllData} />)}
                         <div className="grid gap-4 grid-cols-1 lg:grid-cols-2">
-                            {(isLoadingData && !dashboardData?.monthlyCosts) ? (<Card><CardContent className="h-[318px] flex items-center justify-center"><LoadingState /></CardContent></Card>) : (dashboardData?.monthlyCosts && <SimpleLineChart data={dashboardData.monthlyCosts} title="Custo Mensal Estimado" description="Evolução dos gastos" dataKey="valor" strokeColor="#16a34a" />)}
-                            {(isLoadingData && !dashboardData?.specialtyDemand) ? (<Card><CardContent className="h-[318px] flex items-center justify-center"><LoadingState /></CardContent></Card>) : (dashboardData?.specialtyDemand && <SimpleBarChart data={dashboardData.specialtyDemand} title="Demanda por Especialidade" description="Especialidades mais requisitadas" dataKey="valor" fillColor="#3b82f6" />)}
+                            {(isLoading && !dashboardData?.monthlyCosts) ? (<Card><CardContent className="h-[318px] flex items-center justify-center"><LoadingState /></CardContent></Card>) : (dashboardData?.monthlyCosts && <SimpleLineChart data={dashboardData.monthlyCosts} title="Custo Mensal Estimado" description="Evolução dos gastos" dataKey="valor" strokeColor="#16a34a" />)}
+                            {(isLoading && !dashboardData?.specialtyDemand) ? (<Card><CardContent className="h-[318px] flex items-center justify-center"><LoadingState /></CardContent></Card>) : (dashboardData?.specialtyDemand && <SimpleBarChart data={dashboardData.specialtyDemand} title="Demanda por Especialidade" description="Especialidades mais requisitadas" dataKey="valor" fillColor="#3b82f6" />)}
                         </div>
                     </section>
                 </TabsContent>
 
                 <TabsContent value="contracts" className="mt-4">
                      <Card>
-                        <CardHeader>
-                            <CardTitle>Contratos Aguardando sua Assinatura</CardTitle>
-                            <CardDescription>Estes são os plantões que foram aceitos pelos médicos e precisam da sua assinatura final para serem confirmados.</CardDescription>
-                        </CardHeader>
+                        <CardHeader><CardTitle>Contratos Aguardando sua Assinatura</CardTitle><CardDescription>Plantões aceitos pelos médicos que precisam da sua assinatura final.</CardDescription></CardHeader>
                         <CardContent>
-                            {isLoadingContracts ? <LoadingState message="Buscando contratos..." /> :
-                             contractsError ? <ErrorState message={contractsError} onRetry={loadAllData} /> :
-                             pendingContracts.length === 0 ? <EmptyState title="Nenhum contrato pendente" message="Quando um médico aceitar uma proposta, o contrato aparecerá aqui." /> :
-                             <div className="space-y-4">
-                                 {pendingContracts.map(contract => (
-                                     <ContractItem key={contract.id} proposal={contract} onAction={loadAllData} />
-                                 ))}
-                             </div>
+                            {isLoading ? <LoadingState message="Buscando contratos..." /> : error ? <ErrorState message={error} onRetry={loadAllData} /> : pendingContracts.length === 0 ? <EmptyState title="Nenhum contrato pendente" message="Quando um médico aceitar uma proposta, aparecerá aqui." /> :
+                             <div className="space-y-4">{pendingContracts.map(contract => (<ContractItem key={contract.id} proposal={contract} onAction={loadAllData} />))}</div>
                             }
+                        </CardContent>
+                    </Card>
+                </TabsContent>
+                
+                <TabsContent value="doctors" className="mt-4">
+                    <Card>
+                        <CardHeader><CardTitle>Gestão de Médicos Contratados</CardTitle><CardDescription>Lista de médicos com plantões confirmados no seu hospital.</CardDescription></CardHeader>
+                        <CardContent>
+                           {isLoading ? <LoadingState message="Buscando médicos..." /> : error ? <ErrorState message={error} onRetry={loadAllData} /> :
+                            <Table>
+                                <TableHeader>
+                                    <TableRow>
+                                        <TableHead>Médico</TableHead>
+                                        <TableHead>Especialidades</TableHead>
+                                        <TableHead>Data do Plantão</TableHead>
+                                        <TableHead>Horário</TableHead>
+                                    </TableRow>
+                                </TableHeader>
+                                <TableBody>
+                                    {contractedDoctors.length === 0 ? (
+                                        <TableRow><TableCell colSpan={4} className="h-24 text-center">Nenhum médico contratado ainda.</TableCell></TableRow>
+                                    ) : (
+                                        contractedDoctors.map(doctor => (
+                                            <TableRow key={doctor.id}>
+                                                <TableCell className="font-medium">{doctor.doctorName}</TableCell>
+                                                <TableCell>{doctor.specialties.join(', ')}</TableCell>
+                                                <TableCell>{doctor.shiftDate.toDate().toLocaleDateString('pt-BR')}</TableCell>
+                                                <TableCell>{doctor.shiftStartTime} - {doctor.shiftEndTime}</TableCell>
+                                            </TableRow>
+                                        ))
+                                    )}
+                                </TableBody>
+                            </Table>
+                           }
                         </CardContent>
                     </Card>
                 </TabsContent>

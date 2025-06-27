@@ -19,8 +19,6 @@ import { db, auth } from "./firebase";
 import { type ShiftProposal } from "./proposal-service";
 import { type PotentialMatch } from "./match-service";
 
-// --- ATUALIZAÇÃO: Interface do Contrato Final ---
-// Este será o documento final, guardado numa nova coleção 'contracts'
 export interface Contract {
   id: string;
   proposalId: string;
@@ -28,8 +26,6 @@ export interface Contract {
   timeSlotId: string;
   doctorId: string;
   hospitalId: string;
-  
-  // Detalhes do Plantão
   shiftDetails: {
     hospitalName: string;
     doctorName: string;
@@ -42,27 +38,22 @@ export interface Contract {
     locationCity: string;
     locationState: string;
   };
-
-  // --- NOVIDADE: Gestão Financeira ---
   financials: {
-    ratePaidByHospital: number;     // Valor que o hospital paga (Ex: R$ 120)
-    rateReceivedByDoctor: number;   // Valor que o médico recebe (Ex: R$ 100)
-    platformMargin: number;         // Diferença para a plataforma (Ex: R$ 20)
+    ratePaidByHospital: number;
+    rateReceivedByDoctor: number;
+    platformMargin: number;
   };
-
   status: 'ACTIVE' | 'COMPLETED' | 'CANCELLED';
-  signedByDoctorAt: Timestamp; // Virá da proposta
-  signedByHospitalAt: Timestamp; // Definido no momento da assinatura
+  signedByDoctorAt: Timestamp;
+  signedByHospitalAt: Timestamp;
   createdAt: Timestamp;
   updatedAt: Timestamp;
 }
 
-// Sua função original, mantida intacta para outras partes do sistema
+// Suas funções originais getContractsForDoctor e signContractByDoctor permanecem aqui
 export const getContractsForDoctor = async (statuses: string[]): Promise<any[]> => { /* ... seu código original ... */ return []; };
 export const signContractByDoctor = async (contractId: string): Promise<void> => { /* ... seu código original ... */ };
 
-
-// --- FUNÇÕES NOVAS ATUALIZADAS PARA O FLUXO DO HOSPITAL ---
 
 export const getPendingContractsForHospital = async (hospitalId: string): Promise<ShiftProposal[]> => {
   if (!hospitalId) return [];
@@ -73,7 +64,6 @@ export const getPendingContractsForHospital = async (hospitalId: string): Promis
     where("status", "==", "DOCTOR_ACCEPTED_PENDING_CONTRACT"),
     orderBy("updatedAt", "desc")
   );
-
   try {
     const querySnapshot = await getDocs(q);
     return querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as ShiftProposal));
@@ -83,7 +73,6 @@ export const getPendingContractsForHospital = async (hospitalId: string): Promis
   }
 };
 
-// --- LÓGICA ATUALIZADA E COMPLETA PARA A AÇÃO DO HOSPITAL ---
 export const signContractByHospital = async (proposalId: string): Promise<void> => {
     const hospitalId = auth.currentUser?.uid;
     if (!hospitalId) throw new Error("Hospital não autenticado.");
@@ -100,13 +89,11 @@ export const signContractByHospital = async (proposalId: string): Promise<void> 
             const matchId = proposalData.potentialMatchId;
             if (!matchId) throw new Error("ID do Match original não encontrado na proposta.");
 
-            // Pega os dados financeiros do match original
             const matchRef = doc(db, "potentialMatches", matchId);
             const matchDoc = await transaction.get(matchRef);
             if (!matchDoc.exists()) throw new Error("Match original não encontrado.");
             const matchData = matchDoc.data() as PotentialMatch;
 
-            // 1. Cria o documento final na coleção 'contracts'
             const newContractRef = doc(collection(db, "contracts"));
             const finalContractData: Omit<Contract, 'id'> = {
                 proposalId: proposalId,
@@ -139,14 +126,12 @@ export const signContractByHospital = async (proposalId: string): Promise<void> 
             };
             transaction.set(newContractRef, finalContractData);
 
-            // 2. Atualiza a proposta original para um estado final
             transaction.update(proposalRef, {
-                status: 'CONTRACT_SENT_TO_HOSPITAL', // ou 'COMPLETED'
+                status: 'CONTRACT_SENT_TO_HOSPITAL',
                 contractId: newContractRef.id,
                 updatedAt: serverTimestamp()
             });
 
-            // 3. Adiciona o médico à gestão do hospital
             const hospitalRef = doc(db, "users", hospitalId);
             const contractedDoctorRef = doc(collection(hospitalRef, 'contractedDoctors'), proposalData.doctorId);
             transaction.set(contractedDoctorRef, {
@@ -154,12 +139,32 @@ export const signContractByHospital = async (proposalId: string): Promise<void> 
                 doctorName: proposalData.doctorName || "N/A",
                 contractId: newContractRef.id,
                 shiftDate: proposalData.shiftDates[0],
-                joinedAt: serverTimestamp()
+                shiftStartTime: proposalData.startTime,
+                shiftEndTime: proposalData.endTime,
+                serviceType: proposalData.serviceType,
+                specialties: proposalData.specialties,
+                contractedAt: serverTimestamp()
             });
         });
-
     } catch (error) {
         console.error("Erro na transação de assinatura do hospital:", error);
         throw error;
+    }
+};
+
+// --- NOVIDADE: Função para buscar os médicos já contratados pelo hospital ---
+export const getContractedDoctorsForHospital = async (hospitalId: string): Promise<any[]> => {
+    if (!hospitalId) return [];
+    
+    // Busca na subcoleção 'contractedDoctors' do hospital
+    const contractedDoctorsRef = collection(db, "users", hospitalId, "contractedDoctors");
+    const q = query(contractedDoctorsRef, orderBy("contractedAt", "desc"));
+  
+    try {
+      const querySnapshot = await getDocs(q);
+      return querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    } catch (error) {
+      console.error("Erro ao buscar médicos contratados:", error);
+      throw new Error("Não foi possível carregar a lista de médicos contratados.");
     }
 };
