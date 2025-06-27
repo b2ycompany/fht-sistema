@@ -2,8 +2,6 @@
 "use client";
 
 import React, { useState, useEffect, useCallback } from 'react';
-// --- CORREÇÃO FINAL DE CAMINHO ---
-// O caminho foi ajustado para refletir a estrutura da sua pasta de componentes.
 import { useAuth } from '@/components/auth-provider';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";

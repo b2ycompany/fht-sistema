@@ -45,7 +45,6 @@ export interface Contract {
 }
 
 /**
- * Busca contratos para o médico logado, filtrados por um array de status.
  * (SUA FUNÇÃO ORIGINAL - MANTIDA 100% INTACTA)
  */
 export const getContractsForDoctor = async (
@@ -96,7 +95,6 @@ export const getContractsForDoctor = async (
 };
 
 /**
- * Função para o médico assinar um contrato.
  * (SUA FUNÇÃO ORIGINAL - MANTIDA 100% INTACTA)
  */
 export const signContractByDoctor = async (contractId: string): Promise<void> => {
@@ -122,9 +120,6 @@ export const signContractByDoctor = async (contractId: string): Promise<void> =>
 
 // --- FUNÇÕES NOVAS ADICIONADAS PARA O FLUXO DO HOSPITAL ---
 
-/**
- * Busca propostas que foram aceitas por médicos e agora aguardam ação do hospital.
- */
 export const getPendingContractsForHospital = async (hospitalId: string): Promise<ShiftProposal[]> => {
   if (!hospitalId) return [];
   
@@ -145,9 +140,6 @@ export const getPendingContractsForHospital = async (hospitalId: string): Promis
   }
 };
 
-/**
- * O Hospital assina o contrato, finalizando o processo de contratação.
- */
 export const signContractByHospital = async (proposalId: string): Promise<void> => {
     const hospitalId = auth.currentUser?.uid;
     if (!hospitalId) throw new Error("Hospital não autenticado.");
@@ -156,37 +148,34 @@ export const signContractByHospital = async (proposalId: string): Promise<void> 
     const hospitalRef = doc(db, "users", hospitalId);
     
     try {
+        await runTransaction(db, async (transaction) => {
+            const proposalDoc = await transaction.get(proposalRef);
+            if (!proposalDoc.exists() || proposalDoc.data().status !== 'DOCTOR_ACCEPTED_PENDING_CONTRACT') {
+                throw new Error("Este contrato não está mais aguardando sua assinatura.");
+            }
+            const proposalData = proposalDoc.data();
+            const doctorId = proposalData.doctorId;
+
+            transaction.update(proposalRef, {
+                status: 'CONTRACT_SENT_TO_HOSPITAL',
+                updatedAt: serverTimestamp()
+            });
+
+            const contractedDoctorRef = doc(collection(hospitalRef, 'contractedDoctors'), doctorId);
+            transaction.set(contractedDoctorRef, {
+                doctorId: doctorId,
+                doctorName: proposalData.doctorName || "N/A",
+                proposalId: proposalId,
+                shiftDate: proposalData.shiftDates[0],
+                shiftStartTime: proposalData.startTime,
+                shiftEndTime: proposalData.endTime,
+                serviceType: proposalData.serviceType,
+                specialties: proposalData.specialties,
+                contractedAt: serverTimestamp()
+            });
+        });
         const proposalData = (await getDoc(proposalRef)).data();
-        if (!proposalData || proposalData.status !== 'DOCTOR_ACCEPTED_PENDING_CONTRACT') {
-            throw new Error("Este contrato não está mais aguardando sua assinatura.");
-        }
-        
-        const doctorId = proposalData.doctorId;
-        const batch = writeBatch(db);
-
-        // 1. Atualiza o status da proposta/contrato para um estado final
-        batch.update(proposalRef, {
-            status: 'CONTRACT_SENT_TO_HOSPITAL', // Ou um status final como 'ACTIVE_SIGNED'
-            updatedAt: serverTimestamp()
-        });
-
-        // 2. Adiciona o médico à subcoleção 'contractedDoctors' do hospital
-        const contractedDoctorRef = doc(collection(hospitalRef, 'contractedDoctors'), doctorId);
-        batch.set(contractedDoctorRef, {
-            doctorId: doctorId,
-            doctorName: proposalData.doctorName || "N/A",
-            proposalId: proposalId,
-            shiftDate: proposalData.shiftDates[0],
-            shiftStartTime: proposalData.startTime,
-            shiftEndTime: proposalData.endTime,
-            serviceType: proposalData.serviceType,
-            specialties: proposalData.specialties,
-            contractedAt: serverTimestamp()
-        });
-        
-        await batch.commit();
-        console.log(`Contrato ${proposalId} assinado pelo hospital. Médico ${doctorId} agora faz parte da gestão.`);
-
+        console.log(`Contrato ${proposalId} assinado pelo hospital. Médico ${proposalData?.doctorId} agora faz parte da gestão.`);
     } catch (error) {
         console.error("Erro na transação de assinatura do hospital:", error);
         throw error;

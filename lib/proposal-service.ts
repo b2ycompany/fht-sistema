@@ -10,8 +10,8 @@ import {
   Timestamp,
   orderBy,
   runTransaction,
-  getDoc,
-  writeBatch
+  writeBatch,
+  getDoc
 } from "firebase/firestore";
 import { db, auth } from "./firebase";
 
@@ -25,7 +25,7 @@ export interface ShiftProposal {
   hospitalCity: string;
   hospitalState: string;
   doctorId: string;
-  doctorName?: string; // <<< ALTERAÇÃO: Campo adicionado
+  doctorName?: string;
   shiftDates: Timestamp[];
   startTime: string;
   endTime: string;
@@ -87,8 +87,9 @@ export const acceptProposal = async (proposalId: string, timeSlotId: string): Pr
       }
 
       transaction.update(proposalRef, {
-        status: 'DOCTOR_ACCEPTED_PENDING_CONTRACT',
-        doctorResponseAt: serverTimestamp()
+        status: 'DOCTOR_ACCEPTED_PENDING_CONTRACT', // <<< Status correto para o hospital
+        doctorResponseAt: serverTimestamp(),
+        updatedAt: serverTimestamp()
       });
 
       transaction.update(timeSlotRef, {
