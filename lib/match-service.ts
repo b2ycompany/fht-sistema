@@ -1,58 +1,23 @@
 // lib/match-service.ts
 import {
-  collection,
-  query,
-  where,
-  getDocs,
-  updateDoc,
-  doc,
-  serverTimestamp,
-  Timestamp,
-  orderBy,
-  writeBatch,
-  getDoc,
-  setDoc
+  collection, query, where, getDocs, updateDoc, doc, serverTimestamp,
+  Timestamp, orderBy, writeBatch, getDoc, setDoc
 } from "firebase/firestore";
 import { db, auth } from "./firebase";
 import { type ShiftProposal } from "./proposal-service";
 
 export interface PotentialMatch {
-  id: string;
-  shiftRequirementId: string;
-  hospitalId: string;
-  hospitalName?: string;
-  originalShiftRequirementDates: Timestamp[];
-  matchedDate: Timestamp;
-  shiftRequirementStartTime: string;
-  shiftRequirementEndTime: string;
-  shiftRequirementIsOvernight: boolean;
-  shiftRequirementServiceType: string;
-  shiftRequirementSpecialties: string[];
-  offeredRateByHospital: number;
-  shiftRequirementNotes?: string;
-  numberOfVacanciesInRequirement: number;
-  timeSlotId: string;
-  doctorId: string;
-  doctorName?: string;
-  timeSlotStartTime: string;
-  timeSlotEndTime: string;
-  timeSlotIsOvernight: boolean;
-  doctorDesiredRate: number;
-  doctorSpecialties: string[];
-  doctorServiceType: string;
-  status: string;
-  backofficeReviewerId?: string;
-  backofficeReviewedAt?: Timestamp;
-  backofficeNotes?: string;
-  negotiatedRateForDoctor?: number;
-  doctorResponseAt?: Timestamp;
-  doctorRejectionReason?: string;
-  contractId?: string;
-  createdAt: Timestamp;
-  updatedAt: Timestamp;
-  shiftCity?: string;
-  shiftState?: string;
-  doctorTimeSlotNotes?: string;
+  id: string; shiftRequirementId: string; hospitalId: string; hospitalName?: string;
+  originalShiftRequirementDates: Timestamp[]; matchedDate: Timestamp; shiftRequirementStartTime: string;
+  shiftRequirementEndTime: string; shiftRequirementIsOvernight: boolean; shiftRequirementServiceType: string;
+  shiftRequirementSpecialties: string[]; offeredRateByHospital: number; shiftRequirementNotes?: string;
+  numberOfVacanciesInRequirement: number; timeSlotId: string; doctorId: string; doctorName?: string;
+  timeSlotStartTime: string; timeSlotEndTime: string; timeSlotIsOvernight: boolean;
+  doctorDesiredRate: number; doctorSpecialties: string[]; doctorServiceType: string;
+  status: string; backofficeReviewerId?: string; backofficeReviewedAt?: Timestamp;
+  backofficeNotes?: string; negotiatedRateForDoctor?: number; doctorResponseAt?: Timestamp;
+  doctorRejectionReason?: string; contractId?: string; createdAt: Timestamp; updatedAt: Timestamp;
+  shiftCity?: string; shiftState?: string; doctorTimeSlotNotes?: string;
 }
 
 export const getMatchesForBackofficeReview = async (): Promise<PotentialMatch[]> => {
@@ -83,9 +48,7 @@ export const approveMatchAndProposeToDoctor = async (
   
   try {
     const matchDocSnap = await getDoc(matchDocRef);
-    if (!matchDocSnap.exists()) {
-      throw new Error("Match não encontrado. Pode já ter sido processado.");
-    }
+    if (!matchDocSnap.exists()) throw new Error("Match não encontrado.");
     const matchData = matchDocSnap.data() as PotentialMatch;
     
     batch.update(matchDocRef, {
@@ -126,7 +89,6 @@ export const approveMatchAndProposeToDoctor = async (
     await batch.commit();
     
     console.log(`[MatchService] Match ${matchId} aprovado. Nova proposta ${proposalRef.id} criada para o médico.`);
-
   } catch (error) {
     console.error(`Falha ao aprovar match ${matchId}:`, error);
     throw new Error(`Falha ao aprovar match: ${(error as Error).message}`);
