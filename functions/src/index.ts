@@ -29,7 +29,10 @@ export const findMatchesOnShiftRequirementWrite = onDocumentWritten( { document:
     const dataBefore = change.before?.data() as ShiftRequirementData | undefined;
 
     const isNewOpenRequirement = (!dataBefore && dataAfter?.status === 'OPEN') || (dataBefore?.status !== 'OPEN' && dataAfter?.status === 'OPEN');
-    if (!isNewOpenRequirement) { logger.info(`Gatilho ignorado para Req ${requirementId} para evitar duplicação.`); return; }
+    if (!isNewOpenRequirement) {
+        logger.info(`Gatilho para Req ${requirementId} ignorado para evitar duplicação.`);
+        return;
+    }
 
     const requirement = dataAfter!;
     logger.info(`INICIANDO BUSCA DE MATCHES para a Nova Demanda OPEN: ${requirementId}`);
@@ -56,7 +59,7 @@ export const findMatchesOnShiftRequirementWrite = onDocumentWritten( { document:
         const matchRef = db.collection("potentialMatches").doc(deterministicMatchId);
         
         const matchSnap = await matchRef.get();
-        if (matchSnap.exists) { logger.info(`Match ${deterministicMatchId} já existe, pulando.`); continue; }
+        if (matchSnap.exists) { continue; }
 
         const newPotentialMatchData: PotentialMatchInput = {
           shiftRequirementId: requirementId, hospitalId: requirement.hospitalId, hospitalName: requirement.hospitalName || "",
@@ -84,23 +87,23 @@ export const findMatchesOnShiftRequirementWrite = onDocumentWritten( { document:
 
 export const onShiftRequirementDelete = onDocumentDeleted("shiftRequirements/{requirementId}", async (event) => {
     const { requirementId } = event.params;
-    logger.info(`Demanda ${requirementId} deletada. Removendo matches pendentes associados.`);
+    logger.info(`Demanda ${requirementId} deletada. Removendo matches pendentes.`);
     const q = db.collection("potentialMatches").where("shiftRequirementId", "==", requirementId).where("status", "==", "PENDING_BACKOFFICE_REVIEW");
     return deleteQueryBatch(q, `matches para a demanda ${requirementId}`);
 });
 
 export const onTimeSlotDelete = onDocumentDeleted("doctorTimeSlots/{timeSlotId}", async (event) => {
     const { timeSlotId } = event.params;
-    logger.info(`Disponibilidade ${timeSlotId} deletada. Removendo matches pendentes associados.`);
+    logger.info(`Disponibilidade ${timeSlotId} deletada. Removendo matches pendentes.`);
     const q = db.collection("potentialMatches").where("timeSlotId", "==", timeSlotId).where("status", "==", "PENDING_BACKOFFICE_REVIEW");
     return deleteQueryBatch(q, `matches para a disponibilidade ${timeSlotId}`);
 });
 
 async function deleteQueryBatch(query: Query, context: string) {
     const snapshot = await query.get();
-    if (snapshot.size === 0) { logger.info(`Nenhum documento para deletar para o contexto: ${context}`); return; }
+    if (snapshot.size === 0) { return; }
     const batch = db.batch();
-    snapshot.docs.forEach((doc) => { logger.info(`Agendando para deletar o match: ${doc.id}`); batch.delete(doc.ref); });
+    snapshot.docs.forEach((doc) => { batch.delete(doc.ref); });
     await batch.commit();
-    logger.info(`Deletados ${snapshot.size} documentos para o contexto: ${context}`);
+    logger.info(`Deletados ${snapshot.size} documentos para: ${context}`);
 }
