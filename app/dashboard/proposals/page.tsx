@@ -7,11 +7,21 @@ import { Card, CardContent, CardDescription, CardHeader, CardFooter, CardTitle }
 import { useToast } from "@/hooks/use-toast";
 import { Timestamp } from "firebase/firestore";
 import {
-  AlertTriangle, CheckCircle, XCircle, CalendarDays, Clock, MapPinIcon, DollarSign, Briefcase, Info, ChevronDown, ChevronUp, MessageSquare,
-  Loader2,
-  ClipboardList,
-  AlertCircle,
-  RotateCcw
+    Loader2,
+    ClipboardList,
+    AlertTriangle as AlertCircle,
+    RotateCcw,
+    MessageSquare,
+    Check,
+    X,
+    FileSignature,
+    Building,
+    CalendarDays,
+    Clock,
+    DollarSign,
+    Info,
+    ChevronDown,
+    ChevronUp
 } from "lucide-react";
 import {
   getPendingProposalsForDoctor,
@@ -19,9 +29,10 @@ import {
   rejectProposal,
   type ShiftProposal
 } from "@/lib/proposal-service";
-import { cn, formatCurrency } from "@/lib/utils";
+import { formatCurrency } from "@/lib/utils";
 import {
     AlertDialog,
+    AlertDialogAction, // <<< CORREÇÃO: ADICIONADO AQUI
     AlertDialogCancel,
     AlertDialogContent,
     AlertDialogDescription,
@@ -32,152 +43,180 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
+import { useRouter } from 'next/navigation';
+import { useAuth } from '@/components/auth-provider';
 
-const LoadingState = React.memo(({ message = "Carregando dados..." }: { message?: string }) => ( <div className="flex flex-col justify-center items-center text-center py-10 min-h-[150px] w-full"><Loader2 className="h-8 w-8 animate-spin text-blue-600" /><span className="ml-3 text-sm text-gray-600 mt-3">{message}</span></div> ));
+const LoadingState = React.memo(({ message = "Carregando..." }: { message?: string }) => (
+    <div className="flex justify-center items-center h-64">
+        <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
+        <p className="ml-3">{message}</p>
+    </div>
+));
 LoadingState.displayName = 'LoadingState';
-const EmptyState = React.memo(({ message, actionButton }: { message: string; actionButton?: React.ReactNode }) => ( <div className="text-center text-sm text-gray-500 py-10 min-h-[150px] flex flex-col items-center justify-center bg-gray-50/70 rounded-md border border-dashed border-gray-300 w-full"><ClipboardList className="w-12 h-12 text-gray-400 mb-4"/><p className="font-medium text-gray-600 mb-1">Nada por aqui ainda!</p><p className="max-w-xs">{message}</p>{actionButton && <div className="mt-4">{actionButton}</div>}</div> ));
+
+const EmptyState = React.memo(({ message }: { message: string }) => (
+    <div className="text-center text-gray-500 p-10 border-2 border-dashed rounded-lg">
+        <ClipboardList className="mx-auto h-12 w-12 text-gray-400"/>
+        <h3 className="mt-2 text-sm font-medium text-gray-900">Nenhuma proposta pendente</h3>
+        <p className="mt-1 text-sm text-gray-500">{message}</p>
+    </div>
+));
 EmptyState.displayName = 'EmptyState';
-const ErrorState = React.memo(({ message, onRetry }: { message: string; onRetry?: () => void }) => ( <div className="text-center text-sm text-red-600 py-10 min-h-[150px] flex flex-col items-center justify-center bg-red-50/70 rounded-md border border-dashed border-red-300 w-full"><AlertCircle className="w-12 h-12 text-red-400 mb-4"/><p className="font-semibold text-red-700 mb-1 text-base">Oops! Algo deu errado.</p><p className="max-w-md text-red-600">{message || "Não foi possível carregar os dados. Por favor, tente novamente."}</p>{onRetry && ( <Button variant="destructive" size="sm" onClick={onRetry} className="mt-4 bg-red-600 hover:bg-red-700 text-white"><RotateCcw className="mr-2 h-4 w-4" /> Tentar Novamente</Button> )}</div> ));
+
+const ErrorState = React.memo(({ message, onRetry }: { message: string, onRetry?: () => void }) => (
+    <div className="text-center text-red-500 p-10">
+        <AlertCircle className="mx-auto h-12 w-12 text-red-400"/>
+        <p className="mt-4">{message}</p>
+        {onRetry && <Button onClick={onRetry} variant="outline" className="mt-2">Tentar Novamente</Button>}
+    </div>
+));
 ErrorState.displayName = 'ErrorState';
 
+const ProposalCard: React.FC<{ proposal: ShiftProposal, onAction: () => void }> = ({ proposal, onAction }) => {
+    const [isProcessing, setIsProcessing] = useState(false);
+    const [rejectionReason, setRejectionReason] = useState("");
+    const [isRejecting, setIsRejecting] = useState(false);
+    const { toast } = useToast();
+    const router = useRouter();
 
-interface ProposalListItemProps {
-  proposal: ShiftProposal;
-  onAccept: (proposalId: string, timeSlotId: string) => Promise<void>; // <<< ALTERAÇÃO
-  onReject: (proposalId: string, reason?: string) => Promise<void>;
-}
+    const handleAccept = async () => {
+        setIsProcessing(true);
+        try {
+            await acceptProposal(proposal.id);
+            toast({ title: "Proposta Aceita!", description: "Sua disponibilidade foi reservada e o hospital notificado." });
+            onAction();
+            router.push('/dashboard/contracts');
+        } catch (error: any) {
+            toast({ title: "Erro ao aceitar", description: error.message, variant: "destructive" });
+        } finally {
+            setIsProcessing(false);
+        }
+    };
 
-const ProposalListItem: React.FC<ProposalListItemProps> = ({ proposal, onAccept, onReject }) => {
-  const [isExpanded, setIsExpanded] = useState(false);
-  const [isAccepting, setIsAccepting] = useState(false);
-  const [isRejecting, setIsRejecting] = useState(false);
-  const [rejectionReason, setRejectionReason] = useState("");
-  const { toast } = useToast();
+    const handleReject = async () => {
+        if (!rejectionReason.trim()) {
+            toast({ title: "Campo obrigatório", description: "Por favor, informe o motivo da rejeição.", variant: "destructive"});
+            return;
+        }
+        setIsProcessing(true);
+        try {
+            await rejectProposal(proposal.id, rejectionReason);
+            toast({ title: "Proposta Rejeitada" });
+            onAction();
+        } catch (error: any) {
+            toast({ title: "Erro ao rejeitar", description: error.message, variant: "destructive" });
+        } finally {
+            setIsProcessing(false);
+            setIsRejecting(false);
+        }
+    };
 
-  const firstDate = proposal.shiftDates?.[0] instanceof Timestamp ? proposal.shiftDates[0].toDate() : null;
-  const displayDates = proposal.shiftDates?.map(ts => ts.toDate().toLocaleDateString('pt-BR', { day: '2-digit', month: 'short'})).join(', ') || "N/A";
+    const proposalDate = proposal.shiftDates[0].toDate().toLocaleDateString('pt-BR');
 
-  const handleAccept = async () => {
-    // --- LÓGICA ATUALIZADA ---
-    if (!proposal.originalTimeSlotId) {
-        toast({ title: "Erro de Dados", description: "Não foi possível encontrar a referência da sua disponibilidade original. Contacte o suporte.", variant: "destructive"});
-        return;
-    }
-    setIsAccepting(true);
-    await onAccept(proposal.id, proposal.originalTimeSlotId);
-  };
-
-  const handleRejectWithReason = async () => {
-    setIsRejecting(true);
-    await onReject(proposal.id, rejectionReason);
-  };
-
-  return (
-    <Card className="shadow-md hover:shadow-lg transition-shadow">
-      <CardHeader className="pb-3 cursor-pointer flex flex-row justify-between items-start" onClick={() => setIsExpanded(!isExpanded)}>
-        <div>
-          <CardTitle className="text-lg mb-1">{proposal.hospitalName}</CardTitle>
-          <CardDescription className="text-xs flex items-center"><MapPinIcon className="inline h-3 w-3 mr-1 text-gray-500" />{proposal.hospitalCity}, {proposal.hospitalState}</CardDescription>
-        </div>
-        {isExpanded ? <ChevronUp size={20} className="text-gray-500"/> : <ChevronDown size={20} className="text-gray-500"/>}
-      </CardHeader>
-      
-      <CardContent className="text-sm pt-0 pb-3 border-b">
-        <div className="flex items-center mb-1"><CalendarDays className="h-4 w-4 mr-2 text-blue-600" /><span>{displayDates}</span></div>
-        <div className="flex items-center"><Clock className="h-4 w-4 mr-2 text-blue-600" /><span>{proposal.startTime} - {proposal.endTime}</span>{proposal.isOvernight && <Badge variant="outline" className="ml-2 text-xs">Noturno (Vira o dia)</Badge>}</div>
-      </CardContent>
-
-      {isExpanded && (
-        <CardContent className="text-sm pt-3 pb-4 space-y-2">
-          <div className="border-t pt-3">
-            <div className="flex items-center mb-1"><Briefcase size={14} className="mr-2 text-cyan-600" /><strong>Tipo:</strong><span className="ml-1">{proposal.serviceType.replace(/_/g, ' ')}</span></div>
-            <div className="flex items-center mb-1"><DollarSign size={14} className="mr-2 text-green-600" /><strong>Valor Hora Ofertado:</strong><span className="ml-1">{formatCurrency(proposal.offeredRateToDoctor)}</span></div>
-            {proposal.specialties && proposal.specialties.length > 0 && (
-              <div className="flex items-start mb-1"><ClipboardList size={14} className="mr-2 mt-0.5 text-purple-600 shrink-0" /><div className="flex-1"><strong>Especialidades:</strong><div className="flex flex-wrap gap-1 mt-0.5">{proposal.specialties.map(spec => <Badge key={spec} variant="secondary" className="text-xs">{spec}</Badge>)}</div></div></div>
+    return (
+        <Card className="shadow-sm hover:shadow-lg transition-shadow">
+            <CardHeader>
+                <div className="flex justify-between items-start">
+                    <div>
+                        <CardTitle className="text-lg">Proposta de Plantão: {proposal.specialties.join(', ')}</CardTitle>
+                        <CardDescription>
+                            <span className="flex items-center gap-2 mt-1"><Building size={14}/> {proposal.hospitalName}</span>
+                        </CardDescription>
+                    </div>
+                    <Badge variant="outline">Aguardando sua Resposta</Badge>
+                </div>
+            </CardHeader>
+            <CardContent className="space-y-2">
+                <p className="flex items-center gap-2 text-sm"><CalendarDays size={14}/> <strong>Data:</strong> {proposalDate}</p>
+                <p className="flex items-center gap-2 text-sm"><Clock size={14}/> <strong>Horário:</strong> {proposal.startTime} às {proposal.endTime}</p>
+                <p className="flex items-center gap-2 text-sm font-bold text-green-600"><DollarSign size={14}/> <strong>Valor:</strong> {formatCurrency(proposal.offeredRateToDoctor)}/h</p>
+                {proposal.notesFromBackoffice && (
+                    <div className="text-sm p-3 bg-gray-50 rounded-md mt-2">
+                        <p className="font-semibold flex items-center gap-1"><Info size={14}/> Observações do Admin:</p>
+                        <p className="text-gray-600 italic pl-5">"{proposal.notesFromBackoffice}"</p>
+                    </div>
+                )}
+                {isRejecting && (
+                    <div className="pt-4">
+                         <label htmlFor="rejection" className="font-semibold text-sm mb-2 block">Motivo da Rejeição (Obrigatório)</label>
+                         <Textarea id="rejection" value={rejectionReason} onChange={(e) => setRejectionReason(e.target.value)} placeholder="Ex: Já tenho outro compromisso nesta data."/>
+                         <div className="flex justify-end gap-2 mt-2">
+                             <Button variant="ghost" size="sm" onClick={() => setIsRejecting(false)} disabled={isProcessing}>Cancelar</Button>
+                             <Button variant="destructive" size="sm" onClick={handleReject} disabled={isProcessing}>{isProcessing ? <Loader2 className="h-4 w-4 animate-spin"/> : <X/>} Confirmar Rejeição</Button>
+                         </div>
+                    </div>
+                )}
+            </CardContent>
+            {!isRejecting && (
+                <CardFooter className="flex justify-end gap-3">
+                    <Button variant="destructive" onClick={() => setIsRejecting(true)} disabled={isProcessing}>
+                        <X className="mr-2 h-4 w-4"/>Rejeitar
+                    </Button>
+                    <AlertDialog>
+                        <AlertDialogTrigger asChild>
+                            <Button className="bg-green-600 hover:bg-green-700" disabled={isProcessing}>
+                                <Check className="mr-2 h-4 w-4"/> Aceitar Proposta
+                            </Button>
+                        </AlertDialogTrigger>
+                        <AlertDialogContent>
+                            <AlertDialogHeader>
+                                <AlertDialogTitle>Confirmar Aceite da Proposta?</AlertDialogTitle>
+                                <AlertDialogDescription>
+                                    Ao aceitar, a sua disponibilidade para esta data será reservada e um contrato será gerado para a assinatura final do hospital.
+                                </AlertDialogDescription>
+                            </AlertDialogHeader>
+                            <AlertDialogFooter>
+                                <AlertDialogCancel disabled={isProcessing}>Voltar</AlertDialogCancel>
+                                <AlertDialogAction onClick={handleAccept} disabled={isProcessing}>
+                                    {isProcessing ? <Loader2 className="h-4 w-4 animate-spin"/> : "Sim, aceito a proposta"}
+                                </AlertDialogAction>
+                            </AlertDialogFooter>
+                        </AlertDialogContent>
+                    </AlertDialog>
+                </CardFooter>
             )}
-            {proposal.notesFromHospital && <div className="flex items-start text-xs text-gray-600"><Info size={14} className="mr-2 mt-0.5 text-gray-500 shrink-0"/><div><strong>Obs. Hospital:</strong> {proposal.notesFromHospital}</div></div>}
-            {proposal.notesFromBackoffice && <div className="flex items-start text-xs text-gray-600 mt-1"><Info size={14} className="mr-2 mt-0.5 text-gray-500 shrink-0"/><div><strong>Obs. Plataforma:</strong> {proposal.notesFromBackoffice}</div></div>}
-            {proposal.deadlineForDoctorResponse && <div className="flex items-start text-xs text-amber-700 mt-1 font-medium"><AlertTriangle size={14} className="mr-2 mt-0.5 text-amber-600 shrink-0"/><div>Responder até: {proposal.deadlineForDoctorResponse.toDate().toLocaleDateString('pt-BR', {day:'2-digit', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit'})}</div></div>}
-          </div>
-        </CardContent>
-      )}
-      <CardFooter className="flex justify-end gap-2 pt-4">
-        <AlertDialog>
-            <AlertDialogTrigger asChild><Button variant="outline" size="sm" disabled={isAccepting || isRejecting}><XCircle className="mr-2 h-4 w-4" /> Recusar</Button></AlertDialogTrigger>
-            <AlertDialogContent>
-                <AlertDialogHeader><AlertDialogTitle>Confirmar Recusa da Proposta?</AlertDialogTitle><AlertDialogDescription>Por favor, informe o motivo da recusa (opcional). Esta informação nos ajuda a melhorar as sugestões futuras.</AlertDialogDescription></AlertDialogHeader>
-                <Textarea placeholder="Motivo da recusa (opcional)..." value={rejectionReason} onChange={(e) => setRejectionReason(e.target.value)} className="min-h-[80px]"/>
-                <AlertDialogFooter><AlertDialogCancel disabled={isRejecting}>Voltar</AlertDialogCancel><Button variant="destructive" onClick={handleRejectWithReason} disabled={isRejecting}>{isRejecting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Confirmar Recusa</Button></AlertDialogFooter>
-            </AlertDialogContent>
-        </AlertDialog>
-        <Button onClick={handleAccept} size="sm" className="bg-green-600 hover:bg-green-700" disabled={isAccepting || isRejecting}>{isAccepting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}<CheckCircle className="mr-2 h-4 w-4" /> Aceitar Proposta</Button>
-      </CardFooter>
-    </Card>
-  );
+        </Card>
+    );
 };
-ProposalListItem.displayName = "ProposalListItem";
-
+ProposalCard.displayName = 'ProposalCard';
 
 export default function DoctorProposalsPage() {
-  const { toast } = useToast();
-  const [proposals, setProposals] = useState<ShiftProposal[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+    const { user, loading: authLoading } = useAuth();
+    const [proposals, setProposals] = useState<ShiftProposal[]>([]);
+    const [isLoading, setIsLoading] = useState(true);
+    const [error, setError] = useState<string | null>(null);
 
-  const fetchProposals = useCallback(async () => {
-    setIsLoading(true);
-    setError(null);
-    try {
-      const data = await getPendingProposalsForDoctor();
-      setProposals(data.sort((a,b) => (a.deadlineForDoctorResponse?.toDate().getTime() || Infinity) - (b.deadlineForDoctorResponse?.toDate().getTime() || Infinity) || a.createdAt.toDate().getTime() - b.createdAt.toDate().getTime()));
-      console.log("[DoctorProposalsPage] Propostas recebidas:", data.length);
-    } catch (err: any) {
-      console.error("[DoctorProposalsPage] Erro ao buscar propostas:", err);
-      setError(err.message || "Falha ao carregar propostas.");
-      toast({ title: "Erro ao Carregar Propostas", description: err.message, variant: "destructive" });
-    } finally {
-      setIsLoading(false);
-    }
-  }, [toast]);
+    const fetchProposals = useCallback(async () => {
+        if (user) {
+            setIsLoading(true);
+            setError(null);
+            try {
+                const data = await getPendingProposalsForDoctor();
+                setProposals(data);
+            } catch (err: any) {
+                setError(err.message);
+            } finally {
+                setIsLoading(false);
+            }
+        }
+    }, [user]);
 
-  useEffect(() => {
-    fetchProposals();
-  }, [fetchProposals]);
+    useEffect(() => {
+        if (!authLoading && user) {
+            fetchProposals();
+        } else if (!authLoading && !user) {
+            setIsLoading(false);
+        }
+    }, [user, authLoading, fetchProposals]);
 
-  // --- LÓGICA ATUALIZADA ---
-  const handleAccept = async (proposalId: string, timeSlotId: string) => {
-    try {
-      await acceptProposal(proposalId, timeSlotId);
-      toast({ title: "Proposta Aceita!", description: "Sua disponibilidade foi reservada. O hospital será notificado.", variant: "default" });
-      fetchProposals(); // Atualiza a lista para remover a proposta aceita
-    } catch (err: any) {
-      toast({ title: "Erro ao Aceitar", description: err.message, variant: "destructive" });
-    }
-  };
-
-  const handleReject = async (proposalId: string, reason?: string) => {
-    try {
-      await rejectProposal(proposalId, reason);
-      toast({ title: "Proposta Recusada", variant: "default" });
-      fetchProposals(); // Atualiza a lista para remover a proposta recusada
-    } catch (err: any) {
-      toast({ title: "Erro ao Recusar", description: err.message, variant: "destructive" });
-    }
-  };
-
-  return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between"><h1 className="text-2xl md:text-3xl font-bold tracking-tight text-gray-800 flex items-center gap-2"><MessageSquare size={28}/> Propostas Recebidas</h1></div>
-      {isLoading && <LoadingState message="Buscando propostas para você..." />}
-      {!isLoading && error && <ErrorState message={error} onRetry={fetchProposals} />}
-      {!isLoading && !error && proposals.length === 0 && ( <EmptyState message="Você não tem nenhuma proposta pendente no momento." /> )}
-      {!isLoading && !error && proposals.length > 0 && (
-        <div className="space-y-4">
-          {proposals.map(proposal => (
-            <ProposalListItem key={proposal.id} proposal={proposal} onAccept={handleAccept} onReject={handleReject} />
-          ))}
+    return (
+        <div className="space-y-6">
+            <h1 className="text-3xl font-bold flex items-center gap-2"><MessageSquare />Propostas Recebidas</h1>
+            {isLoading ? <LoadingState /> :
+             error ? <ErrorState message={error || "Erro desconhecido"} onRetry={fetchProposals}/> :
+             proposals.length === 0 ? <EmptyState message="Quando um hospital se interessar por si, a proposta aparecerá aqui." /> :
+             <div className="space-y-4">{proposals.map(p => <ProposalCard key={p.id} proposal={p} onAction={fetchProposals} />)}</div>
+            }
         </div>
-      )}
-    </div>
-  );
+    );
 }
