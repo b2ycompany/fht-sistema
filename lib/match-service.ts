@@ -16,7 +16,6 @@ import {
 import { db, auth } from "./firebase";
 import { type ShiftProposal } from "./proposal-service";
 
-// A sua interface PotentialMatch, definida localmente como no seu original.
 export interface PotentialMatch {
   id: string;
   shiftRequirementId: string;

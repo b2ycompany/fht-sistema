@@ -58,7 +58,6 @@ export const findMatchesOnShiftRequirementWrite = onDocumentWritten( { document:
         const matchSnap = await matchRef.get();
         if (matchSnap.exists) { logger.info(`Match ${deterministicMatchId} já existe, pulando.`); continue; }
 
-        logger.info(`-----> SUCESSO! CRIANDO NOVO MATCH: ${deterministicMatchId}`);
         const newPotentialMatchData: PotentialMatchInput = {
           shiftRequirementId: requirementId, hospitalId: requirement.hospitalId, hospitalName: requirement.hospitalName || "",
           originalShiftRequirementDates: requirement.dates, matchedDate: timeSlot.date, shiftRequirementStartTime: requirement.startTime,
