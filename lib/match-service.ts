@@ -14,9 +14,10 @@ import {
   setDoc
 } from "firebase/firestore";
 import { db, auth } from "./firebase";
-import { type Contract } from "./contract-service";
+import { type ShiftProposal } from "./proposal-service";
 
 // A sua interface PotentialMatch, definida localmente como no seu original.
+// A importação incorreta de 'match-types' foi removida.
 export interface PotentialMatch {
   id: string;
   shiftRequirementId: string;
@@ -92,19 +93,23 @@ export const approveMatchAndProposeToDoctor = async (
     batch.update(matchDocRef, {
       status: "BACKOFFICE_APPROVED_PROPOSED_TO_DOCTOR",
       negotiatedRateForDoctor: negotiatedRate,
+      backofficeReviewerId: currentUser.uid,
+      backofficeReviewedAt: serverTimestamp(),
       backofficeNotes: backofficeNotes || "",
       updatedAt: serverTimestamp(),
     });
 
-    const contractRef = doc(collection(db, "contracts"));
+    const proposalRef = doc(collection(db, "shiftProposals"));
     
-    const newContractData: Omit<Contract, 'id'> = {
-        proposalId: matchId,
-        shiftRequirementId: matchData.shiftRequirementId,
-        timeSlotId: matchData.timeSlotId,
-        doctorId: matchData.doctorId,
+    const newProposalData: Omit<ShiftProposal, 'id'> = {
+        originalShiftRequirementId: matchData.shiftRequirementId,
+        potentialMatchId: matchId,
+        originalTimeSlotId: matchData.timeSlotId, 
         hospitalId: matchData.hospitalId,
         hospitalName: matchData.hospitalName || 'N/A',
+        hospitalCity: matchData.shiftCity || 'N/A',
+        hospitalState: matchData.shiftState || 'N/A',
+        doctorId: matchData.doctorId,
         doctorName: matchData.doctorName || 'N/A',
         shiftDates: [matchData.matchedDate],
         startTime: matchData.shiftRequirementStartTime,
@@ -112,18 +117,17 @@ export const approveMatchAndProposeToDoctor = async (
         isOvernight: matchData.shiftRequirementIsOvernight,
         serviceType: matchData.shiftRequirementServiceType,
         specialties: matchData.shiftRequirementSpecialties,
-        locationCity: matchData.shiftCity || 'N/A',
-        locationState: matchData.shiftState || 'N/A',
-        contractedRate: negotiatedRate,
-        status: 'PENDING_DOCTOR_SIGNATURE',
+        offeredRateToDoctor: negotiatedRate,
+        notesFromBackoffice: backofficeNotes,
+        status: 'AWAITING_DOCTOR_ACCEPTANCE',
         createdAt: serverTimestamp() as Timestamp,
         updatedAt: serverTimestamp() as Timestamp,
     };
     
-    batch.set(contractRef, newContractData);
+    batch.set(proposalRef, newProposalData);
     await batch.commit();
     
-    console.log(`[MatchService] Match ${matchId} aprovado. Novo contrato ${contractRef.id} criado para o médico.`);
+    console.log(`[MatchService] Match ${matchId} aprovado. Nova proposta ${proposalRef.id} criada para o médico.`);
 
   } catch (error) {
     console.error(`Falha ao aprovar match ${matchId}:`, error);
