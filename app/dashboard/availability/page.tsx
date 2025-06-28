@@ -79,8 +79,37 @@ const TimeSlotListItem: React.FC<{ slot: TimeSlot; onEdit: () => void; onDelete:
   const statusBadgeVariant = (status?: string): VariantProps<typeof Badge>["variant"] => { switch (status) { case 'AVAILABLE': return 'default'; case 'BOOKED': return 'default'; case 'COMPLETED': return 'default'; default: return 'outline'; } };
   const statusBadgeColorClasses = (status?: string): string => { switch (status) { case 'AVAILABLE': return 'bg-blue-100 text-blue-800'; case 'BOOKED': return 'bg-green-100 text-green-800'; case 'COMPLETED': return 'bg-emerald-100 text-emerald-800'; default: return 'bg-gray-100 text-gray-800'; } }
 
-  return ( <div className={cn("flex flex-col sm:flex-row items-start sm:justify-between border rounded-lg p-4 gap-x-4 gap-y-3 bg-white shadow-xs hover:shadow-sm", !canEditOrDelete && "opacity-70 bg-gray-50")}> <div className="flex-1 space-y-1.5 min-w-0"> <div className="flex items-center justify-between gap-2"> <div className="flex items-center gap-2 text-sm font-semibold text-gray-800"> <CalendarDays className="h-4 w-4 shrink-0 text-blue-600" /> <span suppressHydrationWarning>{slotDate ? slotDate.toLocaleDateString("pt-BR", { day: "2-digit", month: "short", year: "numeric" }) : "Data Inválida"}</span> <span className="text-gray-500 font-normal">({slot.startTime} - {slot.endTime})</span> </div> <Badge variant={statusBadgeVariant(slot.status)} className={cn(statusBadgeColorClasses(slot.status), "capitalize")}> {slot.status?.replace(/_/g, ' ').toUpperCase()} </Badge> </div> <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1 text-xs text-gray-600 mt-1 pl-1"> <div className="flex items-center gap-1.5 truncate"><MapPin className="h-3.5 w-3.5 shrink-0 text-purple-500" /><span>{slot.city}, {slot.state}</span></div> <div className="flex items-center gap-1.5 truncate"><Briefcase className="h-3.5 w-3.5 shrink-0 text-cyan-500" /><span>{serviceTypeLabel}</span></div> <div className="flex items-center gap-1.5 text-green-600 font-medium sm:col-span-2"><DollarSign className="h-3.5 w-3.5 shrink-0" /><span>{formatCurrency(slot.desiredHourlyRate)}/hora (pretendido)</span></div> </div> {slot.specialties && slot.specialties.length > 0 && ( <div className="flex flex-wrap items-center gap-1.5 pt-1.5 pl-1"> <span className="text-xs text-gray-500 mr-1 font-medium shrink-0">Especialidades:</span> {slot.specialties.map((s) => (<Badge key={s} variant="outline" className="text-gray-700 text-[11px] px-1.5 py-0.5 font-normal border-blue-200 bg-blue-50">{s}</Badge>))} </div> )} {slot.notes && ( <p className="text-xs text-gray-500 pt-1.5 pl-1 italic flex items-start gap-1.5"> <Info className="inline h-3.5 w-3.5 mr-0.5 shrink-0 relative top-0.5"/> <span className="truncate">{slot.notes}</span> </p> )} </div> <div className="flex items-center space-x-1 shrink-0 mt-2 sm:mt-0 self-end sm:self-center"> <Button variant="ghost" size="icon" onClick={onEdit} disabled={!canEditOrDelete} className="text-blue-600 hover:text-blue-700 hover:bg-blue-50 rounded-full w-8 h-8" aria-label="Editar Disponibilidade" title={!canEditOrDelete ? "Não é possível editar uma disponibilidade reservada ou finalizada." : "Editar Disponibilidade"}><FilePenLine className="h-4 w-4"/></Button> <Button variant="ghost" size="icon" onClick={onDelete} disabled={!canEditOrDelete} className="text-red-600 hover:text-red-700 hover:bg-red-50 rounded-full w-8 h-8" aria-label="Cancelar Disponibilidade" title={!canEditOrDelete ? "Não é possível apagar uma disponibilidade reservada ou finalizada." : "Apagar Disponibilidade"}> <Trash2 className="h-4 w-4"/> </Button> </div> </div> );
+  return (
+    <div className={cn("flex flex-col sm:flex-row items-start sm:justify-between border rounded-lg p-4 gap-x-4 gap-y-3 bg-white shadow-xs hover:shadow-sm", !canEditOrDelete && "opacity-70 bg-gray-50")}>
+      <div className="flex-1 space-y-1.5 min-w-0">
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2 text-sm font-semibold text-gray-800">
+            <CalendarDays className="h-4 w-4 shrink-0 text-blue-600" />
+            <span suppressHydrationWarning>{slotDate ? slotDate.toLocaleDateString("pt-BR", { day: "2-digit", month: "short", year: "numeric" }) : "Data Inválida"}</span>
+            <span className="text-gray-500 font-normal">({slot.startTime} - {slot.endTime})</span>
+          </div>
+          <Badge variant={statusBadgeVariant(slot.status)} className={cn(statusBadgeColorClasses(slot.status), "capitalize")}>
+            {slot.status?.replace(/_/g, ' ').toUpperCase()}
+          </Badge>
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1 text-xs text-gray-600 mt-1 pl-1">
+          <div className="flex items-center gap-1.5 truncate"><MapPin className="h-3.5 w-3.5 shrink-0 text-purple-500" /><span>{slot.city}, {slot.state}</span></div>
+          <div className="flex items-center gap-1.5 truncate"><Briefcase className="h-3.5 w-3.5 shrink-0 text-cyan-500" /><span>{serviceTypeLabel}</span></div>
+          <div className="flex items-center gap-1.5 text-green-600 font-medium sm:col-span-2"><DollarSign className="h-3.5 w-3.5 shrink-0" /><span>{formatCurrency(slot.desiredHourlyRate)}/hora (pretendido)</span></div>
+        </div>
+        {slot.specialties && slot.specialties.length > 0 && ( <div className="flex flex-wrap items-center gap-1.5 pt-1.5 pl-1"> <span className="text-xs text-gray-500 mr-1 font-medium shrink-0">Especialidades:</span> {slot.specialties.map((s) => (<Badge key={s} variant="outline" className="text-gray-700 text-[11px] px-1.5 py-0.5 font-normal border-blue-200 bg-blue-50">{s}</Badge>))} </div> )}
+        {slot.notes && ( <p className="text-xs text-gray-500 pt-1.5 pl-1 italic flex items-start gap-1.5"> <Info className="inline h-3.5 w-3.5 mr-0.5 shrink-0 relative top-0.5"/> <span className="truncate">{slot.notes}</span> </p> )}
+      </div>
+      <div className="flex items-center space-x-1 shrink-0 mt-2 sm:mt-0 self-end sm:self-center">
+        <Button variant="ghost" size="icon" onClick={onEdit} disabled={!canEditOrDelete} className="text-blue-600 hover:text-blue-700 hover:bg-blue-50 rounded-full w-8 h-8" aria-label="Editar Disponibilidade" title={!canEditOrDelete ? "Não é possível editar uma disponibilidade reservada ou finalizada." : "Editar Disponibilidade"}><FilePenLine className="h-4 w-4"/></Button>
+        <Button variant="ghost" size="icon" onClick={onDelete} disabled={!canEditOrDelete} className="text-red-600 hover:text-red-700 hover:bg-red-50 rounded-full w-8 h-8" aria-label="Cancelar Disponibilidade" title={!canEditOrDelete ? "Não é possível apagar uma disponibilidade reservada ou finalizada." : "Apagar Disponibilidade"}>
+          <Trash2 className="h-4 w-4"/>
+        </Button>
+      </div>
+    </div>
+  );
 };
+TimeSlotListItem.displayName = 'TimeSlotListItem';
 
 const TimeSlotFormDialog: React.FC<{ onFormSubmitted: () => void; initialData?: TimeSlot | null; }> = ({ onFormSubmitted, initialData }) => {
   const { toast } = useToast();
@@ -106,20 +135,20 @@ const TimeSlotFormDialog: React.FC<{ onFormSubmitted: () => void; initialData?: 
   const resetFormFields = useCallback(() => { setDates([]); setStartTime("07:00"); setEndTime("19:00"); setDesiredRateInput(""); setSelectedSpecialties([]); setSelectedState(""); setSelectedCity(""); setSelectedServiceType(""); setNotes(""); setTimeError(null); }, []);
   const validateTimes = useCallback((start: string, end: string) => { if (start && end && start === end) { setTimeError("Horário de início não pode ser igual ao de término."); } else { setTimeError(null); } }, []);
   useEffect(() => { validateTimes(startTime, endTime); }, [startTime, endTime, validateTimes]);
-  
-  // --- CORREÇÃO APLICADA AQUI ---
-  // Removido 'selectedCity' da lista de dependências para evitar o loop
-  useEffect(() => { 
-    if (selectedState) { 
-      setAvailableCities(citiesByState[selectedState] || []);
-      // Se o estado for alterado, a cidade deve ser reiniciada
+  useEffect(() => {
+    if (selectedState) {
       if (!initialData || selectedState !== initialData.state) {
+        setAvailableCities(citiesByState[selectedState] || []);
         setSelectedCity("");
+      } else if (initialData && selectedState === initialData.state && !selectedCity) {
+        if (citiesByState[selectedState]?.includes(initialData.city)) {
+          setSelectedCity(initialData.city);
+        }
       }
-    } else { 
+    } else {
       setAvailableCities([]);
       setSelectedCity("");
-    } 
+    }
   }, [selectedState, initialData]);
 
   const handleSelectSpecialty = (specialty: string) => { if (!selectedSpecialties.includes(specialty)) setSelectedSpecialties(prev => [...prev, specialty]); setSpecialtySearchValue(""); setSpecialtyPopoverOpen(false); };

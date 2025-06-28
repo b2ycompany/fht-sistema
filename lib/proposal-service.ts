@@ -36,13 +36,17 @@ export interface ShiftProposal {
   notesFromHospital?: string;
   notesFromBackoffice?: string;
   status: 
-    | 'AWAITING_DOCTOR_ACCEPTANCE' | 'DOCTOR_ACCEPTED_PENDING_CONTRACT' | 'DOCTOR_REJECTED' 
-    | 'CONTRACT_SENT_TO_HOSPITAL' | 'EXPIRED';
+    | 'AWAITING_DOCTOR_ACCEPTANCE'
+    | 'DOCTOR_ACCEPTED_PENDING_CONTRACT' // Status intermediário para o hospital ver
+    | 'DOCTOR_REJECTED'
+    | 'CONTRACT_SIGNED_BY_HOSPITAL' // Status final
+    | 'EXPIRED';
   deadlineForDoctorResponse?: Timestamp;
   doctorResponseAt?: Timestamp;
   doctorRejectionReason?: string;
   createdAt: Timestamp;
   updatedAt: Timestamp;
+  contractId?: string; // Para ligar ao contrato final, se necessário
 }
 
 export const getPendingProposalsForDoctor = async (): Promise<ShiftProposal[]> => {
@@ -71,62 +75,55 @@ export const getPendingProposalsForDoctor = async (): Promise<ShiftProposal[]> =
   }
 };
 
-export const acceptProposal = async (proposalId: string, timeSlotId: string): Promise<void> => {
-  const currentUser = auth.currentUser;
-  if (!currentUser) throw new Error("Usuário não autenticado.");
-  if (!timeSlotId) throw new Error("ID da disponibilidade original não fornecido.");
-
-  const proposalRef = doc(db, "shiftProposals", proposalId);
-  const timeSlotRef = doc(db, "doctorTimeSlots", timeSlotId);
-
-  try {
-    await runTransaction(db, async (transaction) => {
-      const proposalDoc = await transaction.get(proposalRef);
-      if (!proposalDoc.exists() || proposalDoc.data().status !== 'AWAITING_DOCTOR_ACCEPTANCE') {
-        throw new Error("Esta proposta não está mais disponível.");
-      }
-
-      transaction.update(proposalRef, {
-        status: 'DOCTOR_ACCEPTED_PENDING_CONTRACT', // <<< Status correto para o hospital
-        doctorResponseAt: serverTimestamp(),
-        updatedAt: serverTimestamp()
-      });
-
-      transaction.update(timeSlotRef, {
-        status: 'BOOKED',
-        updatedAt: serverTimestamp()
-      });
-    });
-    console.log(`Proposta ${proposalId} aceita e disponibilidade ${timeSlotId} reservada.`);
-  } catch (error) {
-    console.error(`[acceptProposal] Erro na transação para aceitar proposta ${proposalId}:`, error);
-    throw error;
-  }
-};
-
-export const rejectProposal = async (proposalId: string, reason?: string): Promise<void> => {
+export const acceptProposal = async (proposalId: string): Promise<void> => {
     const currentUser = auth.currentUser;
     if (!currentUser) throw new Error("Usuário não autenticado.");
 
     const proposalRef = doc(db, "shiftProposals", proposalId);
-    const batch = writeBatch(db);
 
-    const proposalSnap = await getDoc(proposalRef);
-    const potentialMatchId = proposalSnap.data()?.potentialMatchId;
+    try {
+        await runTransaction(db, async (transaction) => {
+            const proposalDoc = await transaction.get(proposalRef);
+            if (!proposalDoc.exists() || proposalDoc.data().status !== 'AWAITING_DOCTOR_ACCEPTANCE') {
+                throw new Error("Esta proposta não está mais disponível.");
+            }
+            
+            const timeSlotId = proposalDoc.data().originalTimeSlotId;
+            if (!timeSlotId) throw new Error("ID da disponibilidade original não encontrado na proposta.");
+            const timeSlotRef = doc(db, "doctorTimeSlots", timeSlotId);
 
-    batch.update(proposalRef, {
+            // 1. Atualiza o status da Proposta para o Hospital ver
+            transaction.update(proposalRef, {
+                status: 'DOCTOR_ACCEPTED_PENDING_CONTRACT',
+                doctorResponseAt: serverTimestamp(),
+                updatedAt: serverTimestamp()
+            });
+
+            // 2. Bloqueia a disponibilidade original do médico
+            transaction.update(timeSlotRef, {
+                status: 'BOOKED',
+                updatedAt: serverTimestamp()
+            });
+        });
+    } catch (error) {
+        console.error(`[acceptProposal] Erro na transação para aceitar proposta ${proposalId}:`, error);
+        throw error;
+    }
+};
+
+export const rejectProposal = async (proposalId: string, reason?: string): Promise<void> => {
+  const currentUser = auth.currentUser;
+  if (!currentUser) throw new Error("Usuário não autenticado.");
+
+  const proposalRef = doc(db, "shiftProposals", proposalId);
+  try {
+    await updateDoc(proposalRef, {
       status: 'DOCTOR_REJECTED',
       doctorResponseAt: serverTimestamp(),
       doctorRejectionReason: reason || "Não especificado"
     });
-
-    if (potentialMatchId) {
-        const matchRef = doc(db, "potentialMatches", potentialMatchId);
-        batch.update(matchRef, {
-            status: 'PENDING_BACKOFFICE_REVIEW',
-            updatedAt: serverTimestamp(),
-        });
-    }
-    
-    await batch.commit();
+  } catch (error) {
+    console.error(`[rejectProposal] Erro ao recusar proposta ${proposalId}:`, error);
+    throw error;
+  }
 };
