@@ -135,6 +135,7 @@ const TimeSlotFormDialog: React.FC<{ onFormSubmitted: () => void; initialData?: 
   const resetFormFields = useCallback(() => { setDates([]); setStartTime("07:00"); setEndTime("19:00"); setDesiredRateInput(""); setSelectedSpecialties([]); setSelectedState(""); setSelectedCity(""); setSelectedServiceType(""); setNotes(""); setTimeError(null); }, []);
   const validateTimes = useCallback((start: string, end: string) => { if (start && end && start === end) { setTimeError("Horário de início não pode ser igual ao de término."); } else { setTimeError(null); } }, []);
   useEffect(() => { validateTimes(startTime, endTime); }, [startTime, endTime, validateTimes]);
+  
   useEffect(() => {
     if (selectedState) {
       if (!initialData || selectedState !== initialData.state) {
@@ -243,6 +244,7 @@ const TimeSlotFormDialog: React.FC<{ onFormSubmitted: () => void; initialData?: 
     </DialogContent>
   );
 };
+TimeSlotFormDialog.displayName = 'TimeSlotFormDialog';
 
 export default function AvailabilityPage() {
     const { toast } = useToast();

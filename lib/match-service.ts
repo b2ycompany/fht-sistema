@@ -16,7 +16,7 @@ import {
 import { db, auth } from "./firebase";
 import { type Contract } from "./contract-service";
 
-// --- A SUA INTERFACE ORIGINAL, MANTIDA AQUI ---
+// A sua interface PotentialMatch, definida localmente como no seu original.
 export interface PotentialMatch {
   id: string;
   shiftRequirementId: string;
@@ -41,7 +41,7 @@ export interface PotentialMatch {
   doctorDesiredRate: number;
   doctorSpecialties: string[];
   doctorServiceType: string;
-  status: string; // Simplificado para corresponder à sua definição original
+  status: string;
   backofficeReviewerId?: string;
   backofficeReviewedAt?: Timestamp;
   backofficeNotes?: string;
@@ -53,7 +53,7 @@ export interface PotentialMatch {
   updatedAt: Timestamp;
   shiftCity?: string;
   shiftState?: string;
-  doctorTimeSlotNotes?: string; // Adicionado para consistência
+  doctorTimeSlotNotes?: string;
 }
 
 export const getMatchesForBackofficeReview = async (): Promise<PotentialMatch[]> => {
@@ -84,7 +84,9 @@ export const approveMatchAndProposeToDoctor = async (
   
   try {
     const matchDocSnap = await getDoc(matchDocRef);
-    if (!matchDocSnap.exists()) throw new Error("Match não encontrado.");
+    if (!matchDocSnap.exists()) {
+      throw new Error("Match não encontrado. Pode já ter sido processado.");
+    }
     const matchData = matchDocSnap.data() as PotentialMatch;
     
     batch.update(matchDocRef, {
@@ -95,9 +97,11 @@ export const approveMatchAndProposeToDoctor = async (
     });
 
     const contractRef = doc(collection(db, "contracts"));
+    
     const newContractData: Omit<Contract, 'id'> = {
         proposalId: matchId,
         shiftRequirementId: matchData.shiftRequirementId,
+        timeSlotId: matchData.timeSlotId,
         doctorId: matchData.doctorId,
         hospitalId: matchData.hospitalId,
         hospitalName: matchData.hospitalName || 'N/A',
@@ -119,7 +123,7 @@ export const approveMatchAndProposeToDoctor = async (
     batch.set(contractRef, newContractData);
     await batch.commit();
     
-    console.log(`[MatchService] Match ${matchId} aprovado. Novo contrato ${contractRef.id} criado.`);
+    console.log(`[MatchService] Match ${matchId} aprovado. Novo contrato ${contractRef.id} criado para o médico.`);
 
   } catch (error) {
     console.error(`Falha ao aprovar match ${matchId}:`, error);
