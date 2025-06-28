@@ -1,15 +1,31 @@
 // lib/contract-service.ts
 "use strict";
 
-import { doc, collection, query, where, getDocs, updateDoc, serverTimestamp, Timestamp, orderBy, runTransaction, getDoc, setDoc } from "firebase/firestore";
+import {
+  doc,
+  collection,
+  query,
+  where,
+  getDocs,
+  updateDoc,
+  serverTimestamp,
+  Timestamp,
+  orderBy,
+  runTransaction,
+  getDoc,
+  setDoc
+} from "firebase/firestore";
 import { db, auth } from "./firebase";
+import { type PotentialMatch } from "./match-service";
 import { type DoctorProfile } from "./auth-service";
 
+// --- O TIPO DE CONTRATO ÚNICO E DEFINITIVO ---
+// Esta interface agora inclui todos os campos necessários para todo o fluxo
 export interface Contract {
   id: string;
-  proposalId: string;
+  proposalId: string; // ID do match que originou
   shiftRequirementId: string;
-  timeSlotId: string; // Adicionado para bloquear a disponibilidade correta
+  timeSlotId: string; 
   doctorId: string;
   hospitalId: string;
   hospitalName: string;
@@ -22,7 +38,9 @@ export interface Contract {
   specialties: string[];
   locationCity: string;
   locationState: string;
-  contractedRate: number;
+  contractedRate: number; // Valor que o médico recebe
+  offeredRateByHospital?: number; // Valor que o hospital paga
+  platformMargin?: number;
   contractDocumentUrl?: string;
   contractTermsPreview?: string;
   status: 'PENDING_DOCTOR_SIGNATURE' | 'PENDING_HOSPITAL_SIGNATURE' | 'ACTIVE_SIGNED' | 'CANCELLED' | 'COMPLETED' | 'REJECTED';
@@ -31,6 +49,8 @@ export interface Contract {
   createdAt: Timestamp;
   updatedAt: Timestamp;
 }
+
+// --- FUNÇÕES CORRIGIDAS E COMPLETAS ---
 
 export const getContractsForDoctor = async (statuses: Contract['status'][]): Promise<Contract[]> => {
   const currentUser = auth.currentUser;
@@ -64,14 +84,12 @@ export const signContractByDoctor = async (contractId: string): Promise<void> =>
 
     const timeSlotRef = doc(db, "doctorTimeSlots", timeSlotId);
 
-    // 1. Atualiza o status do contrato
     transaction.update(contractRef, {
       status: 'PENDING_HOSPITAL_SIGNATURE',
       doctorSignature: { signedAt: serverTimestamp() },
       updatedAt: serverTimestamp()
     });
 
-    // 2. Bloqueia a disponibilidade
     transaction.update(timeSlotRef, {
         status: 'BOOKED',
         updatedAt: serverTimestamp()
@@ -99,10 +117,8 @@ export const signContractByHospital = async (contractId: string): Promise<void> 
     await runTransaction(db, async (transaction) => {
         const contractRef = doc(db, "contracts", contractId);
         const contractDoc = await transaction.get(contractRef);
-
-        if (!contractDoc.exists() || contractDoc.data().status !== 'PENDING_HOSPITAL_SIGNATURE') {
-            throw new Error("Este contrato não está mais aguardando sua assinatura.");
-        }
+        if (!contractDoc.exists() || contractDoc.data().status !== 'PENDING_HOSPITAL_SIGNATURE') { throw new Error("Este contrato não está mais aguardando sua assinatura."); }
+        
         const contractData = contractDoc.data() as Contract;
         const doctorId = contractData.doctorId;
         

@@ -52,6 +52,7 @@ export interface ShiftProposal {
 export const getPendingProposalsForDoctor = async (): Promise<ShiftProposal[]> => {
   const currentUser = auth.currentUser;
   if (!currentUser) {
+    console.warn("[getPendingProposalsForDoctor] Usuário não autenticado.");
     return [];
   }
 
@@ -89,18 +90,21 @@ export const acceptProposal = async (proposalId: string): Promise<void> => {
         const timeSlotId = proposalDoc.data().originalTimeSlotId;
         if (!timeSlotId) throw new Error("ID da disponibilidade original não encontrado na proposta.");
         const timeSlotRef = doc(db, "doctorTimeSlots", timeSlotId);
-
+        
+        // 1. Atualiza a proposta para o status que o hospital irá buscar
         transaction.update(proposalRef, {
             status: 'DOCTOR_ACCEPTED_PENDING_CONTRACT',
             doctorResponseAt: serverTimestamp(),
             updatedAt: serverTimestamp()
         });
 
+        // 2. Bloqueia a disponibilidade original do médico
         transaction.update(timeSlotRef, {
             status: 'BOOKED',
             updatedAt: serverTimestamp()
         });
     });
+    console.log(`Proposta ${proposalId} aceite. Aguardando ação do hospital.`);
 };
 
 export const rejectProposal = async (proposalId: string, reason?: string): Promise<void> => {
@@ -119,10 +123,11 @@ export const rejectProposal = async (proposalId: string, reason?: string): Promi
     doctorRejectionReason: reason || "Não especificado"
   });
 
+  // Opcional: Devolver o match para a fila do admin
   if (potentialMatchId) {
       const matchRef = doc(db, "potentialMatches", potentialMatchId);
       batch.update(matchRef, {
-          status: 'PENDING_BACKOFFICE_REVIEW', // Opcional: Volta para o admin
+          status: 'PENDING_BACKOFFICE_REVIEW',
           updatedAt: serverTimestamp(),
       });
   }
