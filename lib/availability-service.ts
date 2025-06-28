@@ -14,8 +14,42 @@ import {
 } from "firebase/firestore";
 import { db, auth } from "./firebase";
 
-export const medicalSpecialties = [ "Cardiologia", "Dermatologia", "Ginecologia", "Pediatria", "Ortopedia", "Oftalmologia", "Psiquiatria", "Neurologia", "Endocrinologia", "Gastroenterologia", "Urologia", "Otorrinolaringologia", "Pneumologia", "Nefrologia", "Reumatologia", "Infectologia", "Oncologia", "Hematologia", "Alergologia", "Angiologia" ];
-export const ServiceTypeRates = { consulta_ambulatorial: 100, plantao_12h: 1200, plantao_24h: 2400, procedimento_especifico: 300, telemedicina: 80 };
+// --- SUAS LISTAS COMPLETAS E CORRETAS ---
+export const ServiceTypeRates: { [key: string]: number } = {
+  plantao_12h_diurno: 100,
+  plantao_12h_noturno: 120,
+  plantao_24h: 110,
+  consulta_ambulatorial: 80,
+  cirurgia_eletiva: 150,
+  uti_adulto: 130,
+  medico_de_Guarda: 250,
+  medico_Diarista_uti: 300,
+  coordenador_medico: 200,
+  enfermaria: 120,
+  telemedicina: 90,
+  medico_prescritor: 200,
+  intensivista: 125,
+  medico_sala_emergencia: 125,
+  medico_visitador: 125,
+};
+
+export const medicalSpecialties = [
+    "Anestesiologia", "Angiologia", "Cardiologia", "Cirurgia Cardiovascular", "Cirurgia da Mão", 
+    "Cirurgia de Cabeça e Pescoço", "Cirurgia do Aparelho Digestivo", "Cirurgia Geral", 
+    "Cirurgia Oncológica", "Cirurgia Pediátrica", "Cirurgia Plástica", "Cirurgia Torácica", 
+    "Cirurgia Vascular", "Clínica Médica", "Coloproctologia", "Dermatologia", 
+    "Endocrinologia e Metabologia", "Endoscopia", "Gastroenterologia", "Genética Médica", 
+    "Geriatria", "Ginecologia e Obstetrícia", "Hematologia e Hemoterapia", "Homeopatia", 
+    "Infectologia", "Mastologia", "Medicina de Emergência", "Medicina de Família e Comunidade", 
+    "Medicina do Trabalho", "Medicina Esportiva", "Medicina Física e Reabilitação", 
+    "Medicina Intensiva", "Medicina Legal e Perícia Médica", "Medicina Nuclear", 
+    "Medicina Preventiva e Social", "Nefrologia", "Neurocirurgia", "Neurologia", 
+    "Nutrologia", "Oftalmologia", "Oncologia Clínica", "Ortopedia e Traumatologia", 
+    "Otorrinolaringologia", "Patologia", "Patologia Clínica/Medicina Laboratorial", 
+    "Pediatria", "Pneumologia", "Psiquiatria", "Radiologia e Diagnóstico por Imagem", 
+    "Radioterapia", "Reumatologia", "Urologia"
+];
+// --- FIM DAS SUAS LISTAS ---
 
 export interface TimeSlot {
   id: string;
@@ -70,7 +104,6 @@ export const getTimeSlots = async (): Promise<TimeSlot[]> => {
   }
 };
 
-// --- FUNÇÃO ADICIONADA ---
 export const updateTimeSlot = async (slotId: string, payload: TimeSlotUpdatePayload): Promise<void> => {
   const slotRef = doc(db, "doctorTimeSlots", slotId);
   try {
