@@ -3,14 +3,10 @@
 
 import { doc, collection, query, where, getDocs, updateDoc, serverTimestamp, Timestamp, orderBy, runTransaction } from "firebase/firestore";
 import { db, auth } from "./firebase";
-// Estas importações deixam de ser necessárias para as funções do hospital
-// import { type ShiftProposal } from "./proposal-service"; 
-// import { type PotentialMatch } from "./match-service";
 import { type DoctorProfile } from "./auth-service";
 
 export interface Contract {
   id: string;
-  proposalId: string; // Pode ser mantido por legado ou removido
   shiftRequirementId: string;
   timeSlotId: string;
   doctorId: string;
@@ -25,9 +21,13 @@ export interface Contract {
   specialties: string[];
   locationCity: string;
   locationState: string;
-  contractedRate: number; // Valor do médico
-  offeredRateByHospital?: number; // Valor pago pelo hospital
-  platformMargin?: number; // Margem da plataforma
+  
+  // MUDANÇA: Seção Financeira Detalhada
+  hospitalRate: number;             // Valor/hora que o hospital paga (ex: 150)
+  doctorRate: number;               // Valor/hora que o médico recebe (ex: 100)
+  platformMarginRate: number;       // Valor/hora da margem em R$ (ex: 50)
+  platformMarginPercentage: number; // Percentual da margem definido pelo admin (%)
+
   contractDocumentUrl?: string;
   contractTermsPreview?: string;
   status: 'PENDING_DOCTOR_SIGNATURE' | 'PENDING_HOSPITAL_SIGNATURE' | 'ACTIVE_SIGNED' | 'CANCELLED' | 'COMPLETED' | 'REJECTED';
@@ -37,7 +37,9 @@ export interface Contract {
   updatedAt: Timestamp;
 }
 
-// Esta função já estava correta e busca da coleção `contracts`
+// Nenhuma alteração funcional necessária nestas funções para a Fase 1
+// Elas continuarão a funcionar corretamente com a nova estrutura da interface.
+
 export const getContractsForDoctor = async (statuses: Contract['status'][]): Promise<Contract[]> => {
   const currentUser = auth.currentUser;
   if (!currentUser) { return []; }
@@ -53,7 +55,6 @@ export const getContractsForDoctor = async (statuses: Contract['status'][]): Pro
   }
 };
 
-// Esta função já estava correta, apenas precisa que o `timeSlotId` exista no contrato, o que garantimos na criação
 export const signContractByDoctor = async (contractId: string): Promise<void> => {
   const currentUser = auth.currentUser;
   if (!currentUser) throw new Error("Usuário não autenticado.");
@@ -67,39 +68,30 @@ export const signContractByDoctor = async (contractId: string): Promise<void> =>
     }
     
     const contractData = contractDoc.data() as Contract;
-    // Garante que o timeSlotId está presente
     const timeSlotId = contractData.timeSlotId;
     if (!timeSlotId) throw new Error("ID da disponibilidade original não encontrado no contrato.");
 
     const timeSlotRef = doc(db, "doctorTimeSlots", timeSlotId);
     const timeSlotDoc = await transaction.get(timeSlotRef);
 
-    // Verifica se a disponibilidade ainda está disponível para evitar double booking
     if(timeSlotDoc.exists() && timeSlotDoc.data()?.status !== 'AVAILABLE'){
         throw new Error("Esta disponibilidade não está mais livre. A vaga pode ter sido preenchida.");
     }
 
-    // Atualiza o Contrato para aguardar o Hospital
     transaction.update(contractRef, {
       status: 'PENDING_HOSPITAL_SIGNATURE',
       doctorSignature: { signedAt: serverTimestamp() },
       updatedAt: serverTimestamp()
     });
 
-    // Atualiza a Disponibilidade do médico para 'BOOKED' (Reservada/Contratada)
     transaction.update(timeSlotRef, {
         status: 'BOOKED',
-        relatedContractId: contractId, // Adiciona uma referência ao contrato
+        relatedContractId: contractId,
         updatedAt: serverTimestamp()
     });
   });
 };
 
-/**
- * ## LÓGICA ATUALIZADA E UNIFICADA ##
- * Busca os contratos que estão pendentes de assinatura PELO HOSPITAL.
- * A busca agora é feita diretamente na coleção `contracts`.
- */
 export const getPendingSignatureContractsForHospital = async (): Promise<Contract[]> => {
   const hospitalId = auth.currentUser?.uid;
   if (!hospitalId) return [];
@@ -120,11 +112,6 @@ export const getPendingSignatureContractsForHospital = async (): Promise<Contrac
   }
 };
 
-/**
- * ## LÓGICA ATUALIZADA E UNIFICADA ##
- * Realiza a assinatura final do CONTRATO pelo hospital.
- * Opera diretamente no documento da coleção `contracts`.
- */
 export const signContractByHospital = async (contractId: string): Promise<void> => {
     const hospitalUser = auth.currentUser;
     if (!hospitalUser) throw new Error("Hospital não autenticado.");
@@ -138,11 +125,8 @@ export const signContractByHospital = async (contractId: string): Promise<void> 
         }
         
         const contractData = contractDoc.data() as Contract;
-
-        // Referência à demanda original para marcá-la como CONFIRMADA
         const shiftRequirementRef = doc(db, "shiftRequirements", contractData.shiftRequirementId);
 
-        // 1. Atualiza o status do contrato para ATIVO
         transaction.update(contractRef, { 
             status: 'ACTIVE_SIGNED', 
             hospitalSignature: {
@@ -152,13 +136,11 @@ export const signContractByHospital = async (contractId: string): Promise<void> 
             updatedAt: serverTimestamp() 
         });
 
-        // 2. Atualiza a demanda original para CONFIRMADA
         transaction.update(shiftRequirementRef, { 
             status: 'CONFIRMED', 
             updatedAt: serverTimestamp() 
         });
 
-        // 3. Adiciona o médico à lista de médicos do hospital (lógica mantida)
         const doctorId = contractData.doctorId;
         const doctorRef = doc(db, "users", doctorId);
         const doctorDoc = await transaction.get(doctorRef);
@@ -175,7 +157,7 @@ export const signContractByHospital = async (contractId: string): Promise<void> 
                 status: 'ACTIVE_PLATFORM',
                 source: 'PLATFORM',
                 addedAt: serverTimestamp()
-            }, { merge: true }); // Usar merge para não sobrescrever dados existentes
+            }, { merge: true });
         }
     });
 };

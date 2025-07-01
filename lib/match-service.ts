@@ -10,12 +10,12 @@ import {
   Timestamp,
   orderBy,
   writeBatch,
-  getDoc
+  getDoc,
 } from "firebase/firestore";
 import { db, auth } from "./firebase";
-import { type Contract } from "./contract-service"; // <-- MUDANÇA: Importa a interface do Contrato
+import { type Contract } from "./contract-service"; // Importa a interface do Contrato atualizada
 
-// A sua interface PotentialMatch continua igual.
+// A interface PotentialMatch continua igual.
 export interface PotentialMatch {
   id: string;
   shiftRequirementId: string;
@@ -44,9 +44,7 @@ export interface PotentialMatch {
   backofficeReviewerId?: string;
   backofficeReviewedAt?: Timestamp;
   backofficeNotes?: string;
-  negotiatedRateForDoctor?: number;
-  doctorResponseAt?: Timestamp;
-  doctorRejectionReason?: string;
+  negotiatedRateForDoctor?: number; // Este campo é o que o admin preenche na UI
   contractId?: string;
   createdAt: Timestamp;
   updatedAt: Timestamp;
@@ -71,14 +69,14 @@ export const getMatchesForBackofficeReview = async (): Promise<PotentialMatch[]>
 };
 
 /**
- * ## LÓGICA ATUALIZADA E UNIFICADA ##
- * Aprova o match e cria um CONTRATO formal diretamente, que será enviado ao médico para assinatura.
- * A coleção 'shiftProposals' deixa de ser usada neste fluxo.
+ * ## LÓGICA ATUALIZADA (FASE 1) ##
+ * Aprova o match, calcula os valores financeiros e cria um CONTRATO formal 
+ * com todos os dados detalhados para as próximas fases.
  */
 export const approveMatchAndCreateContract = async (
   matchId: string,
-  negotiatedRate: number,
-  platformMargin: number, // Adicionado para cálculo financeiro
+  negotiatedRate: number, // Valor final que o médico irá receber (ex: 100)
+  platformMarginPercentage: number, // Margem em % que o admin definiu (ex: 10)
   backofficeNotes?: string
 ): Promise<void> => {
   const currentUser = auth.currentUser;
@@ -94,10 +92,19 @@ export const approveMatchAndCreateContract = async (
     }
     const matchData = matchDocSnap.data() as PotentialMatch;
     
+    // MUDANÇA: Lógica de cálculo financeiro
+    const hospitalRate = matchData.offeredRateByHospital; // Valor que o hospital ofertou na demanda. Ex: 150
+    const doctorRate = negotiatedRate; // Valor final para o médico, definido pelo admin. Ex: 100
+    const platformMarginRate = hospitalRate - doctorRate; // Diferença em R$. Ex: 50
+
+    if (platformMarginRate < 0) {
+        throw new Error("O valor proposto ao médico não pode ser maior que o valor pago pelo hospital.");
+    }
+
     // 1. Atualiza o status do Match original
     batch.update(matchDocRef, {
-      status: "BACKOFFICE_APPROVED_CONTRACT_CREATED", // Novo status mais claro
-      negotiatedRateForDoctor: negotiatedRate,
+      status: "BACKOFFICE_APPROVED_CONTRACT_CREATED",
+      negotiatedRateForDoctor: doctorRate,
       backofficeReviewerId: currentUser.uid,
       backofficeReviewedAt: serverTimestamp(),
       backofficeNotes: backofficeNotes || "",
@@ -107,14 +114,14 @@ export const approveMatchAndCreateContract = async (
     // 2. Cria o novo CONTRATO na coleção 'contracts'
     const contractRef = doc(collection(db, "contracts"));
     
+    // MUDANÇA: Usando a nova estrutura de Contrato
     const newContractData: Omit<Contract, 'id'> = {
-        proposalId: 'N/A', // O conceito de proposta separada não existe mais neste fluxo
         shiftRequirementId: matchData.shiftRequirementId,
         timeSlotId: matchData.timeSlotId,
         doctorId: matchData.doctorId,
         hospitalId: matchData.hospitalId,
-        doctorName: matchData.doctorName || 'Nome do Médico não disponível',
-        hospitalName: matchData.hospitalName || 'Nome do Hospital não disponível',
+        doctorName: matchData.doctorName || 'N/A',
+        hospitalName: matchData.hospitalName || 'N/A',
         shiftDates: [matchData.matchedDate],
         startTime: matchData.shiftRequirementStartTime,
         endTime: matchData.shiftRequirementEndTime,
@@ -123,29 +130,30 @@ export const approveMatchAndCreateContract = async (
         specialties: matchData.shiftRequirementSpecialties,
         locationCity: matchData.shiftCity || 'N/A',
         locationState: matchData.shiftState || 'N/A',
-        contractedRate: negotiatedRate, // Valor que o médico recebe
-        offeredRateByHospital: matchData.offeredRateByHospital, // Valor que o hospital paga
-        platformMargin: platformMargin, // Margem da plataforma
-        status: 'PENDING_DOCTOR_SIGNATURE', // Status inicial para o médico assinar
+        
+        // Dados Financeiros Detalhados
+        hospitalRate: hospitalRate,
+        doctorRate: doctorRate,
+        platformMarginRate: platformMarginRate,
+        platformMarginPercentage: platformMarginPercentage,
+        
+        status: 'PENDING_DOCTOR_SIGNATURE',
         createdAt: serverTimestamp() as Timestamp,
         updatedAt: serverTimestamp() as Timestamp,
     };
     
     batch.set(contractRef, newContractData);
-
-    // 3. (Opcional, mas recomendado) Atualiza o campo contractId no match
     batch.update(matchDocRef, { contractId: contractRef.id });
     
     await batch.commit();
     
-    console.log(`[MatchService] Match ${matchId} aprovado. Novo CONTRATO ${contractRef.id} criado para o médico.`);
+    console.log(`[MatchService] Match ${matchId} aprovado. CONTRATO ${contractRef.id} criado com dados financeiros.`);
 
   } catch (error) {
     console.error(`Falha ao aprovar match e criar contrato para ${matchId}:`, error);
     throw new Error(`Falha ao aprovar match: ${(error as Error).message}`);
   }
 };
-
 
 export const rejectMatchByBackoffice = async (
   matchId: string,
