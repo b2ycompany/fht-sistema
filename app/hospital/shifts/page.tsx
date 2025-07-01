@@ -1,9 +1,9 @@
 // app/hospital/shifts/page.tsx
 "use client";
 
-import React, { useState, useEffect, useMemo, useCallback, ChangeEvent } from "react"; // CORRIGIDO: Importação completa de React
+import React, { useState, useEffect, useMemo, useCallback, ChangeEvent, ReactNode } from "react";
 import { Button, buttonVariants } from "@/components/ui/button";
-import type { VariantProps } from "class-variance-authority"; // Usado por ButtonVariant
+import type { VariantProps } from "class-variance-authority";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -17,11 +17,9 @@ import { useToast } from "@/hooks/use-toast";
 import { Badge, type BadgeProps } from "@/components/ui/badge";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
-
 import { cn, formatCurrency, formatPercentage, formatHours } from "@/lib/utils";
 import { auth } from "@/lib/firebase";
 import { Timestamp } from "firebase/firestore";
-
 import {
   addShiftRequirement,
   getHospitalShiftRequirements,
@@ -39,13 +37,11 @@ import {
   type DashboardData
 } from "@/lib/hospital-shift-service";
 import { medicalSpecialties, ServiceTypeRates } from "@/lib/availability-service";
-
 import { SimpleLineChart } from "@/components/charts/SimpleLineChart";
 import { SimpleBarChart } from "@/components/charts/SimpleBarChart";
-
 import {
   Plus, Loader2, Users, DollarSign, Briefcase, ClipboardList, Info, Trash2, CheckCircle, History, X, CalendarDays, TrendingUp, WalletCards, MapPin, Target, Clock, Hourglass, RotateCcw, FilePenLine,
-  AlertCircle // Ícone usado no KPICard e ErrorState
+  AlertCircle, Eye, XCircle // <<< ÍCONES ADICIONADOS AQUI
 } from "lucide-react";
 
 type ButtonVariant = VariantProps<typeof Button>["variant"];
@@ -58,183 +54,12 @@ const citiesByState: { [key: string]: string[] } = {
 };
 const serviceTypesOptions = Object.entries(ServiceTypeRates).map(([v, r]) => ({ value: v, label: v.split('_').map(w=>w[0].toUpperCase()+w.slice(1)).join(' '), rateExample: r }));
 
-// --- COMPONENTES DE ESTADO ---
 const LoadingState = React.memo(({ message = "Carregando dados..." }: { message?: string }) => ( <div className="flex flex-col justify-center items-center text-center py-10 min-h-[150px] w-full"> <Loader2 className="h-8 w-8 animate-spin text-blue-600" /> <span className="ml-3 text-sm text-gray-600 mt-3">{message}</span> </div> ));
 LoadingState.displayName = 'LoadingState';
 const EmptyState = React.memo(({ message, actionButton }: { message: string; actionButton?: React.ReactNode }) => ( <div className="text-center text-sm text-gray-500 py-10 min-h-[150px] flex flex-col items-center justify-center bg-gray-50/70 rounded-md border border-dashed border-gray-300 w-full"> <ClipboardList className="w-12 h-12 text-gray-400 mb-4"/> <p className="font-medium text-gray-600 mb-1">Nada por aqui ainda!</p> <p className="max-w-xs">{message}</p> {actionButton && <div className="mt-4">{actionButton}</div>} </div> ));
 EmptyState.displayName = 'EmptyState';
 const ErrorState = React.memo(({ message, onRetry }: { message: string; onRetry?: () => void }) => ( <div className="text-center text-sm text-red-600 py-10 min-h-[150px] flex flex-col items-center justify-center bg-red-50/70 rounded-md border border-dashed border-red-300 w-full"> <AlertCircle className="w-12 h-12 text-red-400 mb-4"/> <p className="font-semibold text-red-700 mb-1 text-base">Oops! Algo deu errado.</p> <p className="max-w-md text-red-600">{message || "Não foi possível carregar os dados."}</p> {onRetry && ( <Button variant="destructive" size="sm" onClick={onRetry} className="mt-4"> <RotateCcw className="mr-2 h-4 w-4" /> Tentar Novamente </Button> )} </div> ));
 ErrorState.displayName = 'ErrorState';
-
-export default function HospitalShiftsPage() {
-  const { toast } = useToast();
-  const [kpiData, setKpiData] = useState<HospitalKPIs | null>(null);
-  const [monthlyCostData, setMonthlyCostData] = useState<MonthlyCostData[]>([]);
-  const [specialtyDemandData, setSpecialtyDemandData] = useState<SpecialtyDemandData[]>([]);
-  
-  const [openShifts, setOpenShifts] = useState<ShiftRequirement[]>([]);
-  const [pendingActionShifts, setPendingActionShifts] = useState<ShiftRequirement[]>([]);
-  const [confirmedShiftsList, setConfirmedShiftsList] = useState<ShiftRequirement[]>([]);
-  const [pastShiftsList, setPastShiftsList] = useState<ShiftRequirement[]>([]);
-
-  type ListStateType = { isLoading: boolean; error: string | null };
-  const initialListState: ListStateType = { isLoading: true, error: null };
-  const [listStates, setListStates] = useState({
-    open: { ...initialListState },
-    pending: { ...initialListState },
-    confirmed: { ...initialListState },
-    history: { ...initialListState },
-    kpis: { ...initialListState },
-  });
-
-  const [isAddShiftDialogOpen, setIsAddShiftDialogOpen] = useState(false);
-  const [activeTab, setActiveTab] = useState("open");
-  const [editingShift, setEditingShift] = useState<ShiftRequirement | null>(null);
-
-  // CORRIGIDO: Tipagem do parâmetro prev
-  const updateListState = (list: keyof typeof listStates, state: Partial<ListStateType>) => {
-    setListStates((prev: typeof listStates) => ({ ...prev, [list]: { ...prev[list], ...state } }));
-  };
-
-  const fetchDashboardData = useCallback(async (currentOpenDemandCount?: number) => {
-    updateListState('kpis', { isLoading: true, error: null });
-    try {
-      console.log("[HospitalShiftsPage] fetchDashboardData: Buscando KPIs...");
-      await new Promise(res => setTimeout(res, 100));
-      const countOpen = currentOpenDemandCount ?? openShifts.length; // openShifts pode ser usado aqui pois fetchDashboardData é chamado após openShifts ser setado
-      const countPending = pendingActionShifts.length;
-      const kpis: HospitalKPIs = { openShiftsCount: countOpen, pendingActionCount: countPending, totalDoctorsOnPlatform: 152, costLast30Days: 25780.50, fillRateLast30Days: 85.7, avgTimeToFillHours: 4.2, topSpecialtyDemand: 'Clínica Médica' };
-      const costs: MonthlyCostData[] = [ { name: 'Jan', valor: 18000 }, { name: 'Fev', valor: 21500 }, { name: 'Mar', valor: 25780.50 }, { name: 'Abr', valor: 15300 } ];
-      const demand: SpecialtyDemandData[] = medicalSpecialties.slice(0,5).map(s => ({ name: s.substring(0,10), valor: Math.floor(Math.random() * 10) + 1}));
-      setKpiData(kpis); setMonthlyCostData(costs); setSpecialtyDemandData(demand);
-      updateListState('kpis', { isLoading: false });
-    } catch (error: any) {
-      updateListState('kpis', { isLoading: false, error: error.message || "Erro ao buscar dados do painel."});
-    }
-  }, [openShifts.length, pendingActionShifts.length]);
-
-  const fetchOpenShifts = useCallback(async (updateKPIData = true) => {
-    console.log("[HospitalShiftsPage] fetchOpenShifts chamado. updateKPIData:", updateKPIData);
-    updateListState('open', { isLoading: true, error: null });
-    let fetchedData: ShiftRequirement[] = [];
-    try {
-      fetchedData = await getHospitalShiftRequirements() || [];
-      setOpenShifts(fetchedData.sort((a, b) => (a.dates?.[0]?.toDate().getTime()||0) - (b.dates?.[0]?.toDate().getTime()||0) || a.startTime.localeCompare(b.startTime)));
-      updateListState('open', {isLoading: false});
-      if (updateKPIData) {
-        fetchDashboardData(fetchedData.length);
-      }
-    } catch (error: any) {
-      const errorMsg = error.message || "Erro ao carregar demandas abertas.";
-      updateListState('open', {isLoading: false, error: errorMsg});
-      if (updateKPIData) updateListState('kpis', { isLoading: false, error: errorMsg});
-    }
-  }, [fetchDashboardData]);
-
-  const fetchPendingActionShiftsCallback = useCallback(async () => { updateListState('pending', {isLoading: true, error: null}); try { const data = await getPendingActionShifts(); setPendingActionShifts(data); updateListState('pending', {isLoading:false}); } catch (e:any) { updateListState('pending',{isLoading:false, error: e.message}); }}, []);
-  const fetchConfirmedShiftsCallback = useCallback(async () => { updateListState('confirmed', {isLoading: true, error: null}); try { const data = await getConfirmedShiftsForHospital(); setConfirmedShiftsList(data); updateListState('confirmed', {isLoading:false});} catch (e:any) { updateListState('confirmed',{isLoading:false, error: e.message}); }}, []);
-  const fetchPastShiftsCallback = useCallback(async () => { updateListState('history', {isLoading: true, error: null}); try { const data = await getPastShiftsForHospital(); setPastShiftsList(data); updateListState('history', {isLoading:false});} catch (e:any) { updateListState('history',{isLoading:false, error: e.message}); }}, []);
-
-  useEffect(() => {
-    console.log("[HospitalShiftsPage] Montagem inicial, chamando fetchOpenShifts e outras buscas.");
-    fetchOpenShifts(true);
-    fetchPendingActionShiftsCallback(); // Carrega pendentes para o KPI inicial
-    // Outras podem ser carregadas on-demand pelas abas
-  }, [fetchOpenShifts, fetchPendingActionShiftsCallback]);
-
-  const handleTabChange = (value: string) => {
-    setActiveTab(value);
-    if (value === 'pending' && !listStates.pending.isLoading && !listStates.pending.error && pendingActionShifts.length === 0) { fetchPendingActionShiftsCallback(); }
-    else if (value === 'confirmed' && !listStates.confirmed.isLoading && !listStates.confirmed.error && confirmedShiftsList.length === 0) { fetchConfirmedShiftsCallback(); }
-    else if (value === 'history' && !listStates.history.isLoading && !listStates.history.error && pastShiftsList.length === 0) { fetchPastShiftsCallback(); }
-  };
-
-  const handleOpenEditDialog = (shift: ShiftRequirement) => { setEditingShift(shift); setIsAddShiftDialogOpen(true); };
-  const handleOpenAddDialog = () => { setEditingShift(null); setIsAddShiftDialogOpen(true); };
-  const handleCancelShift = async (shiftId: string | undefined) => { if (!shiftId) return; try { await deleteShiftRequirement(shiftId); toast({ title: "Demanda Cancelada", variant: "default" }); fetchOpenShifts(true); } catch (error: any) { toast({ title: "Erro ao Cancelar", description: error.message, variant: "destructive"}); } };
-  
-  // CORRIGIDO: Nome da função de callback
-  const onShiftSubmitted = () => {
-    setIsAddShiftDialogOpen(false);
-    setEditingShift(null);
-    setActiveTab("open");
-    fetchOpenShifts(true);
-  };
-
-  return (
-    <div className="flex flex-col gap-6 md:gap-8 p-1">
-      <h1 className="text-2xl md:text-3xl font-bold tracking-tight text-gray-800">Painel de Gerenciamento de Plantões</h1>
-      {(listStates.kpis.error && (listStates.kpis.isLoading || listStates.open.isLoading)) && ( <ErrorState message={listStates.kpis.error || listStates.open.error || "Erro ao carregar dados iniciais."} onRetry={() => fetchOpenShifts(true)} /> )}
-      <section aria-labelledby="kpi-heading"> <h2 id="kpi-heading" className="sr-only">Visão Geral</h2> <div className="grid gap-3 sm:gap-4 grid-cols-2 md:grid-cols-4 lg:grid-cols-7">
-        <KPICard title="Demandas Abertas" value={kpiData?.openShiftsCount ?? '-'} icon={AlertCircle} isLoading={listStates.open.isLoading || listStates.kpis.isLoading} description="Aguardando médicos" />
-        {/* ... outros KPICards ... */}
-      </div> </section>
-      <section aria-labelledby="charts-heading"> <h2 id="charts-heading" className="sr-only">Análises</h2> <div className="grid gap-4 grid-cols-1 lg:grid-cols-2"> {/* ... Charts ... */} </div> </section>
-      <section aria-labelledby="shifts-management-heading">
-        <h2 id="shifts-management-heading" className="text-xl font-semibold mb-4 mt-4 text-gray-700">Gerenciamento Detalhado de Demandas</h2>
-        <Tabs value={activeTab} onValueChange={handleTabChange} className="w-full">
-          <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-3 mb-4 border-b pb-3">
-            <TabsList className="grid w-full grid-cols-2 md:grid-cols-4 sm:w-auto shrink-0">
-              <TabsTrigger value="open">Abertas {listStates.open.isLoading && activeTab === 'open' ? <Loader2 className="h-3 w-3 animate-spin ml-1.5"/> : `(${openShifts.length})`}</TabsTrigger>
-              <TabsTrigger value="pending">Pendentes {listStates.pending.isLoading && activeTab === 'pending' ? <Loader2 className="h-3 w-3 animate-spin ml-1.5"/> : `(${pendingActionShifts.length})`}</TabsTrigger>
-              <TabsTrigger value="confirmed">Confirmados {listStates.confirmed.isLoading && activeTab === 'confirmed' ? <Loader2 className="h-3 w-3 animate-spin ml-1.5"/> : `(${confirmedShiftsList.length})`}</TabsTrigger>
-              <TabsTrigger value="history">Histórico {listStates.history.isLoading && activeTab === 'history' ? <Loader2 className="h-3 w-3 animate-spin ml-1.5"/> : `(${pastShiftsList.length})`}</TabsTrigger>
-            </TabsList>
-            <Dialog open={isAddShiftDialogOpen} onOpenChange={(isOpen: boolean) => { setIsAddShiftDialogOpen(isOpen); if (!isOpen) setEditingShift(null); }}>
-              <DialogTrigger
-                onClick={handleOpenAddDialog}
-                className={cn( buttonVariants({ variant: "default", size: "sm" }), "w-full sm:w-auto bg-blue-600 hover:bg-blue-700 text-white flex items-center" )}
-              > <Plus className="mr-1.5 h-4 w-4" /> Publicar Nova Demanda </DialogTrigger>
-              <AddShiftDialog key={editingShift ? `edit-${editingShift.id}` : 'new-shift'} onShiftSubmitted={onShiftSubmitted} initialData={editingShift} />
-            </Dialog>
-          </div>
-          <TabsContent value="open"> <Card> <CardHeader><CardTitle>Demandas em Aberto</CardTitle></CardHeader> <CardContent> {listStates.open.isLoading ? <LoadingState /> : listStates.open.error ? <ErrorState message={listStates.open.error} onRetry={() => fetchOpenShifts(false)}/> : openShifts.length === 0 ? <EmptyState message="Nenhuma demanda aberta." actionButton={<Button size="sm" onClick={handleOpenAddDialog} className="bg-blue-600 hover:bg-blue-700">Publicar Demanda</Button>} /> : <div className="space-y-3">{openShifts.map((req: ShiftRequirement) => (<ShiftListItem key={req.id} shift={req} actions={[{ label: "Editar", icon: FilePenLine, onClick: () => handleOpenEditDialog(req), disabled: req.status !== 'OPEN' },{ label: "Cancelar", icon: Trash2, onClick: () => handleCancelShift(req.id) }]}/>))}</div> } </CardContent> </Card> </TabsContent>
-          <TabsContent value="pending"> <Card> <CardHeader><CardTitle>Demandas Pendentes</CardTitle></CardHeader> <CardContent> {listStates.pending.isLoading ? <LoadingState /> : listStates.pending.error ? <ErrorState message={listStates.pending.error} onRetry={fetchPendingActionShiftsCallback}/> : pendingActionShifts.length === 0 ? <EmptyState message="Nenhuma demanda pendente." /> : <div className="space-y-3">{pendingActionShifts.map((req: ShiftRequirement) => (<ShiftListItem key={req.id} shift={req} />))}</div> } </CardContent> </Card> </TabsContent>
-          <TabsContent value="confirmed"> <Card> <CardHeader><CardTitle>Demandas Confirmadas</CardTitle></CardHeader> <CardContent> {listStates.confirmed.isLoading ? <LoadingState /> : listStates.confirmed.error ? <ErrorState message={listStates.confirmed.error} onRetry={fetchConfirmedShiftsCallback}/> : confirmedShiftsList.length === 0 ? <EmptyState message="Nenhuma demanda confirmada." /> : <div className="space-y-3">{confirmedShiftsList.map((req: ShiftRequirement) => (<ShiftListItem key={req.id} shift={req} />))}</div> } </CardContent> </Card> </TabsContent>
-          <TabsContent value="history"> <Card> <CardHeader><CardTitle>Histórico de Demandas</CardTitle></CardHeader> <CardContent> {listStates.history.isLoading ? <LoadingState /> : listStates.history.error ? <ErrorState message={listStates.history.error} onRetry={fetchPastShiftsCallback}/> : pastShiftsList.length === 0 ? <EmptyState message="Nenhum histórico." /> : <div className="space-y-3">{pastShiftsList.map((req: ShiftRequirement) => (<ShiftListItem key={req.id} shift={req} />))}</div> } </CardContent> </Card> </TabsContent>
-        </Tabs>
-      </section>
-    </div>
-  );
-}
-
-// --- COMPONENTES AUXILIARES ---
-
-interface KPICardProps { title: string; value: string | number; description?: string; icon: React.ElementType; isLoading: boolean; }
-const KPICard: React.FC<KPICardProps> = React.memo(({ title, value, description, icon: Icon, isLoading }) => {
-    return ( <Card className="shadow-sm hover:shadow-lg transition-shadow duration-300 ease-in-out min-w-0 bg-white rounded-xl border border-slate-200"> <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-1.5 pt-4 px-4"> <CardTitle className="text-[13px] font-semibold text-slate-600 truncate pr-2">{title}</CardTitle> <Icon className="h-4 w-4 text-slate-400 shrink-0" /> </CardHeader> <CardContent className="pt-0 pb-3 px-4 overflow-hidden"> {isLoading ? ( <div className="h-9 flex items-center mt-1"><Loader2 className="h-5 w-5 animate-spin text-slate-400" /></div> ) : ( <div className={cn("font-bold text-slate-800", "text-2xl lg:text-3xl", "leading-none mt-1")} title={String(value)} > {value} </div> )} {description && !isLoading && <p className="text-[11px] text-slate-500 pt-1.5 truncate">{description}</p>} </CardContent> </Card> );
-});
-KPICard.displayName = 'KPICard';
-
-interface ShiftListItemProps { shift: ShiftRequirement; actions?: { label: string; icon: React.ElementType; onClick: () => void; variant?: ButtonVariant; className?: string; disabled?: boolean }[]; }
-const ShiftListItem: React.FC<ShiftListItemProps> = React.memo(({ shift, actions }) => {
-  const serviceTypeObj = serviceTypesOptions.find(opt => opt.value === shift.serviceType);
-  const serviceTypeLabel = serviceTypeObj?.label || shift.serviceType;
-  const getDisplayDate = () => {
-    if (!shift.dates || shift.dates.length === 0) return "Datas não especificadas";
-    const firstDateObj = shift.dates[0] instanceof Timestamp ? shift.dates[0].toDate() : null;
-    let displayStr = firstDateObj ? firstDateObj.toLocaleDateString("pt-BR", { day: "2-digit", month: "short", year: "numeric" }) : "Data inválida";
-    if (shift.dates.length > 1) { displayStr += ` (e +${shift.dates.length - 1} outro(s) dia(s))`; }
-    return displayStr;
-  };
-  const statusLabel = (status?: string): string => { return status?.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()) || 'Desconhecido'; };
-  const getStatusBadgeProps = (status?: ShiftRequirement['status']): { variant: BadgeProps["variant"], className: string } => {
-    switch (status) {
-      case 'OPEN': return { variant: 'default', className: 'bg-blue-100 text-blue-800 border-blue-300' };
-      case 'FULLY_STAFFED': case 'CONFIRMED': case 'ACTIVE_SIGNED':  case 'COMPLETED': case 'IN_PROGRESS': return { variant: 'default', className: 'bg-green-100 text-green-800 border-green-300' };
-      case 'PARTIALLY_FILLED': return { variant: 'default', className: 'bg-sky-100 text-sky-800 border-sky-300' };
-      case 'PENDING_MATCH_REVIEW': case 'PENDING_DOCTOR_ACCEPTANCE': case 'PENDING_HOSPITAL_SIGNATURE': case 'PENDING_CONTRACT_SIGNATURES': return { variant: 'secondary', className: 'bg-yellow-100 text-yellow-800 border-yellow-300' };
-      case 'CANCELLED_BY_HOSPITAL': case 'EXPIRED': return { variant: 'destructive', className: '' };
-      default: return { variant: 'outline', className: 'bg-gray-100 text-gray-800 border-gray-300' };
-    }
-  };
-  const statusBadgeInfo = getStatusBadgeProps(shift.status);
-
-  return ( <div className={cn("flex flex-col sm:flex-row items-start sm:justify-between border rounded-lg p-4 gap-x-4 gap-y-3 transition-all duration-300 bg-white shadow-xs hover:shadow-md")}> <div className="flex-1 space-y-2 min-w-0"> <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2"> <div className="flex items-center gap-2 text-sm font-semibold text-gray-800"> <CalendarDays className="h-4 w-4 shrink-0 text-blue-600" /> <span suppressHydrationWarning>{getDisplayDate()}</span> <span className="text-gray-500 font-normal">({shift.startTime} - {shift.endTime})</span> </div> <Badge variant={statusBadgeInfo.variant} className={cn("text-xs capitalize self-start sm:self-center", statusBadgeInfo.className)}> {statusLabel(shift.status)} </Badge> </div> <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1.5 text-xs text-gray-600 mt-1 pl-1"> <div className="flex items-center gap-1.5 truncate"><MapPin className="h-3.5 w-3.5 shrink-0 text-purple-500" /><span>{shift.city}, {shift.state}</span></div> <div className="flex items-center gap-1.5 truncate"><Briefcase className="h-3.5 w-3.5 shrink-0 text-cyan-500" /><span>{serviceTypeLabel}</span></div> <div className="flex items-center gap-1.5 text-green-600 font-medium"><DollarSign className="h-3.5 w-3.5 shrink-0" /><span>{formatCurrency(shift.offeredRate)}/hora</span></div> <div className="flex items-center gap-1.5 text-gray-700 font-medium"><Users className="h-3.5 w-3.5 shrink-0" /><span>{shift.numberOfVacancies ?? 1} profissional(is) por data</span></div> </div> {shift.specialtiesRequired && shift.specialtiesRequired.length > 0 && ( <div className="flex flex-wrap items-center gap-1.5 pt-1.5 pl-1"> <span className="text-xs text-gray-500 mr-1 font-medium shrink-0">Especialidades:</span> {shift.specialtiesRequired.map((s: string) => (<Badge key={s} variant="outline" className="text-gray-700 text-[11px] px-1.5 py-0.5 font-normal border-blue-200 bg-blue-50">{s}</Badge>))} </div> )} {shift.notes && ( <p className="text-xs text-gray-500 pt-1.5 pl-1 italic flex items-start gap-1.5"> <Info className="inline h-3.5 w-3.5 mr-0.5 shrink-0 relative top-0.5"/> <span className="truncate">{shift.notes}</span> </p> )} </div> {actions && actions.length > 0 && ( <div className="flex items-center space-x-1 shrink-0 mt-2 sm:mt-0 self-end sm:self-center"> {actions.map((action: any) => ( <Button key={action.label} variant={action.variant ?? "ghost"} size="icon" onClick={action.onClick} className={cn("h-8 w-8 p-0", action.className)} aria-label={action.label} disabled={action.disabled}> <action.icon className="h-4 w-4"/> </Button> ))} </div> )} </div> );
-});
-ShiftListItem.displayName = 'ShiftListItem';
-
-// Cole este bloco para substituir apenas o componente AddShiftDialog no seu arquivo
 
 interface AddShiftDialogProps { onShiftSubmitted: () => void; initialData?: ShiftRequirement | null; }
 const AddShiftDialog: React.FC<AddShiftDialogProps> = ({ onShiftSubmitted, initialData }) => {
@@ -261,7 +86,7 @@ const AddShiftDialog: React.FC<AddShiftDialogProps> = ({ onShiftSubmitted, initi
   const resetFormFields = useCallback(() => { setDates([]); setStartTime("07:00"); setEndTime("19:00"); setNumberOfVacancies("1"); setRequiredSpecialties([]); setSpecialtySearchValue(""); setTimeError(null); setSelectedState(""); setSelectedCity(""); setAvailableCities([]); setSelectedServiceType(""); setOfferedRateInput(""); setNotes(""); }, []);
   const validateTimes = useCallback((start: string, end: string) => { if (start && end && start === end ) { setTimeError("Início não pode ser igual ao término."); } else { setTimeError(null); } }, []);
   useEffect(() => { validateTimes(startTime, endTime); }, [startTime, endTime, validateTimes]);
-  useEffect(() => { if (selectedState) { if (!initialData || selectedState !== initialData.state) { setAvailableCities(citiesByState[selectedState] || []); setSelectedCity(""); } else if (initialData && selectedState === initialData.state && !selectedCity) { if (citiesByState[selectedState]?.includes(initialData.city)) { setSelectedCity(initialData.city); } } } else { setAvailableCities([]); setSelectedCity(""); } }, [selectedState, initialData]);
+  useEffect(() => { if (selectedState) { if (!initialData || selectedState !== initialData.state) { setAvailableCities(citiesByState[selectedState] || []); setSelectedCity(""); } else if (initialData && selectedState === initialData.state && !selectedCity) { if (citiesByState[selectedState]?.includes(initialData.city)) { setSelectedCity(initialData.city); } } } else { setAvailableCities([]); setSelectedCity(""); } }, [selectedState, initialData, selectedCity]);
   const handleSelectRequiredSpecialty = (specialty: string) => { if (!requiredSpecialties.includes(specialty)) setRequiredSpecialties((prev: string[]) => [...prev, specialty]); setSpecialtySearchValue(""); setSpecialtyPopoverOpen(false); };
   const handleRemoveRequiredSpecialty = (specialtyToRemove: string) => { setRequiredSpecialties((prev: string[]) => prev.filter((s: string) => s !== specialtyToRemove)); };
   const filteredSpecialties = useMemo(() => medicalSpecialties.filter(s => typeof s === 'string' && s.toLowerCase().includes(specialtySearchValue.toLowerCase()) && !requiredSpecialties.includes(s)), [specialtySearchValue, requiredSpecialties]);
@@ -324,32 +149,7 @@ const AddShiftDialog: React.FC<AddShiftDialogProps> = ({ onShiftSubmitted, initi
                 <Label className="font-semibold text-gray-800 flex items-center"><CalendarDays/>Data(s)*</Label> 
                 <p className="text-xs text-gray-500">{isEditing ? "Original (não editável)." : "Selecione."}</p> 
                 <div className="flex flex-col sm:flex-row gap-2 items-start"> 
-                    {isEditing ? ( 
-                        <Calendar 
-                            mode="single" 
-                            selected={dates[0]} 
-                            disabled 
-                            footer={ dates[0] ? <p>{dates[0]?.toLocaleDateString('pt-BR')}</p> : null} 
-                            // *** ALTERAÇÃO APLICADA AQUI ***
-                            modifiersClassNames={{
-                                selected: 'bg-blue-600 text-white rounded-md',
-                                today: 'bg-blue-100 text-blue-800 rounded-md font-bold'
-                            }}
-                        /> 
-                    ) : ( 
-                        <Calendar 
-                            mode="multiple" 
-                            selected={dates} 
-                            onSelect={setDates as SelectMultipleEventHandler} 
-                            disabled={{ before: new Date(new Date().setHours(0,0,0,0))}} 
-                            footer={ dates.length > 0 ? <p>{dates.length} dia(s)</p> : <p>Nenhum dia</p>} 
-                            // *** ALTERAÇÃO APLICADA AQUI ***
-                            modifiersClassNames={{
-                                selected: 'bg-blue-600 text-white hover:bg-blue-700 focus:bg-blue-700 rounded-md',
-                                today: 'bg-blue-100 text-blue-800 rounded-md font-bold'
-                            }}
-                        /> 
-                    )} 
+                    {isEditing ? ( <Calendar mode="single" selected={dates[0]} disabled footer={ dates[0] ? <p>{dates[0]?.toLocaleDateString('pt-BR')}</p> : null} modifiersClassNames={{ selected: 'bg-blue-600 text-white rounded-md', today: 'bg-blue-100 text-blue-800 rounded-md font-bold' }} /> ) : ( <Calendar mode="multiple" selected={dates} onSelect={setDates as SelectMultipleEventHandler} disabled={{ before: new Date(new Date().setHours(0,0,0,0))}} footer={ dates.length > 0 ? <p>{dates.length} dia(s)</p> : <p>Nenhum dia</p>} modifiersClassNames={{ selected: 'bg-blue-600 text-white hover:bg-blue-700 focus:bg-blue-700 rounded-md', today: 'bg-blue-100 text-blue-800 rounded-md font-bold' }} /> )} 
                     {dates.length > 0 && !isEditing && <Button variant="outline" size="sm" onClick={() => setDates([])}><X/> Limpar</Button>} 
                 </div> 
             </div> 
@@ -366,3 +166,116 @@ const AddShiftDialog: React.FC<AddShiftDialogProps> = ({ onShiftSubmitted, initi
     </DialogContent>
   );
 };
+AddShiftDialog.displayName = 'AddShiftDialog';
+
+interface KPICardProps { title: string; value: string | number; description?: string; icon: React.ElementType; isLoading: boolean; }
+const KPICard: React.FC<KPICardProps> = React.memo(({ title, value, description, icon: Icon, isLoading }) => {
+    return ( <Card className="shadow-sm hover:shadow-lg transition-shadow duration-300 ease-in-out min-w-0 bg-white rounded-xl border border-slate-200"> <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-1.5 pt-4 px-4"> <CardTitle className="text-[13px] font-semibold text-slate-600 truncate pr-2">{title}</CardTitle> <Icon className="h-4 w-4 text-slate-400 shrink-0" /> </CardHeader> <CardContent className="pt-0 pb-3 px-4 overflow-hidden"> {isLoading ? ( <div className="h-9 flex items-center mt-1"><Loader2 className="h-5 w-5 animate-spin text-slate-400" /></div> ) : ( <div className={cn("font-bold text-slate-800", "text-2xl lg:text-3xl", "leading-none mt-1")} title={String(value)} > {value} </div> )} {description && !isLoading && <p className="text-[11px] text-slate-500 pt-1.5 truncate">{description}</p>} </CardContent> </Card> );
+});
+KPICard.displayName = 'KPICard';
+
+interface ShiftListItemProps { shift: ShiftRequirement; actions?: { label: string; icon: React.ElementType; onClick: () => void; variant?: ButtonVariant; className?: string; disabled?: boolean }[]; }
+const ShiftListItem: React.FC<ShiftListItemProps> = React.memo(({ shift, actions }) => {
+  const serviceTypeObj = serviceTypesOptions.find(opt => opt.value === shift.serviceType);
+  const serviceTypeLabel = serviceTypeObj?.label || shift.serviceType;
+  const getDisplayDate = () => {
+    if (!shift.dates || shift.dates.length === 0) return "Datas não especificadas";
+    const firstDateObj = shift.dates[0] instanceof Timestamp ? shift.dates[0].toDate() : null;
+    let displayStr = firstDateObj ? firstDateObj.toLocaleDateString("pt-BR", { day: "2-digit", month: "short", year: "numeric" }) : "Data inválida";
+    if (shift.dates.length > 1) { displayStr += ` (e +${shift.dates.length - 1} outro(s) dia(s))`; }
+    return displayStr;
+  };
+  const statusLabel = (status?: string): string => { return status?.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()) || 'Desconhecido'; };
+  const getStatusBadgeProps = (status?: ShiftRequirement['status']): { variant: BadgeProps["variant"], className: string } => {
+    switch (status) {
+      case 'OPEN': return { variant: 'default', className: 'bg-blue-100 text-blue-800 border-blue-300' };
+      case 'FULLY_STAFFED': case 'CONFIRMED': case 'ACTIVE_SIGNED':  case 'COMPLETED': case 'IN_PROGRESS': return { variant: 'default', className: 'bg-green-100 text-green-800 border-green-300' };
+      case 'PARTIALLY_FILLED': return { variant: 'default', className: 'bg-sky-100 text-sky-800 border-sky-300' };
+      case 'PENDING_MATCH_REVIEW': case 'PENDING_DOCTOR_ACCEPTANCE': case 'PENDING_HOSPITAL_SIGNATURE': case 'PENDING_CONTRACT_SIGNATURES': return { variant: 'secondary', className: 'bg-yellow-100 text-yellow-800 border-yellow-300' };
+      case 'CANCELLED_BY_HOSPITAL': case 'EXPIRED': return { variant: 'destructive', className: '' };
+      default: return { variant: 'outline', className: 'bg-gray-100 text-gray-800 border-gray-300' };
+    }
+  };
+  const statusBadgeInfo = getStatusBadgeProps(shift.status);
+
+  return ( <div className={cn("flex flex-col sm:flex-row items-start sm:justify-between border rounded-lg p-4 gap-x-4 gap-y-3 transition-all duration-300 bg-white shadow-xs hover:shadow-md")}> <div className="flex-1 space-y-2 min-w-0"> <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2"> <div className="flex items-center gap-2 text-sm font-semibold text-gray-800"> <CalendarDays className="h-4 w-4 shrink-0 text-blue-600" /> <span suppressHydrationWarning>{getDisplayDate()}</span> <span className="text-gray-500 font-normal">({shift.startTime} - {shift.endTime})</span> </div> <Badge variant={statusBadgeInfo.variant} className={cn("text-xs capitalize self-start sm:self-center", statusBadgeInfo.className)}> {statusLabel(shift.status)} </Badge> </div> <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1.5 text-xs text-gray-600 mt-1 pl-1"> <div className="flex items-center gap-1.5 truncate"><MapPin className="h-3.5 w-3.5 shrink-0 text-purple-500" /><span>{shift.city}, {shift.state}</span></div> <div className="flex items-center gap-1.5 truncate"><Briefcase className="h-3.5 w-3.5 shrink-0 text-cyan-500" /><span>{serviceTypeLabel}</span></div> <div className="flex items-center gap-1.5 text-green-600 font-medium"><DollarSign className="h-3.5 w-3.5 shrink-0" /><span>{formatCurrency(shift.offeredRate)}/hora</span></div> <div className="flex items-center gap-1.5 text-gray-700 font-medium"><Users className="h-3.5 w-3.5 shrink-0" /><span>{shift.numberOfVacancies ?? 1} profissional(is) por data</span></div> </div> {shift.specialtiesRequired && shift.specialtiesRequired.length > 0 && ( <div className="flex flex-wrap items-center gap-1.5 pt-1.5 pl-1"> <span className="text-xs text-gray-500 mr-1 font-medium shrink-0">Especialidades:</span> {shift.specialtiesRequired.map((s: string) => (<Badge key={s} variant="outline" className="text-gray-700 text-[11px] px-1.5 py-0.5 font-normal border-blue-200 bg-blue-50">{s}</Badge>))} </div> )} {shift.notes && ( <p className="text-xs text-gray-500 pt-1.5 pl-1 italic flex items-start gap-1.5"> <Info className="inline h-3.5 w-3.5 mr-0.5 shrink-0 relative top-0.5"/> <span className="truncate">{shift.notes}</span> </p> )} </div> {actions && actions.length > 0 && ( <div className="flex items-center space-x-1 shrink-0 mt-2 sm:mt-0 self-end sm:self-center"> {actions.map((action: any) => ( <Button key={action.label} variant={action.variant ?? "ghost"} size="icon" onClick={action.onClick} className={cn("h-8 w-8 p-0", action.className)} aria-label={action.label} disabled={action.disabled} title={action.disabled ? "Esta vaga não pode ser alterada." : action.label}> <action.icon className="h-4 w-4"/> </Button> ))} </div> )} </div> );
+});
+ShiftListItem.displayName = 'ShiftListItem';
+
+export default function HospitalShiftsPage() {
+  const { toast } = useToast();
+  const [kpiData, setKpiData] = useState<HospitalKPIs | null>(null);
+  const [openShifts, setOpenShifts] = useState<ShiftRequirement[]>([]);
+  const [pendingActionShifts, setPendingActionShifts] = useState<ShiftRequirement[]>([]);
+  const [confirmedShiftsList, setConfirmedShiftsList] = useState<ShiftRequirement[]>([]);
+  const [pastShiftsList, setPastShiftsList] = useState<ShiftRequirement[]>([]);
+  type ListStateType = { isLoading: boolean; error: string | null };
+  const initialListState: ListStateType = { isLoading: true, error: null };
+  const [listStates, setListStates] = useState({ open: { ...initialListState }, pending: { ...initialListState }, confirmed: { ...initialListState }, history: { ...initialListState }, kpis: { ...initialListState }, });
+  const [isAddShiftDialogOpen, setIsAddShiftDialogOpen] = useState(false);
+  const [activeTab, setActiveTab] = useState("open");
+  const [editingShift, setEditingShift] = useState<ShiftRequirement | null>(null);
+  const updateListState = (list: keyof typeof listStates, state: Partial<ListStateType>) => { setListStates((prev: typeof listStates) => ({ ...prev, [list]: { ...prev[list], ...state } })); };
+  const fetchDashboardData = useCallback(async (currentOpenDemandCount?: number) => {
+    updateListState('kpis', { isLoading: true, error: null });
+    try { console.log("[HospitalShiftsPage] fetchDashboardData: Buscando KPIs..."); await new Promise(res => setTimeout(res, 100)); const countOpen = currentOpenDemandCount ?? openShifts.length; const countPending = pendingActionShifts.length; const kpis: HospitalKPIs = { openShiftsCount: countOpen, pendingActionCount: countPending, totalDoctorsOnPlatform: 152, costLast30Days: 25780.50, fillRateLast30Days: 85.7, avgTimeToFillHours: 4.2, topSpecialtyDemand: 'Clínica Médica' }; const costs: MonthlyCostData[] = [ { name: 'Jan', valor: 18000 }, { name: 'Fev', valor: 21500 }, { name: 'Mar', valor: 25780.50 }, { name: 'Abr', valor: 15300 } ]; const demand: SpecialtyDemandData[] = medicalSpecialties.slice(0,5).map(s => ({ name: s.substring(0,10), valor: Math.floor(Math.random() * 10) + 1}));
+    setKpiData(kpis); // setMonthlyCostData(costs); setSpecialtyDemandData(demand);
+    updateListState('kpis', { isLoading: false });
+  } catch (error: any) { updateListState('kpis', { isLoading: false, error: error.message || "Erro ao buscar dados do painel."}); }
+  }, [openShifts.length, pendingActionShifts.length]);
+  const fetchOpenShifts = useCallback(async (updateKPIData = true) => {
+    console.log("[HospitalShiftsPage] fetchOpenShifts chamado. updateKPIData:", updateKPIData);
+    updateListState('open', { isLoading: true, error: null });
+    let fetchedData: ShiftRequirement[] = [];
+    try { fetchedData = await getHospitalShiftRequirements() || []; setOpenShifts(fetchedData.sort((a, b) => (a.dates?.[0]?.toDate().getTime()||0) - (b.dates?.[0]?.toDate().getTime()||0) || a.startTime.localeCompare(b.startTime))); updateListState('open', {isLoading: false}); if (updateKPIData) { fetchDashboardData(fetchedData.length); } }
+    catch (error: any) { const errorMsg = error.message || "Erro ao carregar demandas abertas."; updateListState('open', {isLoading: false, error: errorMsg}); if (updateKPIData) updateListState('kpis', { isLoading: false, error: errorMsg}); }
+  }, [fetchDashboardData]);
+  const fetchPendingActionShiftsCallback = useCallback(async () => { updateListState('pending', {isLoading: true, error: null}); try { const data = await getPendingActionShifts(); setPendingActionShifts(data); updateListState('pending', {isLoading:false}); } catch (e:any) { updateListState('pending',{isLoading:false, error: e.message}); }}, []);
+  const fetchConfirmedShiftsCallback = useCallback(async () => { updateListState('confirmed', {isLoading: true, error: null}); try { const data = await getConfirmedShiftsForHospital(); setConfirmedShiftsList(data); updateListState('confirmed', {isLoading:false});} catch (e:any) { updateListState('confirmed',{isLoading:false, error: e.message}); }}, []);
+  const fetchPastShiftsCallback = useCallback(async () => { updateListState('history', {isLoading: true, error: null}); try { const data = await getPastShiftsForHospital(); setPastShiftsList(data); updateListState('history', {isLoading:false});} catch (e:any) { updateListState('history',{isLoading:false, error: e.message}); }}, []);
+  useEffect(() => { console.log("[HospitalShiftsPage] Montagem inicial, chamando fetchOpenShifts e outras buscas."); fetchOpenShifts(true); fetchPendingActionShiftsCallback(); }, [fetchOpenShifts, fetchPendingActionShiftsCallback]);
+  const handleTabChange = (value: string) => { setActiveTab(value); if (value === 'confirmed' && !listStates.confirmed.isLoading && !listStates.confirmed.error && confirmedShiftsList.length === 0) { fetchConfirmedShiftsCallback(); } else if (value === 'history' && !listStates.history.isLoading && !listStates.history.error && pastShiftsList.length === 0) { fetchPastShiftsCallback(); } };
+  const handleOpenEditDialog = (shift: ShiftRequirement) => { setEditingShift(shift); setIsAddShiftDialogOpen(true); };
+  const handleOpenAddDialog = () => { setEditingShift(null); setIsAddShiftDialogOpen(true); };
+  const handleCancelShift = async (shiftId: string | undefined) => { if (!shiftId) return; try { await deleteShiftRequirement(shiftId); toast({ title: "Demanda Cancelada" }); fetchOpenShifts(true); } catch (error: any) { toast({ title: "Erro ao Cancelar", description: error.message, variant: "destructive"}); } };
+  const onShiftSubmitted = () => { setIsAddShiftDialogOpen(false); setEditingShift(null); setActiveTab("open"); fetchOpenShifts(true); };
+
+  return (
+    <div className="flex flex-col gap-6 md:gap-8 p-1">
+      <h1 className="text-2xl md:text-3xl font-bold tracking-tight text-gray-800">Painel de Gerenciamento de Plantões</h1>
+      {(listStates.kpis.error && (listStates.kpis.isLoading || listStates.open.isLoading)) && ( <ErrorState message={listStates.kpis.error || listStates.open.error || "Erro ao carregar dados iniciais."} onRetry={() => fetchOpenShifts(true)} /> )}
+      <section aria-labelledby="kpi-heading"> <h2 id="kpi-heading" className="sr-only">Visão Geral</h2> <div className="grid gap-3 sm:gap-4 grid-cols-2 md:grid-cols-4 lg:grid-cols-7">
+        <KPICard title="Demandas Abertas" value={kpiData?.openShiftsCount ?? '-'} icon={AlertCircle} isLoading={listStates.open.isLoading || listStates.kpis.isLoading} description="Aguardando médicos" />
+        <KPICard title="Pendentes Ação" value={kpiData?.pendingActionCount ?? '-'} icon={Hourglass} isLoading={listStates.pending.isLoading || listStates.kpis.isLoading} description="Matches/contratos" />
+        <KPICard title="Taxa Preenchim. (30d)" value={formatPercentage(kpiData?.fillRateLast30Days)} icon={Target} isLoading={listStates.kpis.isLoading} description="Eficiência" />
+        <KPICard title="Custo Estimado (30d)" value={formatCurrency(kpiData?.costLast30Days)} icon={WalletCards} isLoading={listStates.kpis.isLoading} description="Gasto com plantões" />
+        <KPICard title="Tempo Médio Preench." value={formatHours(kpiData?.avgTimeToFillHours)} icon={Clock} isLoading={listStates.kpis.isLoading} description="Agilidade (horas)" />
+        <KPICard title="Médicos na Plataforma" value={kpiData?.totalDoctorsOnPlatform ?? '-'} icon={Users} isLoading={listStates.kpis.isLoading} description="Total cadastrados" />
+        <KPICard title="Top Demanda (Espec.)" value={kpiData?.topSpecialtyDemand ?? '-'} icon={TrendingUp} isLoading={listStates.kpis.isLoading} description="Mais requisitada" />
+      </div> </section>
+      <section aria-labelledby="charts-heading"> <h2 id="charts-heading" className="sr-only">Análises</h2> <div className="grid gap-4 grid-cols-1 lg:grid-cols-2">
+        {/* Gráficos aqui */}
+      </div> </section>
+      <section aria-labelledby="shifts-management-heading">
+        <h2 id="shifts-management-heading" className="text-xl font-semibold mb-4 mt-4 text-gray-700">Gerenciamento Detalhado de Demandas</h2>
+        <Tabs value={activeTab} onValueChange={handleTabChange} className="w-full">
+          <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-3 mb-4 border-b pb-3">
+            <TabsList className="grid w-full grid-cols-2 md:grid-cols-4 sm:w-auto shrink-0">
+              <TabsTrigger value="open">Abertas {listStates.open.isLoading && activeTab === 'open' ? <Loader2 className="h-3 w-3 animate-spin ml-1.5"/> : `(${openShifts.length})`}</TabsTrigger>
+              <TabsTrigger value="pending">Pendentes {listStates.pending.isLoading && activeTab === 'pending' ? <Loader2 className="h-3 w-3 animate-spin ml-1.5"/> : `(${pendingActionShifts.length})`}</TabsTrigger>
+              <TabsTrigger value="confirmed">Confirmados {listStates.confirmed.isLoading && activeTab === 'confirmed' ? <Loader2 className="h-3 w-3 animate-spin ml-1.5"/> : `(${confirmedShiftsList.length})`}</TabsTrigger>
+              <TabsTrigger value="history">Histórico {listStates.history.isLoading && activeTab === 'history' ? <Loader2 className="h-3 w-3 animate-spin ml-1.5"/> : `(${pastShiftsList.length})`}</TabsTrigger>
+            </TabsList>
+            <Dialog open={isAddShiftDialogOpen} onOpenChange={(isOpen: boolean) => { setIsAddShiftDialogOpen(isOpen); if (!isOpen) setEditingShift(null); }}>
+              <DialogTrigger onClick={handleOpenAddDialog} className={cn( buttonVariants({ variant: "default", size: "sm" }), "w-full sm:w-auto bg-blue-600 hover:bg-blue-700 text-white flex items-center" )} > <Plus className="mr-1.5 h-4 w-4" /> Publicar Nova Demanda </DialogTrigger>
+              <AddShiftDialog key={editingShift ? `edit-${editingShift.id}` : 'new-shift'} onShiftSubmitted={onShiftSubmitted} initialData={editingShift} />
+            </Dialog>
+          </div>
+          <TabsContent value="open"> <Card> <CardHeader><CardTitle>Demandas em Aberto</CardTitle></CardHeader> <CardContent> {listStates.open.isLoading ? <LoadingState /> : listStates.open.error ? <ErrorState message={listStates.open.error} onRetry={() => fetchOpenShifts(false)}/> : openShifts.length === 0 ? <EmptyState message="Nenhuma demanda aberta." actionButton={<Button size="sm" onClick={handleOpenAddDialog} className="bg-blue-600 hover:bg-blue-700">Publicar Demanda</Button>} /> : <div className="space-y-3">{openShifts.map((req: ShiftRequirement) => (<ShiftListItem key={req.id} shift={req} actions={[{ label: "Editar", icon: FilePenLine, onClick: () => handleOpenEditDialog(req), disabled: req.status !== 'OPEN' },{ label: "Cancelar", icon: Trash2, onClick: () => handleCancelShift(req.id), disabled: req.status !== 'OPEN' }]}/>))}</div> } </CardContent> </Card> </TabsContent>
+          <TabsContent value="confirmed"> <Card> <CardHeader><CardTitle>Demandas Confirmadas</CardTitle></CardHeader> <CardContent> {listStates.confirmed.isLoading ? <LoadingState /> : listStates.confirmed.error ? <ErrorState message={listStates.confirmed.error} onRetry={fetchConfirmedShiftsCallback}/> : confirmedShiftsList.length === 0 ? <EmptyState message="Nenhuma demanda confirmada." /> : <div className="space-y-3">{confirmedShiftsList.map((req: ShiftRequirement) => (<ShiftListItem key={req.id} shift={req} actions={[{ label: "Detalhes", icon: Eye, onClick: () => {}},{ label: "Cancelar", icon: XCircle, onClick: () => handleCancelShift(req.id), disabled: true }]}/>))}</div> } </CardContent> </Card> </TabsContent>
+          <TabsContent value="history"> <Card> <CardHeader><CardTitle>Histórico de Demandas</CardTitle></CardHeader> <CardContent> {listStates.history.isLoading ? <LoadingState /> : listStates.history.error ? <ErrorState message={listStates.history.error} onRetry={fetchPastShiftsCallback}/> : pastShiftsList.length === 0 ? <EmptyState message="Nenhum histórico." /> : <div className="space-y-3">{pastShiftsList.map((req: ShiftRequirement) => (<ShiftListItem key={req.id} shift={req} />))}</div> } </CardContent> </Card> </TabsContent>
+        </Tabs>
+      </section>
+    </div>
+  );
+}
