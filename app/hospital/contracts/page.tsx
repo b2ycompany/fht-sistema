@@ -7,11 +7,9 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter }
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 import { Loader2, ClipboardList, AlertTriangle, FileSignature, UserCheck, CalendarDays, Clock, DollarSign, Briefcase } from 'lucide-react';
-// ## MUDANÇA IMPORTANTE: Importando as funções e tipos corretos ##
 import { getPendingSignatureContractsForHospital, signContractByHospital, type Contract } from '@/lib/contract-service';
 import { formatCurrency } from '@/lib/utils';
 
-// ## COMPONENTE ATUALIZADO: Agora recebe um 'Contract' ##
 const ContractItem: React.FC<{ contract: Contract, onAction: () => void }> = ({ contract, onAction }) => {
     const [isProcessing, setIsProcessing] = useState(false);
     const { toast } = useToast();
@@ -19,10 +17,9 @@ const ContractItem: React.FC<{ contract: Contract, onAction: () => void }> = ({ 
     const handleSign = async () => {
         setIsProcessing(true);
         try {
-            // Passa o ID do contrato, não da proposta
             await signContractByHospital(contract.id);
-            toast({ title: "Contrato Assinado!", description: `O(A) Dr(a). ${contract.doctorName} foi adicionado(a) à sua equipe para este plantão.`});
-            onAction(); // Para recarregar a lista
+            toast({ title: "Contrato Assinado!", description: `O(A) Dr(a). ${contract.doctorName} foi adicionado(a) à sua equipe.`});
+            onAction();
         } catch (error: any) {
             toast({ title: "Erro ao assinar", description: error.message, variant: "destructive" });
         } finally {
@@ -46,8 +43,9 @@ const ContractItem: React.FC<{ contract: Contract, onAction: () => void }> = ({ 
             <CardContent className="space-y-2 text-sm text-gray-700">
                 <p className="flex items-center gap-2"><CalendarDays size={14}/> <strong>Data do Plantão:</strong> {shiftDate}</p>
                 <p className="flex items-center gap-2"><Clock size={14}/> <strong>Horário:</strong> {contract.startTime} - {contract.endTime}</p>
-                <p className="flex items-center gap-2 font-semibold text-green-700"><DollarSign size={14}/> <strong>Valor para o Médico:</strong> {formatCurrency(contract.contractedRate)}/h</p>
-                <p className="text-xs text-gray-600 mt-3 pt-3 border-t">O médico aceitou a proposta. A sua assinatura é necessária para visualizar o contrato e formalizar a contratação para este plantão.</p>
+                {/* MUDANÇA: Exibindo o valor que o HOSPITAL paga */}
+                <p className="flex items-center gap-2 font-semibold text-red-700"><DollarSign size={14}/> <strong>Custo do Plantão:</strong> {formatCurrency(contract.hospitalRate)}/h</p>
+                <p className="text-xs text-gray-600 mt-3 pt-3 border-t">O médico aceitou a proposta. A sua assinatura é necessária para formalizar a contratação.</p>
             </CardContent>
             <CardFooter className="flex justify-end bg-gray-50 p-4">
                 <Button onClick={handleSign} disabled={isProcessing} className="bg-indigo-600 hover:bg-indigo-700">
@@ -59,21 +57,18 @@ const ContractItem: React.FC<{ contract: Contract, onAction: () => void }> = ({ 
     );
 }
 
-// Componente principal da página de contratos do hospital
+// ... O resto do componente HospitalContractsPage permanece igual ...
 export default function HospitalContractsPage() {
     const { user, loading: authLoading } = useAuth();
-    // ## MUDANÇA IMPORTANTE: O estado agora é do tipo Contract[] ##
     const [contracts, setContracts] = useState<Contract[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
 
     const fetchContracts = useCallback(async () => {
-        // Não precisa mais passar o user.uid, a função de serviço já pega o usuário logado
         if (user) {
             setIsLoading(true);
             setError(null);
             try {
-                // ## MUDANÇA IMPORTANTE: Chamando a nova função correta ##
                 const data = await getPendingSignatureContractsForHospital();
                 setContracts(data);
             } catch (err: any) {

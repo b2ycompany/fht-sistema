@@ -21,13 +21,10 @@ export interface Contract {
   specialties: string[];
   locationCity: string;
   locationState: string;
-  
-  // MUDANÇA: Seção Financeira Detalhada
-  hospitalRate: number;             // Valor/hora que o hospital paga (ex: 150)
-  doctorRate: number;               // Valor/hora que o médico recebe (ex: 100)
-  platformMarginRate: number;       // Valor/hora da margem em R$ (ex: 50)
-  platformMarginPercentage: number; // Percentual da margem definido pelo admin (%)
-
+  hospitalRate: number;
+  doctorRate: number;
+  platformMarginRate: number;
+  platformMarginPercentage: number;
   contractDocumentUrl?: string;
   contractTermsPreview?: string;
   status: 'PENDING_DOCTOR_SIGNATURE' | 'PENDING_HOSPITAL_SIGNATURE' | 'ACTIVE_SIGNED' | 'CANCELLED' | 'COMPLETED' | 'REJECTED';
@@ -37,9 +34,7 @@ export interface Contract {
   updatedAt: Timestamp;
 }
 
-// Nenhuma alteração funcional necessária nestas funções para a Fase 1
-// Elas continuarão a funcionar corretamente com a nova estrutura da interface.
-
+// ... as funções getContractsForDoctor e signContractByDoctor não precisam de alteração ...
 export const getContractsForDoctor = async (statuses: Contract['status'][]): Promise<Contract[]> => {
   const currentUser = auth.currentUser;
   if (!currentUser) { return []; }
@@ -112,13 +107,17 @@ export const getPendingSignatureContractsForHospital = async (): Promise<Contrac
   }
 };
 
+/**
+ * ## LÓGICA CORRIGIDA ##
+ * Realiza a assinatura final do CONTRATO pelo hospital.
+ */
 export const signContractByHospital = async (contractId: string): Promise<void> => {
     const hospitalUser = auth.currentUser;
     if (!hospitalUser) throw new Error("Hospital não autenticado.");
 
     await runTransaction(db, async (transaction) => {
         const contractRef = doc(db, "contracts", contractId);
-        const contractDoc = await transaction.get(contractRef);
+        const contractDoc = await transaction.get(contractRef); // LEITURA 1
 
         if (!contractDoc.exists() || contractDoc.data().status !== 'PENDING_HOSPITAL_SIGNATURE') { 
             throw new Error("Este contrato não está mais aguardando sua assinatura."); 
@@ -126,7 +125,12 @@ export const signContractByHospital = async (contractId: string): Promise<void> 
         
         const contractData = contractDoc.data() as Contract;
         const shiftRequirementRef = doc(db, "shiftRequirements", contractData.shiftRequirementId);
-
+        const doctorRef = doc(db, "users", contractData.doctorId);
+        
+        // MUDANÇA: Todas as leituras (GET) são feitas ANTES de qualquer escrita (UPDATE/SET)
+        const doctorDoc = await transaction.get(doctorRef); // LEITURA 2
+        
+        // Agora começam as escritas...
         transaction.update(contractRef, { 
             status: 'ACTIVE_SIGNED', 
             hospitalSignature: {
@@ -140,14 +144,10 @@ export const signContractByHospital = async (contractId: string): Promise<void> 
             status: 'CONFIRMED', 
             updatedAt: serverTimestamp() 
         });
-
-        const doctorId = contractData.doctorId;
-        const doctorRef = doc(db, "users", doctorId);
-        const doctorDoc = await transaction.get(doctorRef);
         
         if (doctorDoc.exists()) {
             const doctorData = doctorDoc.data() as DoctorProfile;
-            const hospitalDoctorRef = doc(collection(db, 'users', hospitalUser.uid, 'hospitalDoctors'), doctorId);
+            const hospitalDoctorRef = doc(collection(db, 'users', hospitalUser.uid, 'hospitalDoctors'), contractData.doctorId);
             transaction.set(hospitalDoctorRef, {
                 name: doctorData.displayName || 'Nome não informado',
                 crm: doctorData.professionalCrm || 'Não informado',
