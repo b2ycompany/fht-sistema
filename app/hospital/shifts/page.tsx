@@ -17,9 +17,11 @@ import { useToast } from "@/hooks/use-toast";
 import { Badge, type BadgeProps } from "@/components/ui/badge";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
+
 import { cn, formatCurrency, formatPercentage, formatHours } from "@/lib/utils";
 import { auth } from "@/lib/firebase";
 import { Timestamp } from "firebase/firestore";
+
 import {
   addShiftRequirement,
   getHospitalShiftRequirements,
@@ -37,11 +39,13 @@ import {
   type DashboardData
 } from "@/lib/hospital-shift-service";
 import { medicalSpecialties, ServiceTypeRates } from "@/lib/availability-service";
+
 import { SimpleLineChart } from "@/components/charts/SimpleLineChart";
 import { SimpleBarChart } from "@/components/charts/SimpleBarChart";
+
 import {
   Plus, Loader2, Users, DollarSign, Briefcase, ClipboardList, Info, Trash2, CheckCircle, History, X, CalendarDays, TrendingUp, WalletCards, MapPin, Target, Clock, Hourglass, RotateCcw, FilePenLine,
-  AlertCircle, Eye, XCircle // <<< ÍCONES ADICIONADOS AQUI
+  AlertCircle, Eye, XCircle
 } from "lucide-react";
 
 type ButtonVariant = VariantProps<typeof Button>["variant"];
@@ -86,7 +90,17 @@ const AddShiftDialog: React.FC<AddShiftDialogProps> = ({ onShiftSubmitted, initi
   const resetFormFields = useCallback(() => { setDates([]); setStartTime("07:00"); setEndTime("19:00"); setNumberOfVacancies("1"); setRequiredSpecialties([]); setSpecialtySearchValue(""); setTimeError(null); setSelectedState(""); setSelectedCity(""); setAvailableCities([]); setSelectedServiceType(""); setOfferedRateInput(""); setNotes(""); }, []);
   const validateTimes = useCallback((start: string, end: string) => { if (start && end && start === end ) { setTimeError("Início não pode ser igual ao término."); } else { setTimeError(null); } }, []);
   useEffect(() => { validateTimes(startTime, endTime); }, [startTime, endTime, validateTimes]);
-  useEffect(() => { if (selectedState) { if (!initialData || selectedState !== initialData.state) { setAvailableCities(citiesByState[selectedState] || []); setSelectedCity(""); } else if (initialData && selectedState === initialData.state && !selectedCity) { if (citiesByState[selectedState]?.includes(initialData.city)) { setSelectedCity(initialData.city); } } } else { setAvailableCities([]); setSelectedCity(""); } }, [selectedState, initialData, selectedCity]);
+  useEffect(() => {
+    if (selectedState) {
+        setAvailableCities(citiesByState[selectedState] || []);
+        if (!initialData || selectedState !== initialData.state) {
+            setSelectedCity("");
+        }
+    } else {
+        setAvailableCities([]);
+        setSelectedCity("");
+    }
+  }, [selectedState, initialData]);
   const handleSelectRequiredSpecialty = (specialty: string) => { if (!requiredSpecialties.includes(specialty)) setRequiredSpecialties((prev: string[]) => [...prev, specialty]); setSpecialtySearchValue(""); setSpecialtyPopoverOpen(false); };
   const handleRemoveRequiredSpecialty = (specialtyToRemove: string) => { setRequiredSpecialties((prev: string[]) => prev.filter((s: string) => s !== specialtyToRemove)); };
   const filteredSpecialties = useMemo(() => medicalSpecialties.filter(s => typeof s === 'string' && s.toLowerCase().includes(specialtySearchValue.toLowerCase()) && !requiredSpecialties.includes(s)), [specialtySearchValue, requiredSpecialties]);
@@ -215,21 +229,9 @@ export default function HospitalShiftsPage() {
   const [isAddShiftDialogOpen, setIsAddShiftDialogOpen] = useState(false);
   const [activeTab, setActiveTab] = useState("open");
   const [editingShift, setEditingShift] = useState<ShiftRequirement | null>(null);
-  const updateListState = (list: keyof typeof listStates, state: Partial<ListStateType>) => { setListStates((prev: typeof listStates) => ({ ...prev, [list]: { ...prev[list], ...state } })); };
-  const fetchDashboardData = useCallback(async (currentOpenDemandCount?: number) => {
-    updateListState('kpis', { isLoading: true, error: null });
-    try { console.log("[HospitalShiftsPage] fetchDashboardData: Buscando KPIs..."); await new Promise(res => setTimeout(res, 100)); const countOpen = currentOpenDemandCount ?? openShifts.length; const countPending = pendingActionShifts.length; const kpis: HospitalKPIs = { openShiftsCount: countOpen, pendingActionCount: countPending, totalDoctorsOnPlatform: 152, costLast30Days: 25780.50, fillRateLast30Days: 85.7, avgTimeToFillHours: 4.2, topSpecialtyDemand: 'Clínica Médica' }; const costs: MonthlyCostData[] = [ { name: 'Jan', valor: 18000 }, { name: 'Fev', valor: 21500 }, { name: 'Mar', valor: 25780.50 }, { name: 'Abr', valor: 15300 } ]; const demand: SpecialtyDemandData[] = medicalSpecialties.slice(0,5).map(s => ({ name: s.substring(0,10), valor: Math.floor(Math.random() * 10) + 1}));
-    setKpiData(kpis); // setMonthlyCostData(costs); setSpecialtyDemandData(demand);
-    updateListState('kpis', { isLoading: false });
-  } catch (error: any) { updateListState('kpis', { isLoading: false, error: error.message || "Erro ao buscar dados do painel."}); }
-  }, [openShifts.length, pendingActionShifts.length]);
-  const fetchOpenShifts = useCallback(async (updateKPIData = true) => {
-    console.log("[HospitalShiftsPage] fetchOpenShifts chamado. updateKPIData:", updateKPIData);
-    updateListState('open', { isLoading: true, error: null });
-    let fetchedData: ShiftRequirement[] = [];
-    try { fetchedData = await getHospitalShiftRequirements() || []; setOpenShifts(fetchedData.sort((a, b) => (a.dates?.[0]?.toDate().getTime()||0) - (b.dates?.[0]?.toDate().getTime()||0) || a.startTime.localeCompare(b.startTime))); updateListState('open', {isLoading: false}); if (updateKPIData) { fetchDashboardData(fetchedData.length); } }
-    catch (error: any) { const errorMsg = error.message || "Erro ao carregar demandas abertas."; updateListState('open', {isLoading: false, error: errorMsg}); if (updateKPIData) updateListState('kpis', { isLoading: false, error: errorMsg}); }
-  }, [fetchDashboardData]);
+  const updateListState = (list: keyof typeof listStates, state: Partial<ListStateType>) => { setListStates((prev) => ({ ...prev, [list]: { ...prev[list], ...state } })); };
+  const fetchDashboardData = useCallback(async (currentOpenDemandCount?: number) => { updateListState('kpis', { isLoading: true, error: null }); try { console.log("[HospitalShiftsPage] fetchDashboardData: Buscando KPIs..."); await new Promise(res => setTimeout(res, 100)); const countOpen = currentOpenDemandCount ?? openShifts.length; const countPending = pendingActionShifts.length; const kpis: HospitalKPIs = { openShiftsCount: countOpen, pendingActionCount: countPending, totalDoctorsOnPlatform: 152, costLast30Days: 25780.50, fillRateLast30Days: 85.7, avgTimeToFillHours: 4.2, topSpecialtyDemand: 'Clínica Médica' }; setKpiData(kpis); updateListState('kpis', { isLoading: false }); } catch (error: any) { updateListState('kpis', { isLoading: false, error: error.message || "Erro ao buscar dados do painel."}); } }, [openShifts.length, pendingActionShifts.length]);
+  const fetchOpenShifts = useCallback(async (updateKPIData = true) => { console.log("[HospitalShiftsPage] fetchOpenShifts chamado. updateKPIData:", updateKPIData); updateListState('open', { isLoading: true, error: null }); let fetchedData: ShiftRequirement[] = []; try { fetchedData = await getHospitalShiftRequirements() || []; setOpenShifts(fetchedData.sort((a, b) => (a.dates?.[0]?.toDate().getTime()||0) - (b.dates?.[0]?.toDate().getTime()||0) || a.startTime.localeCompare(b.startTime))); updateListState('open', {isLoading: false}); if (updateKPIData) { fetchDashboardData(fetchedData.length); } } catch (error: any) { const errorMsg = error.message || "Erro ao carregar demandas abertas."; updateListState('open', {isLoading: false, error: errorMsg}); if (updateKPIData) updateListState('kpis', { isLoading: false, error: errorMsg}); } }, [fetchDashboardData]);
   const fetchPendingActionShiftsCallback = useCallback(async () => { updateListState('pending', {isLoading: true, error: null}); try { const data = await getPendingActionShifts(); setPendingActionShifts(data); updateListState('pending', {isLoading:false}); } catch (e:any) { updateListState('pending',{isLoading:false, error: e.message}); }}, []);
   const fetchConfirmedShiftsCallback = useCallback(async () => { updateListState('confirmed', {isLoading: true, error: null}); try { const data = await getConfirmedShiftsForHospital(); setConfirmedShiftsList(data); updateListState('confirmed', {isLoading:false});} catch (e:any) { updateListState('confirmed',{isLoading:false, error: e.message}); }}, []);
   const fetchPastShiftsCallback = useCallback(async () => { updateListState('history', {isLoading: true, error: null}); try { const data = await getPastShiftsForHospital(); setPastShiftsList(data); updateListState('history', {isLoading:false});} catch (e:any) { updateListState('history',{isLoading:false, error: e.message}); }}, []);
@@ -253,9 +255,6 @@ export default function HospitalShiftsPage() {
         <KPICard title="Médicos na Plataforma" value={kpiData?.totalDoctorsOnPlatform ?? '-'} icon={Users} isLoading={listStates.kpis.isLoading} description="Total cadastrados" />
         <KPICard title="Top Demanda (Espec.)" value={kpiData?.topSpecialtyDemand ?? '-'} icon={TrendingUp} isLoading={listStates.kpis.isLoading} description="Mais requisitada" />
       </div> </section>
-      <section aria-labelledby="charts-heading"> <h2 id="charts-heading" className="sr-only">Análises</h2> <div className="grid gap-4 grid-cols-1 lg:grid-cols-2">
-        {/* Gráficos aqui */}
-      </div> </section>
       <section aria-labelledby="shifts-management-heading">
         <h2 id="shifts-management-heading" className="text-xl font-semibold mb-4 mt-4 text-gray-700">Gerenciamento Detalhado de Demandas</h2>
         <Tabs value={activeTab} onValueChange={handleTabChange} className="w-full">
@@ -267,7 +266,10 @@ export default function HospitalShiftsPage() {
               <TabsTrigger value="history">Histórico {listStates.history.isLoading && activeTab === 'history' ? <Loader2 className="h-3 w-3 animate-spin ml-1.5"/> : `(${pastShiftsList.length})`}</TabsTrigger>
             </TabsList>
             <Dialog open={isAddShiftDialogOpen} onOpenChange={(isOpen: boolean) => { setIsAddShiftDialogOpen(isOpen); if (!isOpen) setEditingShift(null); }}>
-              <DialogTrigger onClick={handleOpenAddDialog} className={cn( buttonVariants({ variant: "default", size: "sm" }), "w-full sm:w-auto bg-blue-600 hover:bg-blue-700 text-white flex items-center" )} > <Plus className="mr-1.5 h-4 w-4" /> Publicar Nova Demanda </DialogTrigger>
+              <DialogTrigger
+                onClick={handleOpenAddDialog}
+                className={cn( buttonVariants({ variant: "default", size: "sm" }), "w-full sm:w-auto bg-blue-600 hover:bg-blue-700 text-white flex items-center" )}
+              > <Plus className="mr-1.5 h-4 w-4" /> Publicar Nova Demanda </DialogTrigger>
               <AddShiftDialog key={editingShift ? `edit-${editingShift.id}` : 'new-shift'} onShiftSubmitted={onShiftSubmitted} initialData={editingShift} />
             </Dialog>
           </div>
