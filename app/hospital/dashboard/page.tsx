@@ -9,7 +9,8 @@ import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { cn, formatCurrency, formatPercentage, formatHours } from "@/lib/utils";
 import { getHospitalDashboardData, type DashboardData } from "@/lib/hospital-shift-service";
-import { getPendingContractsForHospital, signContractByHospital, type Contract } from "@/lib/contract-service";
+import { getPendingContractsForHospital, signContractByHospital } from "@/lib/contract-service";
+import type { ShiftProposal } from "@/lib/proposal-service";
 import { Loader2, AlertCircle, Users, DollarSign, TrendingUp, WalletCards, Target, Clock, Hourglass, FileSignature, ClipboardList, UserCheck, CalendarDays, RotateCcw } from "lucide-react";
 import { useAuth } from '@/components/auth-provider';
 import { getCurrentUserData, type HospitalProfile } from '@/lib/auth-service';
@@ -23,34 +24,15 @@ const LoadingState = React.memo(({ message = "Carregando..." }: { message?: stri
 const EmptyState = React.memo(({ title, message }: { title: string, message: string; }) => ( <div className="text-center text-sm text-gray-500 py-10 min-h-[150px] flex flex-col items-center justify-center bg-gray-50/70 rounded-md border border-dashed"><ClipboardList className="w-12 h-12 text-gray-400 mb-4"/><p className="font-medium text-gray-600 mb-1">{title}</p><p>{message}</p></div> ));
 const ErrorState = React.memo(({ message, onRetry }: { message: string; onRetry?: () => void }) => ( <div className="flex flex-col items-center justify-center py-10 min-h-[150px] w-full text-center text-sm text-red-600 bg-red-50/70 rounded-md border border-dashed border-red-300"><AlertCircle className="w-12 h-12 text-red-400 mb-4"/><p className="text-base font-semibold text-red-700 mb-1">Oops!</p><p>{message || "Não foi possível carregar."}</p>{onRetry && <Button variant="destructive" size="sm" onClick={onRetry} className="mt-4"><RotateCcw className="mr-2 h-4 w-4" />Tentar Novamente</Button>}</div> ));
 
-const ContractItem: React.FC<{ contract: Contract, onAction: () => void }> = ({ contract, onAction }) => {
+const ContractItem: React.FC<{ proposal: ShiftProposal, onAction: () => void }> = ({ proposal, onAction }) => {
     const [isProcessing, setIsProcessing] = useState(false);
     const { toast } = useToast();
-    const handleSign = async () => { setIsProcessing(true); try { await signContractByHospital(contract.id); toast({ title: "Contrato Assinado!", description: `O(A) Dr(a). ${contract.doctorName} foi adicionado à sua equipe.`}); onAction(); } catch (error: any) { toast({ title: "Erro ao assinar", description: error.message, variant: "destructive" }); } finally { setIsProcessing(false); } };
-    return (
-        <Card className="border-l-4 border-indigo-500">
-            <CardHeader><CardTitle className="flex items-center gap-2"><UserCheck size={20}/> Contratação Pendente: Dr(a). {contract.doctorName || 'N/A'}</CardTitle><CardDescription>Especialidades: {contract.specialties.join(', ')}</CardDescription></CardHeader>
-            <CardContent className="space-y-2 text-sm">
-                <p className="flex items-center gap-2"><CalendarDays size={14}/> <strong>Data do Plantão:</strong> {contract.shiftDates[0].toDate().toLocaleDateString('pt-BR')}</p>
-                <p className="flex items-center gap-2"><Clock size={14}/> <strong>Horário:</strong> {contract.startTime} - {contract.endTime}</p>
-                <p className="flex items-center gap-2"><DollarSign size={14}/> <strong>Valor Acordado:</strong> {formatCurrency(contract.contractedRate)}/h</p>
-                <p className="text-xs text-gray-600 mt-3 pt-3 border-t">O médico aceitou a proposta. A sua assinatura é necessária para formalizar a contratação.</p>
-            </CardContent>
-            <CardFooter className="flex justify-end"><Button onClick={handleSign} disabled={isProcessing}>{isProcessing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FileSignature className="mr-2 h-4 w-4" />}Visualizar e Assinar Contrato</Button></CardFooter>
-        </Card>
-    );
+    const handleSign = async () => { setIsProcessing(true); try { await signContractByHospital(proposal.id); toast({ title: "Contrato Assinado!", description: `O(A) Dr(a). ${proposal.doctorName} foi adicionado à sua equipe.`}); onAction(); } catch (error: any) { toast({ title: "Erro ao assinar", description: error.message, variant: "destructive" }); } finally { setIsProcessing(false); } };
+    return ( <Card className="border-l-4 border-indigo-500"><CardHeader><CardTitle className="flex items-center gap-2"><UserCheck size={20}/> Contratação Pendente: Dr(a). {proposal.doctorName || 'N/A'}</CardTitle><CardDescription>Especialidades: {proposal.specialties.join(', ')}</CardDescription></CardHeader><CardContent className="space-y-2 text-sm"><p className="flex items-center gap-2"><CalendarDays size={14}/> <strong>Data do Plantão:</strong> {proposal.shiftDates[0].toDate().toLocaleDateString('pt-BR')}</p><p className="flex items-center gap-2"><Clock size={14}/> <strong>Horário:</strong> {proposal.startTime} - {proposal.endTime}</p><p className="flex items-center gap-2"><DollarSign size={14}/> <strong>Valor Acordado:</strong> {formatCurrency(proposal.offeredRateToDoctor)}/h</p><p className="text-xs text-gray-600 mt-3 pt-3 border-t">O médico aceitou a proposta. A sua assinatura é necessária para formalizar a contratação.</p></CardContent><CardFooter className="flex justify-end"><Button onClick={handleSign} disabled={isProcessing}>{isProcessing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FileSignature className="mr-2 h-4 w-4" />}Visualizar e Assinar Contrato</Button></CardFooter></Card> );
 };
 
 const KPICard: React.FC<{ title: string; value: string | number; description?: string; icon: React.ElementType; isLoading: boolean; href?: string; }> = ({ title, value, description, icon: Icon, isLoading, href }) => {
-    const cardContent = (
-        <Card className={cn("shadow-sm transition-shadow duration-200 min-w-0", href ? "hover:shadow-md hover:border-primary cursor-pointer" : "")}>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2"><CardTitle className="text-sm font-medium text-gray-600 truncate pr-2">{title}</CardTitle><Icon className="h-4 w-4 text-muted-foreground shrink-0" /></CardHeader>
-            <CardContent className="pt-0 pb-3 px-3 overflow-hidden">
-                {isLoading ? (<div className="h-8 flex items-center"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>) : (<div className={cn("font-bold text-gray-900", "text-lg md:text-xl lg:text-2xl", "leading-tight")} title={value?.toString()}>{value}</div>)}
-                {description && !isLoading && <p className="text-xs text-muted-foreground pt-1 truncate">{description}</p>}
-            </CardContent>
-        </Card>
-    );
+    const cardContent = ( <Card className={cn("shadow-sm transition-shadow duration-200 min-w-0", href ? "hover:shadow-md hover:border-primary cursor-pointer" : "")}><CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2"><CardTitle className="text-sm font-medium text-gray-600 truncate pr-2">{title}</CardTitle><Icon className="h-4 w-4 text-muted-foreground shrink-0" /></CardHeader><CardContent className="pt-0 pb-3 px-3 overflow-hidden">{isLoading ? (<div className="h-8 flex items-center"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>) : (<div className={cn("font-bold text-gray-900", "text-lg md:text-xl lg:text-2xl", "leading-tight")} title={value?.toString()}>{value}</div>)}{description && !isLoading && <p className="text-xs text-muted-foreground pt-1 truncate">{description}</p>}</CardContent></Card> );
     if (href) { return <Link href={href} className="no-underline">{cardContent}</Link>; }
     return cardContent;
 };
@@ -61,7 +43,7 @@ export default function HospitalDashboardPage() {
     
     const [dashboardData, setDashboardData] = useState<DashboardData | null>(null);
     const [hospitalProfile, setHospitalProfile] = useState<HospitalProfile | null>(null);
-    const [pendingContracts, setPendingContracts] = useState<Contract[]>([]);
+    const [pendingContracts, setPendingContracts] = useState<ShiftProposal[]>([]);
     
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
@@ -133,7 +115,7 @@ export default function HospitalDashboardPage() {
                         <CardHeader><CardTitle>Contratos Aguardando sua Assinatura</CardTitle><CardDescription>Plantões aceitos pelos médicos que precisam da sua assinatura final.</CardDescription></CardHeader>
                         <CardContent>
                             {isLoading ? <LoadingState message="Buscando contratos..." /> : error ? <ErrorState message={error} onRetry={loadAllData} /> : pendingContracts.length === 0 ? <EmptyState title="Nenhum contrato pendente" message="Quando um médico aceitar uma proposta, aparecerá aqui." /> :
-                             <div className="space-y-4">{pendingContracts.map(contract => (<ContractItem key={contract.id} contract={contract} onAction={loadAllData} />))}</div>
+                             <div className="space-y-4">{pendingContracts.map(proposal => (<ContractItem key={proposal.id} proposal={proposal} onAction={loadAllData} />))}</div>
                             }
                         </CardContent>
                     </Card>

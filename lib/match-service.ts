@@ -1,12 +1,22 @@
 // lib/match-service.ts
 import {
-  collection, query, where, getDocs, updateDoc, doc,
-  serverTimestamp, Timestamp, orderBy, writeBatch, getDoc, setDoc
+  collection,
+  query,
+  where,
+  getDocs,
+  updateDoc,
+  doc,
+  serverTimestamp,
+  Timestamp,
+  orderBy,
+  writeBatch,
+  getDoc,
+  setDoc
 } from "firebase/firestore";
 import { db, auth } from "./firebase";
 import { type ShiftProposal } from "./proposal-service";
 
-// A sua interface PotentialMatch, com a correção para ser exportada
+// A sua interface PotentialMatch, com a correção para ser exportada.
 export interface PotentialMatch {
   id: string;
   shiftRequirementId: string;

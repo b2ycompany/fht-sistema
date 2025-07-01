@@ -11,7 +11,6 @@ import { FileText, CheckSquare, Edit, AlertTriangle, Loader2, CalendarDays, Cloc
 import { getContractsForDoctor, signContractByDoctor, type Contract } from "@/lib/contract-service";
 import { cn, formatCurrency } from "@/lib/utils";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
-import { Textarea } from "@/components/ui/textarea";
 import { Badge, type BadgeProps } from "@/components/ui/badge";
 import Link from "next/link";
 
@@ -24,7 +23,7 @@ const ContractListItem: React.FC<{ contract: Contract; onSign: (contractId: stri
   const [isSigning, setIsSigning] = useState(false);
   const displayShiftDates = Array.isArray(contract.shiftDates) ? contract.shiftDates.map((ts: Timestamp) => ts.toDate().toLocaleDateString('pt-BR', {day: '2-digit', month: 'short'})).join(', ') : "Datas não disponíveis";
   const handleSign = async () => { setIsSigning(true); try { await onSign(contract.id); } finally { setIsSigning(false); } };
-  const getStatusBadgeStyle = (status?: Contract['status']): { variant: BadgeProps["variant"], className: string } => { switch(status) { case 'PENDING_DOCTOR_SIGNATURE': return { variant: 'secondary', className: 'bg-amber-100 text-amber-800 border-amber-300' }; case 'PENDING_HOSPITAL_SIGNATURE': return { variant: 'secondary', className: 'bg-sky-100 text-sky-800 border-sky-300' }; case 'ACTIVE_SIGNED': return { variant: 'default', className: 'bg-green-100 text-green-800 border-green-300' }; case 'CANCELLED': case 'REJECTED': return { variant: 'destructive', className: '' }; case 'COMPLETED': return { variant: 'outline', className: 'bg-gray-100 text-gray-700' }; default: return { variant: 'outline', className: '' }; } };
+  const getStatusBadgeStyle = (status?: Contract['status']): { variant: BadgeProps["variant"], className: string } => { switch(status) { case 'PENDING_DOCTOR_SIGNATURE': return { variant: 'secondary', className: 'bg-amber-100 text-amber-800 border-amber-300' }; case 'PENDING_HOSPITAL_SIGNATURE': return { variant: 'secondary', className: 'bg-sky-100 text-sky-800 border-sky-300' }; case 'ACTIVE_SIGNED': return { variant: 'default', className: 'bg-green-100 text-green-800 border-green-300' }; default: return { variant: 'outline', className: '' }; } };
   const statusBadgeInfo = getStatusBadgeStyle(contract.status);
 
   return (
@@ -35,19 +34,16 @@ const ContractListItem: React.FC<{ contract: Contract; onSign: (contractId: stri
       </CardHeader>
       <CardContent className="text-sm pt-0 pb-3 border-b">
         <div className="flex items-center mb-1"><CalendarDays className="h-4 w-4 mr-2" /><span>{displayShiftDates}</span></div>
-        <div className="flex items-center"><Clock className="h-4 w-4 mr-2" /><span>{contract.startTime} - {contract.endTime}</span>{contract.isOvernight && <Badge variant="outline" className="ml-2 text-xs">Noturno</Badge>}</div>
+        <div className="flex items-center"><Clock className="h-4 w-4 mr-2" /><span>{contract.startTime} - {contract.endTime}</span></div>
       </CardContent>
-      {isExpanded && ( <CardContent className="text-sm pt-3 pb-4 space-y-2"><div className="border-t pt-3"><div className="flex items-center mb-1"><Briefcase size={14} className="mr-2 text-cyan-600" /><strong>Tipo:</strong><span className="ml-1">{contract.serviceType.replace(/_/g, ' ')}</span></div><div className="flex items-center mb-1"><DollarSign size={14} className="mr-2 text-green-600" /><strong>Valor Hora:</strong><span className="ml-1">{formatCurrency(contract.contractedRate)}</span></div>{contract.specialties && contract.specialties.length > 0 && ( <div className="flex items-start mb-1"><ClipboardList size={14} className="mr-2 mt-0.5" /><div className="flex-1"><strong>Especialidades:</strong><div className="flex flex-wrap gap-1 mt-0.5">{contract.specialties.map(spec => <Badge key={spec} variant="secondary">{spec}</Badge>)}</div></div></div> )}{contract.contractTermsPreview && <div className="flex items-start text-xs text-gray-600"><Info size={14} className="mr-2 mt-0.5"/><div><strong>Termos:</strong> {contract.contractTermsPreview}</div></div>}</div></CardContent> )}
-      <CardFooter className="flex flex-col sm:flex-row justify-between items-center gap-2 border-t pt-4">
-        <Badge variant={statusBadgeInfo.variant} className={cn("capitalize text-xs", statusBadgeInfo.className)}>{contract.status.replace(/_/g, ' ').toLowerCase()}</Badge>
-        <div className="flex gap-2">
-          {contract.contractDocumentUrl && ( <Button variant="outline" size="sm" asChild><Link href={contract.contractDocumentUrl} target="_blank"><FileText className="mr-2 h-4 w-4"/>Ver Documento</Link></Button> )}
-          {contract.status === 'PENDING_DOCTOR_SIGNATURE' && (
+      <CardFooter className="flex justify-between items-center border-t pt-4">
+        <Badge variant={statusBadgeInfo.variant} className={cn("capitalize", statusBadgeInfo.className)}>{contract.status.replace(/_/g, ' ').toLowerCase()}</Badge>
+        {contract.status === 'PENDING_DOCTOR_SIGNATURE' && (
             <AlertDialog>
-                <AlertDialogTrigger asChild><Button size="sm" className="bg-green-600 hover:bg-green-700"><Edit className="mr-2 h-4 w-4"/>Rever e Assinar</Button></AlertDialogTrigger>
+                <AlertDialogTrigger asChild><Button size="sm" className="bg-green-600 hover:bg-green-700"><Edit className="mr-2 h-4 w-4" /> Rever e Assinar</Button></AlertDialogTrigger>
                 <AlertDialogContent>
                     <AlertDialogHeader><AlertDialogTitle>Revisão Final do Contrato</AlertDialogTitle><AlertDialogDescription>Confirme os detalhes abaixo para assinar digitalmente.</AlertDialogDescription></AlertDialogHeader>
-                    <div className="text-sm space-y-2 my-4">
+                    <div className="text-sm space-y-2 my-4 p-2">
                         <p><strong>Hospital:</strong> {contract.hospitalName}</p>
                         <p><strong>Data:</strong> {displayShiftDates}</p>
                         <p><strong>Valor:</strong> <span className="font-bold">{formatCurrency(contract.contractedRate)}/h</span></p>
@@ -55,8 +51,7 @@ const ContractListItem: React.FC<{ contract: Contract; onSign: (contractId: stri
                     <AlertDialogFooter><AlertDialogCancel disabled={isSigning}>Voltar</AlertDialogCancel><AlertDialogAction onClick={handleSign} disabled={isSigning}>{isSigning ? <Loader2 className="h-4 w-4 animate-spin" /> : "Confirmar Assinatura"}</AlertDialogAction></AlertDialogFooter>
                 </AlertDialogContent>
             </AlertDialog>
-          )}
-        </div>
+        )}
       </CardFooter>
     </Card>
   );
@@ -71,13 +66,10 @@ export default function DoctorContractsPage() {
 
   const fetchContracts = useCallback(async (tab: string) => {
     setIsLoading(true); setError(null);
-    let statusesToFetch: Contract['status'][];
-    switch (tab) {
-      case 'pending_doctor': statusesToFetch = ['PENDING_DOCTOR_SIGNATURE']; break;
-      case 'pending_hospital': statusesToFetch = ['PENDING_HOSPITAL_SIGNATURE']; break;
-      case 'active': statusesToFetch = ['ACTIVE_SIGNED']; break;
-      default: statusesToFetch = [];
-    }
+    let statusesToFetch: Contract['status'][] = [];
+    if (tab === 'pending_doctor') statusesToFetch = ['PENDING_DOCTOR_SIGNATURE'];
+    if (tab === 'pending_hospital') statusesToFetch = ['PENDING_HOSPITAL_SIGNATURE'];
+    if (tab === 'active') statusesToFetch = ['ACTIVE_SIGNED'];
     try { const data = await getContractsForDoctor(statusesToFetch); setContracts(data); }
     catch (err: any) { setError(err.message || "Falha ao carregar contratos."); }
     finally { setIsLoading(false); }

@@ -29,10 +29,7 @@ export const findMatchesOnShiftRequirementWrite = onDocumentWritten( { document:
     const dataBefore = change.before?.data() as ShiftRequirementData | undefined;
 
     const isNewOpenRequirement = (!dataBefore && dataAfter?.status === 'OPEN') || (dataBefore?.status !== 'OPEN' && dataAfter?.status === 'OPEN');
-    if (!isNewOpenRequirement) {
-        logger.info(`Gatilho para Req ${requirementId} ignorado para evitar duplicação.`);
-        return;
-    }
+    if (!isNewOpenRequirement) { logger.info(`Gatilho ignorado para Req ${requirementId} para evitar duplicação.`); return; }
 
     const requirement = dataAfter!;
     logger.info(`INICIANDO BUSCA DE MATCHES para a Nova Demanda OPEN: ${requirementId}`);
@@ -87,14 +84,14 @@ export const findMatchesOnShiftRequirementWrite = onDocumentWritten( { document:
 
 export const onShiftRequirementDelete = onDocumentDeleted("shiftRequirements/{requirementId}", async (event) => {
     const { requirementId } = event.params;
-    logger.info(`Demanda ${requirementId} deletada. Removendo matches pendentes associados.`);
+    logger.info(`Demanda ${requirementId} deletada. Removendo matches pendentes.`);
     const q = db.collection("potentialMatches").where("shiftRequirementId", "==", requirementId).where("status", "==", "PENDING_BACKOFFICE_REVIEW");
     return deleteQueryBatch(q, `matches para a demanda ${requirementId}`);
 });
 
 export const onTimeSlotDelete = onDocumentDeleted("doctorTimeSlots/{timeSlotId}", async (event) => {
     const { timeSlotId } = event.params;
-    logger.info(`Disponibilidade ${timeSlotId} deletada. Removendo matches pendentes associados.`);
+    logger.info(`Disponibilidade ${timeSlotId} deletada. Removendo matches pendentes.`);
     const q = db.collection("potentialMatches").where("timeSlotId", "==", timeSlotId).where("status", "==", "PENDING_BACKOFFICE_REVIEW");
     return deleteQueryBatch(q, `matches para a disponibilidade ${timeSlotId}`);
 });
