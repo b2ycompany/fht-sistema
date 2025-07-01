@@ -1,11 +1,11 @@
 // app/admin/matches/page.tsx
 "use client";
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react'; // MUDANÇA: Importar useEffect
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
-import { Input } from "@/components/ui/input"; // MUDANÇA: Importar o componente Input
-import { Label } from "@/components/ui/label"; // MUDANÇA: Importar o componente Label
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { Timestamp, query, collection, where, onSnapshot, orderBy } from "firebase/firestore";
@@ -16,14 +16,14 @@ import {
     CheckCircle, XCircle, Eye, DollarSign, Loader2, RotateCcw, ClipboardList, Users, Briefcase, CalendarDays, Clock, MapPinIcon, Info,
     AlertTriangle as LucideAlertTriangle, ShieldCheck, Download, Building, User
 } from 'lucide-react';
-// MUDANÇA: Importando a função correta 'approveMatchAndCreateContract'
 import { approveMatchAndCreateContract, rejectMatchByBackoffice, type PotentialMatch } from "@/lib/match-service";
 import { updateUserVerificationStatus, type UserProfile, type ProfileStatus } from "@/lib/auth-service";
 import { cn, formatCurrency } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 
+
+// O componente UserVerificationCard não foi alterado
 const UserVerificationCard: React.FC<{ user: UserProfile; onAction: (userId: string, status: ProfileStatus, notes: string, reasons?: Record<string, string>) => Promise<void>; }> = ({ user, onAction }) => {
-    // ... (nenhuma mudança neste componente, ele permanece igual)
     const [generalNotes, setGeneralNotes] = useState(user.adminVerificationNotes || "");
     const [isProcessing, setIsProcessing] = useState(false);
     const [rejectionState, setRejectionState] = useState<Record<string, { selected: boolean; reason: string }>>({});
@@ -86,18 +86,25 @@ const UserVerificationCard: React.FC<{ user: UserProfile; onAction: (userId: str
     );
 };
 
-// MUDANÇA: A prop onApproveMatch foi atualizada para receber 'platformMargin'
+
 const MatchReviewCard: React.FC<{ match: PotentialMatch; onApproveMatch: (matchId: string, negotiatedRate: number, platformMargin: number, notes?: string) => Promise<void>; onRejectMatch: (matchId: string, notes: string) => Promise<void>; }> = ({ match, onApproveMatch, onRejectMatch }) => {
     const [notes, setNotes] = useState("");
     const [isProcessing, setIsProcessing] = useState(false);
-    // MUDANÇA: Estados para os valores financeiros
-    const [negotiatedRate, setNegotiatedRate] = useState(match.offeredRateByHospital);
-    const [platformMargin, setPlatformMargin] = useState(10); // Valor padrão de 10%
+    const [negotiatedRate, setNegotiatedRate] = useState(match.offeredRateByHospital); // Inicia com a oferta do hospital
+    const [platformMargin, setPlatformMargin] = useState(10);
     
+    // MUDANÇA: Lógica para preencher o valor do médico automaticamente
+    useEffect(() => {
+        // Se a oferta do hospital é maior ou igual ao que o médico deseja, preenchemos com o valor do médico.
+        if (match.offeredRateByHospital >= match.doctorDesiredRate) {
+            setNegotiatedRate(match.doctorDesiredRate);
+        }
+        // Se for menor, o valor já está como a oferta do hospital, exigindo que o admin negocie.
+    }, [match.offeredRateByHospital, match.doctorDesiredRate]);
+
     const handleApprove = async () => {
         setIsProcessing(true);
         try {
-            // MUDANÇA: Passando a margem da plataforma para a função
             await onApproveMatch(match.id, negotiatedRate, platformMargin, notes);
         } finally {
             setIsProcessing(false);
@@ -128,7 +135,6 @@ const MatchReviewCard: React.FC<{ match: PotentialMatch; onApproveMatch: (matchI
                   {doctorNotes && (<div className="text-sm p-2 bg-green-50 rounded-md"><p className="font-semibold text-green-800 flex items-center gap-2"><Info size={14}/> Observação do Médico:</p><p className="text-gray-700 italic pl-6">"{doctorNotes}"</p></div>)}
               </div>
             )}
-             {/* MUDANÇA: Novos campos para ajuste de valor e margem */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 border-t pt-4">
                 <div>
                     <Label htmlFor={`rate-${match.id}`} className="font-semibold text-sm mb-2 block">Valor/Hora a Propor ao Médico (R$)</Label>
@@ -146,6 +152,8 @@ const MatchReviewCard: React.FC<{ match: PotentialMatch; onApproveMatch: (matchI
     );
 };
 
+// A página principal 'AdminMatchesPage' não foi alterada, apenas o componente 'MatchReviewCard' acima.
+// ... (código restante da página sem alterações) ...
 const LoadingState = React.memo(({ message = "Carregando..." }: { message?: string }) => ( <div className="flex flex-col items-center justify-center py-10 min-h-[150px] w-full"><Loader2 className="h-8 w-8 animate-spin text-blue-600" /><p className="mt-3 text-sm text-gray-600">{message}</p></div> ));
 const EmptyState = React.memo(({ title, message }: { title: string, message: string; }) => ( <div className="text-center text-sm text-gray-500 py-10 min-h-[150px] flex flex-col items-center justify-center bg-gray-50/70 rounded-md border border-dashed"><ClipboardList className="w-12 h-12 text-gray-400 mb-4"/><p className="font-medium text-gray-600 mb-1">{title}</p><p>{message}</p></div> ));
 const ErrorState = React.memo(({ message, onRetry }: { message: string; onRetry?: () => void }) => ( <div className="flex flex-col items-center justify-center py-10 min-h-[150px] w-full text-center text-sm text-red-600 bg-red-50/70 rounded-md border border-dashed border-red-300"><LucideAlertTriangle className="w-12 h-12 text-red-400 mb-4"/><p className="text-base font-semibold text-red-700 mb-1">Oops!</p><p>{message || "Não foi possível carregar."}</p>{onRetry && <Button variant="destructive" size="sm" onClick={onRetry} className="mt-4"><RotateCcw className="mr-2 h-4 w-4" />Tentar Novamente</Button>}</div> ));
@@ -170,7 +178,6 @@ export default function AdminMatchesPage() {
 
     const handleUserVerification = async (userId: string, status: ProfileStatus, notes: string, reasons?: Record<string, string>) => { try { await updateUserVerificationStatus(userId, status, notes, reasons); toast({ title: "Cadastro Atualizado!" }); } catch (error: any) { toast({ title: "Erro ao Atualizar", description: error.message, variant: "destructive" }); }};
     
-    // MUDANÇA: Função atualizada para usar a nova lógica de serviço
     const handleApproveMatch = async (matchId: string, negotiatedRate: number, platformMargin: number, notes?: string) => {
         try {
             await approveMatchAndCreateContract(matchId, negotiatedRate, platformMargin, notes);
