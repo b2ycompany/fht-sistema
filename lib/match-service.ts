@@ -10,13 +10,12 @@ import {
   Timestamp,
   orderBy,
   writeBatch,
-  getDoc,
-  setDoc
+  getDoc
 } from "firebase/firestore";
 import { db, auth } from "./firebase";
-import { type ShiftProposal } from "./proposal-service";
+import { type Contract } from "./contract-service"; // <-- MUDANÇA: Importa a interface do Contrato
 
-// A sua interface PotentialMatch, com a correção para ser exportada.
+// A sua interface PotentialMatch continua igual.
 export interface PotentialMatch {
   id: string;
   shiftRequirementId: string;
@@ -71,9 +70,15 @@ export const getMatchesForBackofficeReview = async (): Promise<PotentialMatch[]>
   }
 };
 
-export const approveMatchAndProposeToDoctor = async (
+/**
+ * ## LÓGICA ATUALIZADA E UNIFICADA ##
+ * Aprova o match e cria um CONTRATO formal diretamente, que será enviado ao médico para assinatura.
+ * A coleção 'shiftProposals' deixa de ser usada neste fluxo.
+ */
+export const approveMatchAndCreateContract = async (
   matchId: string,
   negotiatedRate: number,
+  platformMargin: number, // Adicionado para cálculo financeiro
   backofficeNotes?: string
 ): Promise<void> => {
   const currentUser = auth.currentUser;
@@ -81,7 +86,7 @@ export const approveMatchAndProposeToDoctor = async (
 
   const batch = writeBatch(db);
   const matchDocRef = doc(db, "potentialMatches", matchId);
-  
+
   try {
     const matchDocSnap = await getDoc(matchDocRef);
     if (!matchDocSnap.exists()) {
@@ -89,8 +94,9 @@ export const approveMatchAndProposeToDoctor = async (
     }
     const matchData = matchDocSnap.data() as PotentialMatch;
     
+    // 1. Atualiza o status do Match original
     batch.update(matchDocRef, {
-      status: "BACKOFFICE_APPROVED_PROPOSED_TO_DOCTOR",
+      status: "BACKOFFICE_APPROVED_CONTRACT_CREATED", // Novo status mais claro
       negotiatedRateForDoctor: negotiatedRate,
       backofficeReviewerId: currentUser.uid,
       backofficeReviewedAt: serverTimestamp(),
@@ -98,41 +104,48 @@ export const approveMatchAndProposeToDoctor = async (
       updatedAt: serverTimestamp(),
     });
 
-    const proposalRef = doc(collection(db, "shiftProposals"));
+    // 2. Cria o novo CONTRATO na coleção 'contracts'
+    const contractRef = doc(collection(db, "contracts"));
     
-    const newProposalData: Omit<ShiftProposal, 'id'> = {
-        originalShiftRequirementId: matchData.shiftRequirementId,
-        potentialMatchId: matchId,
-        originalTimeSlotId: matchData.timeSlotId, 
-        hospitalId: matchData.hospitalId,
-        hospitalName: matchData.hospitalName || 'N/A',
-        hospitalCity: matchData.shiftCity || 'N/A',
-        hospitalState: matchData.shiftState || 'N/A',
+    const newContractData: Omit<Contract, 'id'> = {
+        proposalId: 'N/A', // O conceito de proposta separada não existe mais neste fluxo
+        shiftRequirementId: matchData.shiftRequirementId,
+        timeSlotId: matchData.timeSlotId,
         doctorId: matchData.doctorId,
-        doctorName: matchData.doctorName || 'N/A',
+        hospitalId: matchData.hospitalId,
+        doctorName: matchData.doctorName || 'Nome do Médico não disponível',
+        hospitalName: matchData.hospitalName || 'Nome do Hospital não disponível',
         shiftDates: [matchData.matchedDate],
         startTime: matchData.shiftRequirementStartTime,
         endTime: matchData.shiftRequirementEndTime,
         isOvernight: matchData.shiftRequirementIsOvernight,
         serviceType: matchData.shiftRequirementServiceType,
         specialties: matchData.shiftRequirementSpecialties,
-        offeredRateToDoctor: negotiatedRate,
-        notesFromBackoffice: backofficeNotes,
-        status: 'AWAITING_DOCTOR_ACCEPTANCE',
+        locationCity: matchData.shiftCity || 'N/A',
+        locationState: matchData.shiftState || 'N/A',
+        contractedRate: negotiatedRate, // Valor que o médico recebe
+        offeredRateByHospital: matchData.offeredRateByHospital, // Valor que o hospital paga
+        platformMargin: platformMargin, // Margem da plataforma
+        status: 'PENDING_DOCTOR_SIGNATURE', // Status inicial para o médico assinar
         createdAt: serverTimestamp() as Timestamp,
         updatedAt: serverTimestamp() as Timestamp,
     };
     
-    batch.set(proposalRef, newProposalData);
+    batch.set(contractRef, newContractData);
+
+    // 3. (Opcional, mas recomendado) Atualiza o campo contractId no match
+    batch.update(matchDocRef, { contractId: contractRef.id });
+    
     await batch.commit();
     
-    console.log(`[MatchService] Match ${matchId} aprovado. Nova proposta ${proposalRef.id} criada para o médico.`);
+    console.log(`[MatchService] Match ${matchId} aprovado. Novo CONTRATO ${contractRef.id} criado para o médico.`);
 
   } catch (error) {
-    console.error(`Falha ao aprovar match ${matchId}:`, error);
+    console.error(`Falha ao aprovar match e criar contrato para ${matchId}:`, error);
     throw new Error(`Falha ao aprovar match: ${(error as Error).message}`);
   }
 };
+
 
 export const rejectMatchByBackoffice = async (
   matchId: string,
