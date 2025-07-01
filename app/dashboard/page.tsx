@@ -7,24 +7,21 @@ import { Button } from "@/components/ui/button";
 import Link from 'next/link';
 import { 
     ArrowRight, CalendarCheck, FileClock, BellDot, Briefcase, Clock, MapPinIcon, 
-    MessageSquare, Users, AlertTriangle as LucideAlertTriangle, ClipboardList, Loader2, RotateCcw, 
+    FileSignature, Users, AlertTriangle as LucideAlertTriangle, ClipboardList, Loader2, RotateCcw, 
     CalendarDays
 } from 'lucide-react';
 import { Timestamp } from 'firebase/firestore';
 
-import { getPendingProposalsForDoctor, type ShiftProposal } from '@/lib/proposal-service';
+// MUDANÇA: A importação de 'ShiftProposal' e seu serviço não são mais necessários aqui.
 import { getContractsForDoctor, type Contract } from '@/lib/contract-service';
 import { getTimeSlots, type TimeSlot } from '@/lib/availability-service';
 import { useAuth } from '@/components/auth-provider';
-import { formatCurrency, cn } from '@/lib/utils'; // formatCurrency não usado aqui, mas cn sim.
+import { cn } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
-
-// Importar DoctorProfile e getCurrentUserData
 import { getCurrentUserData, type DoctorProfile } from '@/lib/auth-service'; 
-// Importar ProfileStatusAlert e seu tipo
 import ProfileStatusAlert, { type ProfileStatus } from '@/components/ui/ProfileStatusAlert'; 
 
-// Componentes de Estado
+// Componentes de Estado (Loading, Empty, Error) - Sem alterações
 const LoadingState = React.memo(({ message = "Carregando..." }: { message?: string }) => ( <div className="flex items-center justify-center py-10 text-sm text-gray-500"><Loader2 className="h-6 w-6 animate-spin mr-2"/>{message}</div> ));
 LoadingState.displayName = 'LoadingState';
 const EmptyState = React.memo(({ message }: { message: string }) => ( <div className="text-center py-10"><ClipboardList className="mx-auto h-12 w-12 text-gray-400"/><h3 className="mt-2 text-sm font-semibold text-gray-900">{message}</h3></div> ));
@@ -32,9 +29,9 @@ EmptyState.displayName = 'EmptyState';
 const ErrorState = React.memo(({ message, onRetry }: { message: string; onRetry?: () => void; }) => ( <div className="text-center py-10 bg-red-50 p-4 rounded-md border border-red-200"><LucideAlertTriangle className="mx-auto h-10 w-10 text-red-400"/><h3 className="mt-2 text-sm font-semibold text-red-700">{message}</h3>{onRetry && <Button variant="destructive" onClick={onRetry} size="sm" className="mt-3"><RotateCcw className="mr-2 h-4 w-4"/>Tentar Novamente</Button>}</div> ));
 ErrorState.displayName = 'ErrorState';
 
-
 interface DashboardStats {
-  pendingProposalsCount: number;
+  // MUDANÇA: 'pendingProposalsCount' foi substituído por 'pendingSignatureContractsCount'
+  pendingSignatureContractsCount: number;
   upcomingShiftsCount: number;
   totalAvailabilitySlotsCount: number;
 }
@@ -43,28 +40,23 @@ interface UpcomingShiftDisplayItem extends Contract {
     displayDate: string;
     displayTime: string;
 }
-interface PendingProposalDisplayItem extends ShiftProposal {
-    displayDate: string;
-    displayTime: string;
-}
-
 
 export default function DashboardPage() {
-  const { user, loading: authLoading } = useAuth(); // Renomeado loading para authLoading para clareza
+  const { user, loading: authLoading } = useAuth();
   const { toast } = useToast();
 
-  const [stats, setStats] = useState<DashboardStats>({ pendingProposalsCount: 0, upcomingShiftsCount: 0, totalAvailabilitySlotsCount: 0 });
+  const [stats, setStats] = useState<DashboardStats>({ pendingSignatureContractsCount: 0, upcomingShiftsCount: 0, totalAvailabilitySlotsCount: 0 });
   const [upcomingShifts, setUpcomingShifts] = useState<UpcomingShiftDisplayItem[]>([]);
-  const [pendingProposals, setPendingProposals] = useState<PendingProposalDisplayItem[]>([]);
+  // NOVO: Estado para os contratos pendentes de assinatura do médico
+  const [pendingSignatureContracts, setPendingSignatureContracts] = useState<Contract[]>([]);
   
-  const [doctorProfile, setDoctorProfile] = useState<DoctorProfile | null>(null); // Estado para o perfil do médico
+  const [doctorProfile, setDoctorProfile] = useState<DoctorProfile | null>(null);
   
-  const [isLoading, setIsLoading] = useState(true); // Loading específico desta página
+  const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const fetchDashboardData = useCallback(async () => {
     if (!user) {
-        console.log("[DashboardPage] User not available yet for fetching data.");
         setIsLoading(false); 
         return;
     }
@@ -72,30 +64,32 @@ export default function DashboardPage() {
     setError(null);
     console.log("[DashboardPage] Fetching dashboard data for user:", user.uid);
     try {
-      const [contractsData, proposalsData, availabilitiesData, currentProfileData] = await Promise.all([
-        getContractsForDoctor(['ACTIVE_SIGNED', 'PENDING_HOSPITAL_SIGNATURE']),
-        getPendingProposalsForDoctor(),
+      // MUDANÇA: Buscas de dados refeitas para o fluxo de Contrato
+      const [pendingContractsData, activeContractsData, availabilitiesData, currentProfileData] = await Promise.all([
+        getContractsForDoctor(['PENDING_DOCTOR_SIGNATURE']), // Busca os novos contratos para assinar
+        getContractsForDoctor(['ACTIVE_SIGNED']), // Busca os plantões já confirmados
         getTimeSlots(),
         getCurrentUserData() 
       ]);
 
-      console.log("[DashboardPage] Data fetched - Contracts:", contractsData.length, "Proposals:", proposalsData.length, "Availabilities:", availabilitiesData.length, "Profile:", currentProfileData ? 'Loaded' : 'Not loaded');
+      console.log("[DashboardPage] Data fetched - Pending Contracts:", pendingContractsData.length, "Active Contracts:", activeContractsData.length, "Availabilities:", availabilitiesData.length, "Profile:", currentProfileData ? 'Loaded' : 'Not loaded');
 
-      if (currentProfileData && currentProfileData.role === 'doctor') {
+      if (currentProfileData?.role === 'doctor') {
         setDoctorProfile(currentProfileData as DoctorProfile);
-      } else if (currentProfileData) {
-        console.warn("[DashboardPage] Fetched profile is not a doctor profile:", currentProfileData.role);
-        // Considerar definir um erro específico se o perfil não for de médico e esta página for exclusiva para médicos.
       }
 
+      // MUDANÇA: Atualiza as estatísticas com os novos dados
       setStats({
-        pendingProposalsCount: proposalsData.length,
-        upcomingShiftsCount: contractsData.filter(c => c.status === 'ACTIVE_SIGNED').length,
+        pendingSignatureContractsCount: pendingContractsData.length,
+        upcomingShiftsCount: activeContractsData.length,
         totalAvailabilitySlotsCount: availabilitiesData.length,
       });
 
-      const formattedUpcomingShifts: UpcomingShiftDisplayItem[] = contractsData
-        .filter(contract => contract.status === 'ACTIVE_SIGNED')
+      // NOVO: Seta o estado dos contratos pendentes de assinatura
+      setPendingSignatureContracts(pendingContractsData);
+
+      // Lógica dos próximos plantões agora usa 'activeContractsData'
+      const formattedUpcomingShifts: UpcomingShiftDisplayItem[] = activeContractsData
         .sort((a, b) => (a.shiftDates?.[0]?.toDate()?.getTime() || 0) - (b.shiftDates?.[0]?.toDate()?.getTime() || 0))
         .slice(0, 3)
         .map(contract => ({
@@ -104,16 +98,6 @@ export default function DashboardPage() {
           displayTime: `${contract.startTime} - ${contract.endTime}`,
         }));
       setUpcomingShifts(formattedUpcomingShifts);
-
-      const formattedPendingProposals: PendingProposalDisplayItem[] = proposalsData
-        .sort((a,b) => (a.createdAt?.toDate()?.getTime() || 0) - (b.createdAt?.toDate()?.getTime() || 0))
-        .slice(0, 3)
-        .map(proposal => ({
-            ...proposal,
-            displayDate: proposal.shiftDates?.[0] instanceof Timestamp ? proposal.shiftDates[0].toDate().toLocaleDateString('pt-BR', { day: '2-digit', month: 'short', year: 'numeric' }) : 'N/A',
-            displayTime: `${proposal.startTime} - ${proposal.endTime}`,
-        }));
-      setPendingProposals(formattedPendingProposals);
 
       console.log("[DashboardPage] Dashboard data processed and states updated.");
 
@@ -126,55 +110,43 @@ export default function DashboardPage() {
     }
   }, [user, toast]); 
 
+  // O useEffect permanece funcionalmente o mesmo.
   useEffect(() => {
-    if (authLoading) { // Se o hook de autenticação ainda está carregando
-        setIsLoading(true); // Mantém o isLoading da página ativo
+    if (authLoading) {
+        setIsLoading(true);
         return;
     }
-
-    if (user) { // Se o usuário existe (após authLoading ser false)
-        console.log("[DashboardPage] User detected in useEffect, calling fetchDashboardData.");
+    if (user) {
+        console.log("[DashboardPage] User detected, calling fetchDashboardData.");
         fetchDashboardData();
-    } else { // Se não há usuário (após authLoading ser false)
-        console.log("[DashboardPage] No user after auth check, dashboard data not fetched.");
-        setIsLoading(false); // Parar o indicador de carregamento da página
-        setDoctorProfile(null); // Limpar dados do perfil
-        setStats({ pendingProposalsCount: 0, upcomingShiftsCount: 0, totalAvailabilitySlotsCount: 0 }); // Resetar stats
-        setUpcomingShifts([]); // Limpar plantões
-        setPendingProposals([]); // Limpar propostas
-        // O AuthProvider ou um layout superior deve cuidar do redirecionamento para /login
+    } else {
+        console.log("[DashboardPage] No user after auth check.");
+        setIsLoading(false);
+        setDoctorProfile(null);
+        setStats({ pendingSignatureContractsCount: 0, upcomingShiftsCount: 0, totalAvailabilitySlotsCount: 0 });
+        setUpcomingShifts([]);
+        setPendingSignatureContracts([]);
     }
-  }, [user, authLoading, fetchDashboardData]); // Adicionado authLoading como dependência
+  }, [user, authLoading, fetchDashboardData]);
 
-  if (isLoading && authLoading) { // Mostra loading se a autenticação ou os dados do dashboard estiverem carregando
+  if (isLoading || authLoading) {
     return <div className="p-6"><LoadingState message="Carregando seu dashboard..." /></div>;
   }
   
-  // Se authLoading terminou, mas user é null, o AuthProvider deve redirecionar.
-  // Mostramos um estado de erro se a busca de dados falhou.
-  if (error && !isLoading) { // Verifica isLoading da página, não authLoading
+  if (error && !isLoading) {
     return <div className="p-6"><ErrorState message={error} onRetry={fetchDashboardData} /></div>;
   }
   
-  // Caso especial: auth carregou, não há usuário, e ainda não foi redirecionado (AuthProvider pode levar um instante)
-  if (!authLoading && !user && !isLoading) {
-    return (
-        <div className="container mx-auto p-4 sm:p-6 space-y-6 text-center">
-            <LoadingState message="Aguardando autenticação ou redirecionando..." />
-        </div>
-    );
+  if (!user && !authLoading) {
+    return <div className="p-6"><LoadingState message="Aguardando autenticação..." /></div>;
   }
   
-  // Se o usuário existe mas o perfil do médico ainda não carregou (após o loading inicial), pode mostrar um loader específico para o perfil ou nada.
-  // Para este exemplo, o ProfileStatusAlert simplesmente não será renderizado se doctorProfile for null.
-
   const doctorEditProfileLink = "/dashboard/profile/edit"; 
 
   return (
     <div className="container mx-auto p-4 sm:p-6 space-y-6">
-      <h1 className="text-3xl font-bold text-gray-800">Bem-vindo(a) de volta, {doctorProfile?.displayName || user?.displayName || 'Doutor(a)'}!</h1>
+      <h1 className="text-3xl font-bold text-gray-800">Bem-vindo(a) de volta, {doctorProfile?.displayName || 'Doutor(a)'}!</h1>
 
-      {/* Componente ProfileStatusAlert para status do cadastro */}
       {doctorProfile && (
         <ProfileStatusAlert 
           status={doctorProfile.documentVerificationStatus as ProfileStatus | undefined}
@@ -184,31 +156,33 @@ export default function DashboardPage() {
         />
       )}
 
-      {pendingProposals.length > 0 && (
-        <Card className="bg-amber-50 border-amber-200 shadow-lg">
+      {/* NOVO: Cartão de notificação para Contratos Pendentes */}
+      {pendingSignatureContracts.length > 0 && (
+        <Card className="bg-indigo-50 border-indigo-200 shadow-lg">
           <CardHeader>
-            <CardTitle className="text-lg text-amber-800 flex items-center"><BellDot className="mr-2 h-5 w-5"/> Você tem Novas Propostas!</CardTitle>
+            <CardTitle className="text-lg text-indigo-800 flex items-center"><FileSignature className="mr-2 h-5 w-5"/> Você tem Contratos para Assinar!</CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-sm text-amber-700">Há {stats.pendingProposalsCount} proposta(s) de plantão aguardando sua avaliação.</p>
+            <p className="text-sm text-indigo-700">Há {stats.pendingSignatureContractsCount} contrato(s) de plantão aguardando sua assinatura digital para serem confirmados.</p>
           </CardContent>
           <CardFooter>
-            <Button asChild size="sm" className="bg-amber-500 hover:bg-amber-600 text-white">
-                <Link href="/dashboard/proposals">Ver Propostas <ArrowRight className="ml-2 h-4 w-4" /></Link>
+            <Button asChild size="sm" className="bg-indigo-600 hover:bg-indigo-700 text-white">
+                <Link href="/dashboard/contracts?tab=pending_doctor">Rever e Assinar Contratos <ArrowRight className="ml-2 h-4 w-4" /></Link>
             </Button>
           </CardFooter>
         </Card>
       )}
 
+      {/* MUDANÇA: Os cards de estatísticas agora usam 'pendingSignatureContractsCount' */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Propostas Pendentes</CardTitle>
-            <MessageSquare className="h-4 w-4 text-muted-foreground" />
+            <CardTitle className="text-sm font-medium">Contratos para Assinar</CardTitle>
+            <FileSignature className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{stats.pendingProposalsCount}</div>
-            <p className="text-xs text-muted-foreground">Aguardando sua resposta</p>
+            <div className="text-2xl font-bold">{stats.pendingSignatureContractsCount}</div>
+            <p className="text-xs text-muted-foreground">Aguardando sua assinatura</p>
           </CardContent>
         </Card>
         <Card>
@@ -233,14 +207,15 @@ export default function DashboardPage() {
         </Card>
       </div>
 
-      <div className="grid gap-6 md:grid-cols-2">
+      {/* MUDANÇA: A seção de "Propostas" foi removida para dar lugar a um fluxo único de "Contratos". */}
+      <div className="grid gap-6">
         <Card>
           <CardHeader>
             <CardTitle>Seus Próximos Plantões</CardTitle>
-            <CardDescription>Plantões confirmados e agendados.</CardDescription>
+            <CardDescription>Estes são seus plantões já confirmados e agendados. Prepare-se!</CardDescription>
           </CardHeader>
           <CardContent>
-            {upcomingShifts.length > 0 ? (
+            {isLoading ? <LoadingState/> : upcomingShifts.length > 0 ? (
               <ul className="space-y-3">
                 {upcomingShifts.map(shift => (
                   <li key={shift.id} className="p-3 border rounded-md hover:bg-gray-50 text-sm">
@@ -252,33 +227,9 @@ export default function DashboardPage() {
                 ))}
               </ul>
             ) : (
-              <p className="text-sm text-muted-foreground">Nenhum plantão confirmado agendado.</p>
+              <EmptyState message="Nenhum plantão confirmado agendado."/>
             )}
-             <Button variant="link" asChild className="p-0 h-auto mt-3 text-sm"><Link href="/dashboard/contracts?tab=active">Ver todos os contratos ativos</Link></Button>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>Propostas Aguardando Sua Resposta</CardTitle>
-            <CardDescription>Avalie e responda às oportunidades.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            {pendingProposals.length > 0 ? (
-              <ul className="space-y-3">
-                {pendingProposals.map(proposal => (
-                  <li key={proposal.id} className="p-3 border rounded-md hover:bg-gray-50 text-sm">
-                    <p className="font-semibold text-amber-700">{proposal.hospitalName}</p>
-                    <p className="text-xs text-gray-600 flex items-center"><MapPinIcon size={12} className="mr-1"/>{proposal.hospitalCity}, {proposal.hospitalState}</p>
-                    <p className="text-xs text-gray-600 flex items-center"><CalendarDays size={12} className="mr-1"/>{proposal.displayDate}</p>
-                    <p className="text-xs text-gray-600 flex items-center"><Briefcase size={12} className="mr-1"/>{proposal.specialties.join(', ')}</p>
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <p className="text-sm text-muted-foreground">Nenhuma proposta pendente no momento.</p>
-            )}
-             <Button variant="link" asChild className="p-0 h-auto mt-3 text-sm"><Link href="/dashboard/proposals">Ver todas as propostas</Link></Button>
+             <Button variant="link" asChild className="p-0 h-auto mt-3 text-sm"><Link href="/dashboard/contracts">Ver todos os seus contratos</Link></Button>
           </CardContent>
         </Card>
       </div>

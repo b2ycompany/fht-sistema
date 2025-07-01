@@ -1,12 +1,13 @@
+// app/dashboard/layout.tsx
 "use client"
 
 import type React from "react"
 import { useEffect, useState } from "react"
 import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
-import { Calendar, Clock, FileText, Home, LogOut, Menu, MessageSquare, User, X } from "lucide-react"
+import { Calendar, Clock, FileText, Home, LogOut, Menu, User, X } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
-import { useMobile } from "@/hooks/use-mobile"
+import { useMobile } from "@/hooks/use-mobile" // A importação está correta
 import { useAuth } from "@/components/auth-provider"
 import { logoutUser } from "@/lib/auth-service"
 import Image from "next/image"
@@ -18,7 +19,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const pathname = usePathname()
   const router = useRouter()
   const { toast } = useToast()
-  const isMobile = useMobile()
+  // MUDANÇA: Passando o argumento necessário para o hook.
+  const isMobile = useMobile(768) 
   const { user, loading } = useAuth()
 
   useEffect(() => {
@@ -49,11 +51,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     { href: "/dashboard", label: "Dashboard", icon: <Home className="h-5 w-5" /> },
     { href: "/dashboard/profile", label: "Meu Perfil", icon: <User className="h-5 w-5" /> },
     { href: "/dashboard/availability", label: "Disponibilidade", icon: <Calendar className="h-5 w-5" /> },
-    { href: "/dashboard/proposals", label: "Propostas", icon: <MessageSquare className="h-5 w-5" /> },
     { href: "/dashboard/contracts", label: "Meus Contratos", icon: <FileText className="h-5 w-5" /> },
     { href: "/dashboard/checkin", label: "Check-in/out", icon: <Clock className="h-5 w-5" /> },
-    
-    
   ]
 
   if (loading) {
