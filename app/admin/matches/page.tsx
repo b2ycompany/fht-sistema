@@ -4,6 +4,8 @@
 import React, { useState, useEffect } from 'react';
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
+import { Input } from "@/components/ui/input"; // MUDANÇA: Importar o componente Input
+import { Label } from "@/components/ui/label"; // MUDANÇA: Importar o componente Label
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { Timestamp, query, collection, where, onSnapshot, orderBy } from "firebase/firestore";
@@ -14,12 +16,14 @@ import {
     CheckCircle, XCircle, Eye, DollarSign, Loader2, RotateCcw, ClipboardList, Users, Briefcase, CalendarDays, Clock, MapPinIcon, Info,
     AlertTriangle as LucideAlertTriangle, ShieldCheck, Download, Building, User
 } from 'lucide-react';
-import { approveMatchAndProposeToDoctor, rejectMatchByBackoffice, type PotentialMatch } from "@/lib/match-service";
+// MUDANÇA: Importando a função correta 'approveMatchAndCreateContract'
+import { approveMatchAndCreateContract, rejectMatchByBackoffice, type PotentialMatch } from "@/lib/match-service";
 import { updateUserVerificationStatus, type UserProfile, type ProfileStatus } from "@/lib/auth-service";
 import { cn, formatCurrency } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 
 const UserVerificationCard: React.FC<{ user: UserProfile; onAction: (userId: string, status: ProfileStatus, notes: string, reasons?: Record<string, string>) => Promise<void>; }> = ({ user, onAction }) => {
+    // ... (nenhuma mudança neste componente, ele permanece igual)
     const [generalNotes, setGeneralNotes] = useState(user.adminVerificationNotes || "");
     const [isProcessing, setIsProcessing] = useState(false);
     const [rejectionState, setRejectionState] = useState<Record<string, { selected: boolean; reason: string }>>({});
@@ -82,11 +86,23 @@ const UserVerificationCard: React.FC<{ user: UserProfile; onAction: (userId: str
     );
 };
 
-const MatchReviewCard: React.FC<{ match: PotentialMatch; onApproveMatch: (matchId: string, negotiatedRate: number, notes?: string) => Promise<void>; onRejectMatch: (matchId: string, notes: string) => Promise<void>; }> = ({ match, onApproveMatch, onRejectMatch }) => {
+// MUDANÇA: A prop onApproveMatch foi atualizada para receber 'platformMargin'
+const MatchReviewCard: React.FC<{ match: PotentialMatch; onApproveMatch: (matchId: string, negotiatedRate: number, platformMargin: number, notes?: string) => Promise<void>; onRejectMatch: (matchId: string, notes: string) => Promise<void>; }> = ({ match, onApproveMatch, onRejectMatch }) => {
     const [notes, setNotes] = useState("");
     const [isProcessing, setIsProcessing] = useState(false);
+    // MUDANÇA: Estados para os valores financeiros
     const [negotiatedRate, setNegotiatedRate] = useState(match.offeredRateByHospital);
-    const handleApprove = async () => { setIsProcessing(true); try { await onApproveMatch(match.id, negotiatedRate, notes); } finally { setIsProcessing(false); } };
+    const [platformMargin, setPlatformMargin] = useState(10); // Valor padrão de 10%
+    
+    const handleApprove = async () => {
+        setIsProcessing(true);
+        try {
+            // MUDANÇA: Passando a margem da plataforma para a função
+            await onApproveMatch(match.id, negotiatedRate, platformMargin, notes);
+        } finally {
+            setIsProcessing(false);
+        }
+    };
     const handleReject = async () => { if (!notes.trim()) { alert("Para rejeitar um match, é obrigatório preencher o motivo."); return; } setIsProcessing(true); try { await onRejectMatch(match.id, notes); } finally { setIsProcessing(false); } };
     const matchDate = match.matchedDate instanceof Timestamp ? match.matchedDate.toDate().toLocaleDateString('pt-BR') : 'Data inválida';
     const location = `${(match as any).shiftCity || 'Cidade?'}, ${(match as any).shiftState || 'Estado?'}`;
@@ -112,9 +128,20 @@ const MatchReviewCard: React.FC<{ match: PotentialMatch; onApproveMatch: (matchI
                   {doctorNotes && (<div className="text-sm p-2 bg-green-50 rounded-md"><p className="font-semibold text-green-800 flex items-center gap-2"><Info size={14}/> Observação do Médico:</p><p className="text-gray-700 italic pl-6">"{doctorNotes}"</p></div>)}
               </div>
             )}
+             {/* MUDANÇA: Novos campos para ajuste de valor e margem */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 border-t pt-4">
+                <div>
+                    <Label htmlFor={`rate-${match.id}`} className="font-semibold text-sm mb-2 block">Valor/Hora a Propor ao Médico (R$)</Label>
+                    <Input id={`rate-${match.id}`} type="number" value={negotiatedRate} onChange={(e) => setNegotiatedRate(Number(e.target.value))} disabled={isProcessing} />
+                </div>
+                <div>
+                    <Label htmlFor={`margin-${match.id}`} className="font-semibold text-sm mb-2 block">Margem da Plataforma (%)</Label>
+                    <Input id={`margin-${match.id}`} type="number" value={platformMargin} onChange={(e) => setPlatformMargin(Number(e.target.value))} disabled={isProcessing} />
+                </div>
+            </div>
             <div><label htmlFor={`notes-match-${match.id}`} className="font-semibold text-sm mb-2 block">Observações do Admin (Para o Médico)</label><Textarea id={`notes-match-${match.id}`} value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Ex: Proposta enviada ao médico com ajuste no valor." disabled={isProcessing}/></div>
         </CardContent>
-        <CardFooter className="flex justify-end items-center gap-3"><Button variant="destructive" onClick={handleReject} disabled={isProcessing}>{isProcessing ? <Loader2 className="h-4 w-4 animate-spin"/> : <XCircle className="mr-2 h-4 w-4" />}Rejeitar Match</Button><Button variant="default" className="bg-green-600 hover:bg-green-700" onClick={handleApprove} disabled={isProcessing}>{isProcessing ? <Loader2 className="h-4 w-4 animate-spin"/> : <CheckCircle className="mr-2 h-4 w-4" />}Aprovar e Propor ao Médico</Button></CardFooter>
+        <CardFooter className="flex justify-end items-center gap-3"><Button variant="destructive" onClick={handleReject} disabled={isProcessing}>{isProcessing ? <Loader2 className="h-4 w-4 animate-spin"/> : <XCircle className="mr-2 h-4 w-4" />}Rejeitar Match</Button><Button variant="default" className="bg-green-600 hover:bg-green-700" onClick={handleApprove} disabled={isProcessing}>{isProcessing ? <Loader2 className="h-4 w-4 animate-spin"/> : <CheckCircle className="mr-2 h-4 w-4" />}Aprovar e Criar Contrato</Button></CardFooter>
       </Card>
     );
 };
@@ -142,7 +169,17 @@ export default function AdminMatchesPage() {
     }, []);
 
     const handleUserVerification = async (userId: string, status: ProfileStatus, notes: string, reasons?: Record<string, string>) => { try { await updateUserVerificationStatus(userId, status, notes, reasons); toast({ title: "Cadastro Atualizado!" }); } catch (error: any) { toast({ title: "Erro ao Atualizar", description: error.message, variant: "destructive" }); }};
-    const handleApproveMatch = async (matchId: string, negotiatedRate: number, notes?: string) => { try { await approveMatchAndProposeToDoctor(matchId, negotiatedRate, notes); toast({ title: "Match Aprovado!", description: "Proposta enviada ao médico." }); } catch (err: any) { toast({ title: "Erro ao Aprovar", description: err.message, variant: "destructive" }); }};
+    
+    // MUDANÇA: Função atualizada para usar a nova lógica de serviço
+    const handleApproveMatch = async (matchId: string, negotiatedRate: number, platformMargin: number, notes?: string) => {
+        try {
+            await approveMatchAndCreateContract(matchId, negotiatedRate, platformMargin, notes);
+            toast({ title: "Match Aprovado!", description: "Contrato criado e enviado ao médico." });
+        } catch (err: any) {
+            toast({ title: "Erro ao Aprovar", description: err.message, variant: "destructive" });
+        }
+    };
+    
     const handleRejectMatch = async (matchId: string, adminNotes: string) => { try { await rejectMatchByBackoffice(matchId, adminNotes); toast({ title: "Match Rejeitado" }); } catch (err: any) { toast({ title: "Erro ao Rejeitar", description: err.message, variant: "destructive" }); }};
 
     return (
