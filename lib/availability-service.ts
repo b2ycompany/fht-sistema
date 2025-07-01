@@ -14,7 +14,7 @@ import {
 } from "firebase/firestore";
 import { db, auth } from "./firebase";
 
-// --- SUAS LISTAS COMPLETAS E CORRETAS ---
+// As listas de especialidades e tipos de serviço continuam iguais.
 export const ServiceTypeRates: { [key: string]: number } = {
   plantao_12h_diurno: 100,
   plantao_12h_noturno: 120,
@@ -49,11 +49,12 @@ export const medicalSpecialties = [
     "Pediatria", "Pneumologia", "Psiquiatria", "Radiologia e Diagnóstico por Imagem", 
     "Radioterapia", "Reumatologia", "Urologia"
 ];
-// --- FIM DAS SUAS LISTAS ---
 
+// MUDANÇA: Adicionado o campo 'doctorName' à interface.
 export interface TimeSlot {
   id: string;
   doctorId: string;
+  doctorName?: string; // Nome do médico que criou a disponibilidade
   date: Timestamp;
   startTime: string;
   endTime: string;
@@ -69,16 +70,19 @@ export interface TimeSlot {
   updatedAt: Timestamp;
 }
 
-export type TimeSlotFormPayload = Omit<TimeSlot, "id" | "doctorId" | "status" | "createdAt" | "updatedAt">;
-export type TimeSlotUpdatePayload = Partial<Omit<TimeSlot, "id" | "doctorId" | "date" | "status" | "createdAt">>;
+// O Omit foi atualizado para incluir o novo campo
+export type TimeSlotFormPayload = Omit<TimeSlot, "id" | "doctorId" | "doctorName" | "status" | "createdAt" | "updatedAt">;
+export type TimeSlotUpdatePayload = Partial<Omit<TimeSlot, "id" | "doctorId" | "doctorName" | "date" | "status" | "createdAt">>;
 
 export const addTimeSlot = async (payload: TimeSlotFormPayload): Promise<string> => {
   const currentUser = auth.currentUser;
   if (!currentUser) throw new Error("Usuário não autenticado.");
   try {
+    // MUDANÇA: Adicionado 'doctorName' ao objeto que é salvo no Firestore.
     const docRef = await addDoc(collection(db, "doctorTimeSlots"), {
       ...payload,
       doctorId: currentUser.uid,
+      doctorName: currentUser.displayName || 'Nome não informado', // Pega o nome do usuário logado
       status: 'AVAILABLE',
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
@@ -91,6 +95,7 @@ export const addTimeSlot = async (payload: TimeSlotFormPayload): Promise<string>
   }
 };
 
+// As funções abaixo não precisam de alteração.
 export const getTimeSlots = async (): Promise<TimeSlot[]> => {
   const currentUser = auth.currentUser;
   if (!currentUser) return [];

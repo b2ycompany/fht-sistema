@@ -16,7 +16,6 @@ interface PotentialMatchInput { shiftRequirementId: string; hospitalId: string; 
 
 setGlobalOptions({ region: "southamerica-east1", memory: "256MiB" });
 
-// MUDANÇA: A função 'normalizeString' foi removida pois não era mais utilizada.
 const timeToMinutes = (timeStr: string): number => { if (!timeStr || !timeStr.includes(":")) { return 0; } const [hours, minutes] = timeStr.split(":").map(Number); return hours * 60 + minutes; };
 const doIntervalsOverlap = (startA: number, endA: number, isOvernightA: boolean, startB: number, endB: number, isOvernightB: boolean): boolean => { const effectiveEndA = isOvernightA && endA <= startA ? endA + 1440 : endA; const effectiveEndB = isOvernightB && endB <= startB ? endB + 1440 : endB; return startA < effectiveEndB && startB < effectiveEndA; };
 
@@ -28,14 +27,23 @@ export const findMatchesOnShiftRequirementWrite = onDocumentWritten( { document:
     const dataAfter = change.after.data() as ShiftRequirementData | undefined;
     const dataBefore = change.before?.data() as ShiftRequirementData | undefined;
 
-    const isNewOpenRequirement = (!dataBefore && dataAfter?.status === 'OPEN') || (dataBefore?.status !== 'OPEN' && dataAfter?.status === 'OPEN');
-    if (!isNewOpenRequirement) {
-      logger.info(`Gatilho ignorado para Req ${event.params.requirementId} pois o status não é uma nova demanda OPEN.`);
+    // MUDANÇA: Cláusula de guarda mais robusta para evitar execuções múltiplas
+    const isNewRequirement = !dataBefore;
+    const statusChangedToOpen = dataBefore?.status !== 'OPEN' && dataAfter?.status === 'OPEN';
+
+    if (!isNewRequirement && !statusChangedToOpen) {
+      logger.info(`Gatilho ignorado para Req ${event.params.requirementId} pois não é novo nem teve status alterado para OPEN.`);
       return;
     }
+    
+    // Garante que a função só prossiga se o status final for OPEN
+    if (dataAfter?.status !== 'OPEN') {
+        logger.info(`Gatilho ignorado para Req ${event.params.requirementId} pois o status final não é OPEN.`);
+        return;
+    }
 
-    const requirement = dataAfter!;
-    logger.info(`INICIANDO BUSCA DE MATCHES OTIMIZADA para a Nova Demanda OPEN: ${event.params.requirementId}`);
+    const requirement = dataAfter;
+    logger.info(`INICIANDO BUSCA DE MATCHES OTIMIZADA para a Demanda OPEN: ${event.params.requirementId}`);
 
     try {
       let timeSlotsQuery: Query = db.collection("doctorTimeSlots")
@@ -51,12 +59,12 @@ export const findMatchesOnShiftRequirementWrite = onDocumentWritten( { document:
       }
       
       const timeSlotsSnapshot = await timeSlotsQuery.get();
-
+      
       if (timeSlotsSnapshot.empty) {
-        logger.info(`Nenhum TimeSlot compatível (local, data, valor, etc.) encontrado para a Req ${event.params.requirementId}.`);
+        logger.info(`Nenhum TimeSlot compatível encontrado para a Req ${event.params.requirementId}.`);
         return;
       }
-      logger.info(`[MATCHING] Encontrados ${timeSlotsSnapshot.size} candidatos de TimeSlot para a Req ${event.params.requirementId}. Verificando sobreposição de horário...`);
+      logger.info(`[MATCHING] Encontrados ${timeSlotsSnapshot.size} candidatos para a Req ${event.params.requirementId}.`);
 
       const batch = db.batch();
       let matchesCreatedCount = 0;
@@ -73,10 +81,7 @@ export const findMatchesOnShiftRequirementWrite = onDocumentWritten( { document:
         const matchRef = db.collection("potentialMatches").doc(deterministicMatchId);
         
         const matchSnap = await matchRef.get();
-        if (matchSnap.exists) {
-          logger.warn(`Match ${deterministicMatchId} já existe, pulando criação para evitar duplicata.`);
-          continue; 
-        }
+        if (matchSnap.exists) { continue; }
 
         const newPotentialMatchData: PotentialMatchInput = {
           shiftRequirementId: event.params.requirementId, hospitalId: requirement.hospitalId, hospitalName: requirement.hospitalName || "",
@@ -84,7 +89,10 @@ export const findMatchesOnShiftRequirementWrite = onDocumentWritten( { document:
           shiftRequirementEndTime: requirement.endTime, shiftRequirementIsOvernight: requirement.isOvernight, shiftRequirementServiceType: requirement.serviceType,
           shiftRequirementSpecialties: requirement.specialtiesRequired || [], offeredRateByHospital: requirement.offeredRate,
           shiftRequirementNotes: requirement.notes || "", numberOfVacanciesInRequirement: requirement.numberOfVacancies,
-          timeSlotId: timeSlotDoc.id, doctorId: timeSlot.doctorId, doctorName: timeSlot.doctorName || "", timeSlotStartTime: timeSlot.startTime,
+          timeSlotId: timeSlotDoc.id, doctorId: timeSlot.doctorId,
+          // MUDANÇA: Usando '??' para garantir que se o campo for null/undefined, ele vira uma string vazia.
+          doctorName: timeSlot.doctorName ?? "", 
+          timeSlotStartTime: timeSlot.startTime,
           timeSlotEndTime: timeSlot.endTime, timeSlotIsOvernight: timeSlot.isOvernight, doctorDesiredRate: timeSlot.desiredHourlyRate,
           doctorSpecialties: timeSlot.specialties || [], doctorServiceType: timeSlot.serviceType, 
           doctorTimeSlotNotes: timeSlot.notes || "", status: "PENDING_BACKOFFICE_REVIEW",
@@ -99,7 +107,7 @@ export const findMatchesOnShiftRequirementWrite = onDocumentWritten( { document:
         await batch.commit();
         logger.info(`[SUCESSO] ${matchesCreatedCount} novo(s) PotentialMatch(es) criado(s) para a Req ${event.params.requirementId}.`);
       } else {
-        logger.info(`Nenhum novo match foi criado para a Req ${event.params.requirementId} (candidatos não passaram na verificação final de horário ou já existiam).`);
+        logger.info(`Nenhum novo match foi criado para a Req ${event.params.requirementId}.`);
       }
 
     } catch (error) {
@@ -108,6 +116,8 @@ export const findMatchesOnShiftRequirementWrite = onDocumentWritten( { document:
   }
 );
 
+// As funções de delete não precisam de alteração.
+// ... (código restante da página sem alterações) ...
 export const onShiftRequirementDelete = onDocumentDeleted("shiftRequirements/{requirementId}", async (event) => {
     const { requirementId } = event.params;
     logger.info(`Demanda ${requirementId} deletada. Removendo matches pendentes.`);
