@@ -79,50 +79,34 @@ interface PotentialMatchInput {
 setGlobalOptions({ region: "southamerica-east1", memory: "256MiB" });
 
 const timeToMinutes = (timeStr: string): number => {
-  if (!timeStr || !timeStr.includes(":")) {
-    return 0;
-  }
+  if (!timeStr || !timeStr.includes(":")) { return 0; }
   const [hours, minutes] = timeStr.split(":").map(Number);
   return hours * 60 + minutes;
 };
 
-const doIntervalsOverlap = (
-  startA: number,
-  endA: number,
-  isOvernightA: boolean,
-  startB: number,
-  endB: number,
-  isOvernightB: boolean
-): boolean => {
+const doIntervalsOverlap = (startA: number, endA: number, isOvernightA: boolean, startB: number, endB: number, isOvernightB: boolean): boolean => {
   const effectiveEndA = isOvernightA && endA <= startA ? endA + 1440 : endA;
   const effectiveEndB = isOvernightB && endB <= startB ? endB + 1440 : endB;
   return startA < effectiveEndB && startB < effectiveEndA;
 };
 
-export const findMatchesOnShiftRequirementWrite = onDocumentWritten({ document: "shiftRequirements/{requirementId}" },
-  async (event: FirestoreEvent<Change<DocumentSnapshot> | undefined, { requirementId: string }>): Promise<void> => {
+export const findMatchesOnShiftRequirementWrite = onDocumentWritten({ document: "shiftRequirements/{requirementId}" }, async (event: FirestoreEvent<Change<DocumentSnapshot> | undefined, { requirementId: string }>): Promise<void> => {
     const change = event.data;
     if (!change) return;
-
     const dataAfter = change.after.data() as ShiftRequirementData | undefined;
     const dataBefore = change.before?.data() as ShiftRequirementData | undefined;
-
     const isNewRequirement = !dataBefore;
     const statusChangedToOpen = dataBefore?.status !== 'OPEN' && dataAfter?.status === 'OPEN';
-
     if (!isNewRequirement && !statusChangedToOpen) {
       logger.info(`Gatilho ignorado para Req ${event.params.requirementId} pois não é novo nem teve status alterado para OPEN.`);
       return;
     }
-    
     if (dataAfter?.status !== 'OPEN') {
         logger.info(`Gatilho ignorado para Req ${event.params.requirementId} pois o status final não é OPEN.`);
         return;
     }
-
     const requirement = dataAfter;
     logger.info(`INICIANDO BUSCA DE MATCHES OTIMIZADA para a Demanda OPEN: ${event.params.requirementId}`);
-
     try {
       let timeSlotsQuery: Query = db.collection("doctorTimeSlots")
         .where("status", "==", "AVAILABLE")
@@ -131,36 +115,27 @@ export const findMatchesOnShiftRequirementWrite = onDocumentWritten({ document: 
         .where("serviceType", "==", requirement.serviceType)
         .where("desiredHourlyRate", "<=", requirement.offeredRate)
         .where("date", "in", requirement.dates);
-
       if (requirement.specialtiesRequired && requirement.specialtiesRequired.length > 0) {
         timeSlotsQuery = timeSlotsQuery.where('specialties', 'array-contains-any', requirement.specialtiesRequired);
       }
-      
       const timeSlotsSnapshot = await timeSlotsQuery.get();
-      
       if (timeSlotsSnapshot.empty) {
         logger.info(`Nenhum TimeSlot compatível encontrado para a Req ${event.params.requirementId}.`);
         return;
       }
       logger.info(`[MATCHING] Encontrados ${timeSlotsSnapshot.size} candidatos para a Req ${event.params.requirementId}.`);
-
       const batch = db.batch();
       let matchesCreatedCount = 0;
-
       for (const timeSlotDoc of timeSlotsSnapshot.docs) {
         const timeSlot = timeSlotDoc.data() as TimeSlotData;
-
         if (!doIntervalsOverlap(timeToMinutes(timeSlot.startTime), timeToMinutes(timeSlot.endTime), timeSlot.isOvernight, timeToMinutes(requirement.startTime), timeToMinutes(requirement.endTime), requirement.isOvernight)) {
           continue;
         }
-        
         const matchedDate = requirement.dates.find((reqDate) => reqDate.isEqual(timeSlot.date))!;
         const deterministicMatchId = `${event.params.requirementId}_${timeSlotDoc.id}_${matchedDate.seconds}`;
         const matchRef = db.collection("potentialMatches").doc(deterministicMatchId);
-        
         const matchSnap = await matchRef.get();
         if (matchSnap.exists) { continue; }
-
         const newPotentialMatchData: PotentialMatchInput = {
           shiftRequirementId: event.params.requirementId, hospitalId: requirement.hospitalId, hospitalName: requirement.hospitalName || "",
           originalShiftRequirementDates: requirement.dates, matchedDate: matchedDate, shiftRequirementStartTime: requirement.startTime,
@@ -179,14 +154,12 @@ export const findMatchesOnShiftRequirementWrite = onDocumentWritten({ document: 
         batch.set(matchRef, newPotentialMatchData);
         matchesCreatedCount++;
       }
-
       if (matchesCreatedCount > 0) {
         await batch.commit();
         logger.info(`[SUCESSO] ${matchesCreatedCount} novo(s) PotentialMatch(es) criado(s) para a Req ${event.params.requirementId}.`);
       } else {
         logger.info(`Nenhum novo match foi criado para a Req ${event.params.requirementId}.`);
       }
-
     } catch (error) {
       logger.error(`ERRO CRÍTICO ao processar matches para a Req ${event.params.requirementId}:`, error);
     }
@@ -216,7 +189,11 @@ async function deleteQueryBatch(query: Query, context: string) {
     logger.info(`Batch delete concluído para: ${context}. ${snapshot.size} documentos removidos.`);
 }
 
-export const generateContractPdf = onCall(async (request: CallableRequest) => {
+export const generateContractPdf = onCall(
+  {
+    cors: [/fhtgestao\.com\.br$/, "https://fht-sistema.web.app"],
+  },
+  async (request: CallableRequest) => {
     if (!request.auth) {
         throw new HttpsError("unauthenticated", "A função só pode ser chamada por um usuário autenticado.");
     }
