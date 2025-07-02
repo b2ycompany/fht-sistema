@@ -1,87 +1,73 @@
-// app/hospital/layout.tsx
-"use client";
+// components/layouts/DashboardLayoutBase.tsx
+"use client"
 
-import type React from "react";
-import { useEffect, useState } from "react";
-import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
-import { Building, ClipboardList, User, Briefcase, FileText, LogOut, Menu, X, Loader2 } from "lucide-react";
-import { useToast } from "@/hooks/use-toast";
-import { useMobile } from "@/hooks/use-mobile";
-import { useAuth } from "@/components/auth-provider";
-import { logoutUser, getCurrentUserData } from "@/lib/auth-service";
-import Image from "next/image";
-import Logo from "@/public/logo-fht.svg";
-import { cn } from "@/lib/utils";
+import type React from "react"
+import { useEffect, useState } from "react"
+import Link from "next/link"
+import { usePathname, useRouter } from "next/navigation"
+import { LogOut, Menu, X } from "lucide-react"
+import { useToast } from "@/hooks/use-toast"
+import { useMobile } from "@/hooks/use-mobile"
+import { useAuth } from "@/components/auth-provider"
+import { logoutUser } from "@/lib/auth-service"
+import Image from "next/image"
+import Logo from "@/public/logo-fht.svg"
+import { cn } from "@/lib/utils"
 
-export default function HospitalLayout({ children }: { children: React.ReactNode }) {
-  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
-  const pathname = usePathname();
-  const router = useRouter();
-  const { toast } = useToast();
-  const isMobile = useMobile(768);
-  const { user, loading: authLoading } = useAuth();
-  const [isAuthorized, setIsAuthorized] = useState(false);
-  const [isLoading, setIsLoading] = useState(true);
+interface NavItem {
+  href: string;
+  label: string;
+  icon: React.ReactNode;
+}
+
+interface DashboardLayoutBaseProps {
+  children: React.ReactNode;
+  navItems: NavItem[];
+  userName?: string | null;
+}
+
+export default function DashboardLayoutBase({ children, navItems, userName }: DashboardLayoutBaseProps) {
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
+  const pathname = usePathname()
+  const router = useRouter()
+  const { toast } = useToast()
+  const isMobile = useMobile(768) 
+  const { user, loading } = useAuth()
 
   useEffect(() => {
-    if (!authLoading) {
-      if (user) {
-        getCurrentUserData().then(profile => {
-          if (profile && profile.role === 'hospital') {
-            setIsAuthorized(true);
-          } else {
-            toast({ title: "Acesso Negado", description: "Esta área é restrita a hospitais.", variant: "destructive" });
-            router.push("/");
-          }
-        }).catch(() => {
-          router.push("/login");
-        }).finally(() => {
-          setIsLoading(false);
-        });
-      } else {
-        router.push("/login");
-        setIsLoading(false);
-      }
+    if (!loading && !user) {
+      router.push("/login")
     }
-  }, [user, authLoading, router, toast]);
+  }, [user, loading, router])
 
   const handleLogout = async () => {
     try {
-      await logoutUser();
+      await logoutUser()
       toast({
         title: "Logout realizado",
         description: "Você foi desconectado com sucesso.",
-      });
-      router.push("/");
+      })
+      router.push("/")
     } catch (error) {
-      console.error("Logout error:", error);
+      console.error("Logout error:", error)
       toast({
         title: "Erro ao sair",
         description: "Ocorreu um erro ao fazer logout. Tente novamente.",
         variant: "destructive",
-      });
+      })
     }
-  };
-
-  const navItems = [
-    { href: "/hospital/dashboard", label: "Painel Hospital", icon: <Building className="h-5 w-5" /> },
-    { href: "/hospital/shifts", label: "Plantões", icon: <ClipboardList className="h-5 w-5" /> },
-    { href: "/hospital/contracts", label: "Contratos", icon: <FileText className="h-5 w-5" /> },
-    { href: "/hospital/doctors", label: "Médicos", icon: <User className="h-5 w-5" /> },
-    { href: "/hospital/profile", label: "Perfil Empresa", icon: <Briefcase className="h-5 w-5" /> },
-  ];
-
-  if (authLoading || isLoading) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-gray-50">
-        <Loader2 className="animate-spin h-12 w-12 text-blue-600" />
-      </div>
-    );
   }
 
-  if (!isAuthorized) {
-    return null;
+  if (loading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-gray-50">
+        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-blue-600"></div>
+      </div>
+    )
+  }
+
+  if (!user) {
+    return null
   }
 
   return (
@@ -102,8 +88,9 @@ export default function HospitalLayout({ children }: { children: React.ReactNode
           "md:static md:translate-x-0 md:shadow-md"
         )}
       >
-        <div className="p-6 border-b border-blue-100">
-          <Image src={Logo} alt="FHT Soluções Hospitalares" width={150} height={50} className="w-auto h-10" />
+        <div className="p-6 border-b border-blue-100 text-center">
+          <Image src={Logo} alt="FHT Soluções Hospitalares" width={150} height={50} className="w-auto h-10 mx-auto" />
+          {userName && <p className="text-sm font-semibold mt-4 text-gray-700 truncate">Bem-vindo(a),<br/>{userName}</p>}
         </div>
 
         <nav className="px-3 py-4 flex-1">
@@ -150,5 +137,5 @@ export default function HospitalLayout({ children }: { children: React.ReactNode
         <div className="max-w-7xl mx-auto">{children}</div>
       </main>
     </div>
-  );
+  )
 }
