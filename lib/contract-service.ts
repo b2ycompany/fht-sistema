@@ -1,7 +1,7 @@
-// lib/contract-service.ts
 "use strict";
 
 import { doc, collection, query, where, getDocs, updateDoc, serverTimestamp, Timestamp, orderBy, runTransaction } from "firebase/firestore";
+import { getFunctions, httpsCallable } from "firebase/functions";
 import { db, auth } from "./firebase";
 import { type DoctorProfile } from "./auth-service";
 
@@ -27,12 +27,31 @@ export interface Contract {
   platformMarginPercentage: number;
   contractDocumentUrl?: string;
   contractTermsPreview?: string;
+  contractPdfUrl?: string;
   status: 'PENDING_DOCTOR_SIGNATURE' | 'PENDING_HOSPITAL_SIGNATURE' | 'ACTIVE_SIGNED' | 'CANCELLED' | 'COMPLETED' | 'REJECTED';
   doctorSignature?: { signedAt: Timestamp; ipAddress?: string; };
   hospitalSignature?: { signedAt: Timestamp; signedByUID: string; };
   createdAt: Timestamp;
   updatedAt: Timestamp;
 }
+
+export const generateContractAndGetUrl = async (contractId: string): Promise<string> => {
+    const functions = getFunctions();
+    const generatePdf = httpsCallable(functions, 'generateContractPdf');
+    
+    try {
+        const result = await generatePdf({ contractId });
+        const data = result.data as { success: boolean; pdfUrl: string };
+        if (data.success && data.pdfUrl) {
+            return data.pdfUrl;
+        } else {
+            throw new Error("A Cloud Function não retornou uma URL de PDF válida.");
+        }
+    } catch (error) {
+        console.error("Erro ao chamar a função generateContractPdf:", error);
+        throw new Error("Não foi possível gerar o documento do contrato.");
+    }
+};
 
 export const getContractsForDoctor = async (statuses: Contract['status'][]): Promise<Contract[]> => {
   const currentUser = auth.currentUser;
@@ -49,7 +68,6 @@ export const getContractsForDoctor = async (statuses: Contract['status'][]): Pro
   }
 };
 
-// MUDANÇA: Adicionada a função que estava em falta
 export const getContractsForHospital = async (statuses: Contract['status'][]): Promise<Contract[]> => {
   const currentUser = auth.currentUser;
   if (!currentUser) { return []; }
@@ -68,7 +86,6 @@ export const getContractsForHospital = async (statuses: Contract['status'][]): P
 export const getPendingSignatureContractsForHospital = async (): Promise<Contract[]> => {
   const hospitalId = auth.currentUser?.uid;
   if (!hospitalId) return [];
-
   const contractsRef = collection(db, "contracts");
   const q = query(
     contractsRef, 
