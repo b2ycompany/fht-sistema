@@ -34,7 +34,6 @@ export interface Contract {
   updatedAt: Timestamp;
 }
 
-// ... as funções getContractsForDoctor e signContractByDoctor não precisam de alteração ...
 export const getContractsForDoctor = async (statuses: Contract['status'][]): Promise<Contract[]> => {
   const currentUser = auth.currentUser;
   if (!currentUser) { return []; }
@@ -46,45 +45,24 @@ export const getContractsForDoctor = async (statuses: Contract['status'][]): Pro
     return querySnapshot.docs.map((docSnap) => ({ id: docSnap.id, ...docSnap.data() } as Contract));
   } catch(error) {
     console.error("[getContractsForDoctor] Erro:", error);
-    throw new Error("Falha ao carregar os contratos.");
+    throw new Error("Falha ao carregar os contratos do médico.");
   }
 };
 
-export const signContractByDoctor = async (contractId: string): Promise<void> => {
+// MUDANÇA: Adicionada a função que estava em falta
+export const getContractsForHospital = async (statuses: Contract['status'][]): Promise<Contract[]> => {
   const currentUser = auth.currentUser;
-  if (!currentUser) throw new Error("Usuário não autenticado.");
-
-  const contractRef = doc(db, "contracts", contractId);
-
-  await runTransaction(db, async (transaction) => {
-    const contractDoc = await transaction.get(contractRef);
-    if (!contractDoc.exists() || contractDoc.data().status !== 'PENDING_DOCTOR_SIGNATURE') {
-        throw new Error("Este contrato não está mais disponível para assinatura.");
-    }
-    
-    const contractData = contractDoc.data() as Contract;
-    const timeSlotId = contractData.timeSlotId;
-    if (!timeSlotId) throw new Error("ID da disponibilidade original não encontrado no contrato.");
-
-    const timeSlotRef = doc(db, "doctorTimeSlots", timeSlotId);
-    const timeSlotDoc = await transaction.get(timeSlotRef);
-
-    if(timeSlotDoc.exists() && timeSlotDoc.data()?.status !== 'AVAILABLE'){
-        throw new Error("Esta disponibilidade não está mais livre. A vaga pode ter sido preenchida.");
-    }
-
-    transaction.update(contractRef, {
-      status: 'PENDING_HOSPITAL_SIGNATURE',
-      doctorSignature: { signedAt: serverTimestamp() },
-      updatedAt: serverTimestamp()
-    });
-
-    transaction.update(timeSlotRef, {
-        status: 'BOOKED',
-        relatedContractId: contractId,
-        updatedAt: serverTimestamp()
-    });
-  });
+  if (!currentUser) { return []; }
+  if (!statuses || statuses.length === 0) { return []; }
+  try {
+    const contractsRef = collection(db, "contracts");
+    const q = query(contractsRef, where("hospitalId", "==", currentUser.uid), where("status", "in", statuses), orderBy("createdAt", "desc"));
+    const querySnapshot = await getDocs(q);
+    return querySnapshot.docs.map((docSnap) => ({ id: docSnap.id, ...docSnap.data() } as Contract));
+  } catch (error) {
+    console.error("[getContractsForHospital] Erro:", error);
+    throw new Error("Falha ao carregar os contratos do hospital.");
+  }
 };
 
 export const getPendingSignatureContractsForHospital = async (): Promise<Contract[]> => {
@@ -107,44 +85,43 @@ export const getPendingSignatureContractsForHospital = async (): Promise<Contrac
   }
 };
 
-/**
- * ## LÓGICA CORRIGIDA ##
- * Realiza a assinatura final do CONTRATO pelo hospital.
- */
+export const signContractByDoctor = async (contractId: string): Promise<void> => {
+  const currentUser = auth.currentUser;
+  if (!currentUser) throw new Error("Usuário não autenticado.");
+  const contractRef = doc(db, "contracts", contractId);
+  await runTransaction(db, async (transaction) => {
+    const contractDoc = await transaction.get(contractRef);
+    if (!contractDoc.exists() || contractDoc.data().status !== 'PENDING_DOCTOR_SIGNATURE') {
+        throw new Error("Este contrato não está mais disponível para assinatura.");
+    }
+    const contractData = contractDoc.data() as Contract;
+    const timeSlotId = contractData.timeSlotId;
+    if (!timeSlotId) throw new Error("ID da disponibilidade original não encontrado no contrato.");
+    const timeSlotRef = doc(db, "doctorTimeSlots", timeSlotId);
+    const timeSlotDoc = await transaction.get(timeSlotRef);
+    if(timeSlotDoc.exists() && timeSlotDoc.data()?.status !== 'AVAILABLE'){
+        throw new Error("Esta disponibilidade não está mais livre. A vaga pode ter sido preenchida.");
+    }
+    transaction.update(contractRef, { status: 'PENDING_HOSPITAL_SIGNATURE', doctorSignature: { signedAt: serverTimestamp() }, updatedAt: serverTimestamp() });
+    transaction.update(timeSlotRef, { status: 'BOOKED', relatedContractId: contractId, updatedAt: serverTimestamp() });
+  });
+};
+
 export const signContractByHospital = async (contractId: string): Promise<void> => {
     const hospitalUser = auth.currentUser;
     if (!hospitalUser) throw new Error("Hospital não autenticado.");
-
     await runTransaction(db, async (transaction) => {
         const contractRef = doc(db, "contracts", contractId);
-        const contractDoc = await transaction.get(contractRef); // LEITURA 1
-
+        const contractDoc = await transaction.get(contractRef);
         if (!contractDoc.exists() || contractDoc.data().status !== 'PENDING_HOSPITAL_SIGNATURE') { 
             throw new Error("Este contrato não está mais aguardando sua assinatura."); 
         }
-        
         const contractData = contractDoc.data() as Contract;
         const shiftRequirementRef = doc(db, "shiftRequirements", contractData.shiftRequirementId);
         const doctorRef = doc(db, "users", contractData.doctorId);
-        
-        // MUDANÇA: Todas as leituras (GET) são feitas ANTES de qualquer escrita (UPDATE/SET)
-        const doctorDoc = await transaction.get(doctorRef); // LEITURA 2
-        
-        // Agora começam as escritas...
-        transaction.update(contractRef, { 
-            status: 'ACTIVE_SIGNED', 
-            hospitalSignature: {
-                signedAt: serverTimestamp(),
-                signedByUID: hospitalUser.uid
-            },
-            updatedAt: serverTimestamp() 
-        });
-
-        transaction.update(shiftRequirementRef, { 
-            status: 'CONFIRMED', 
-            updatedAt: serverTimestamp() 
-        });
-        
+        const doctorDoc = await transaction.get(doctorRef);
+        transaction.update(contractRef, { status: 'ACTIVE_SIGNED', hospitalSignature: { signedAt: serverTimestamp(), signedByUID: hospitalUser.uid }, updatedAt: serverTimestamp() });
+        transaction.update(shiftRequirementRef, { status: 'CONFIRMED', updatedAt: serverTimestamp() });
         if (doctorDoc.exists()) {
             const doctorData = doctorDoc.data() as DoctorProfile;
             const hospitalDoctorRef = doc(collection(db, 'users', hospitalUser.uid, 'hospitalDoctors'), contractData.doctorId);
