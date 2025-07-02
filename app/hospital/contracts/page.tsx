@@ -13,7 +13,6 @@ import { getContractsForHospital, signContractByHospital, type Contract } from '
 import { formatCurrency } from '@/lib/utils';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 
-
 const LoadingState = React.memo(({ message = "Carregando..." }: { message?: string }) => ( <div className="flex flex-col items-center justify-center py-10 min-h-[150px] w-full"><Loader2 className="h-8 w-8 animate-spin text-blue-600" /><p className="mt-3 text-sm text-gray-600">{message}</p></div> ));
 const EmptyState = React.memo(({ message }: { message: string; }) => ( <div className="text-center text-sm text-gray-500 py-10 min-h-[150px] flex flex-col items-center justify-center bg-gray-50/70 rounded-md border border-dashed"><ClipboardList className="w-12 h-12 text-gray-400 mb-4"/><p className="font-medium text-gray-600 mb-1">{message}</p></div> ));
 const ErrorState = React.memo(({ message, onRetry }: { message: string; onRetry?: () => void }) => ( <div className="flex flex-col items-center justify-center py-10 min-h-[150px] w-full text-center text-sm text-red-600 bg-red-50/70 rounded-md border border-dashed border-red-300"><AlertTriangle className="w-12 h-12 text-red-400 mb-4"/><p className="text-base font-semibold text-red-700 mb-1">Oops!</p><p>{message || "Não foi possível carregar."}</p>{onRetry && <Button variant="destructive" size="sm" onClick={onRetry} className="mt-4"><RotateCcw className="mr-2 h-4 w-4" />Tentar Novamente</Button>}</div> ));
@@ -64,13 +63,13 @@ const ContractItem: React.FC<{ contract: Contract, onAction: () => void }> = ({ 
                           <AlertDialogHeader>
                               <AlertDialogTitle>Revisão e Assinatura do Contrato</AlertDialogTitle>
                               <AlertDialogDescription>
-                                  Reveja o documento oficial do contrato gerado. A sua assinatura será registada ao clicar em "Confirmar Assinatura".
+                                  Reveja o documento oficial do contrato. A sua assinatura será registada ao clicar em "Confirmar Assinatura".
                               </AlertDialogDescription>
                           </AlertDialogHeader>
-                          <div className="flex-grow my-4 border rounded-md overflow-hidden">
+                          <div className="flex-grow my-4 border rounded-md overflow-hidden bg-gray-200">
                               {contract.contractPdfUrl ? 
                                 <iframe src={contract.contractPdfUrl} className="w-full h-full" title="Contrato PDF"/> : 
-                                <ErrorState message="URL do documento não encontrada. O médico pode precisar de gerar o documento primeiro."/>
+                                <ErrorState message="URL do documento não encontrada. O médico gerou o documento?"/>
                               }
                           </div>
                           <AlertDialogFooter>

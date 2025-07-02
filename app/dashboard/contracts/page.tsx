@@ -14,7 +14,6 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { Badge, type BadgeProps } from "@/components/ui/badge";
 import { ClipboardList, RotateCcw } from "lucide-react";
 
-// Componentes de Estado (Loading, Empty, Error)
 const LoadingState = React.memo(({ message = "Carregando..." }: { message?: string }) => ( <div className="flex flex-col justify-center items-center text-center py-10 min-h-[150px] w-full"><Loader2 className="h-8 w-8 animate-spin text-blue-600" /><span className="text-sm text-gray-600 mt-2">{message}</span></div> ));
 const EmptyState = React.memo(({ message }: { message: string }) => ( <div className="text-center text-sm text-gray-500 py-10 min-h-[150px] flex flex-col items-center justify-center bg-gray-50/70 rounded-md border border-dashed border-gray-300 w-full"><ClipboardList className="w-12 h-12 text-gray-400 mb-4"/><p className="font-medium text-gray-600 mb-1">{message}</p></div> ));
 const ErrorState = React.memo(({ message, onRetry }: { message: string; onRetry?: () => void }) => ( <div className="text-center text-sm text-red-600 py-10 min-h-[150px] flex flex-col items-center justify-center bg-red-50/70 rounded-md border border-dashed border-red-300 w-full"><AlertTriangle className="w-12 h-12 text-red-400 mb-4"/><p className="font-semibold text-red-700 mb-1 text-base">Oops!</p><p className="max-w-md text-red-600">{message || "Não foi possível carregar."}</p>{onRetry && ( <Button variant="destructive" size="sm" onClick={onRetry} className="mt-4"><RotateCcw className="mr-2 h-4 w-4" /> Tentar Novamente</Button> )}</div> ));
@@ -25,8 +24,8 @@ const ContractListItem: React.FC<{ contract: Contract; onSign: (contractId: stri
   const [pdfUrl, setPdfUrl] = useState(contract.contractPdfUrl || '');
   const { toast } = useToast();
 
-  const handleGeneratePdf = async () => {
-    if (pdfUrl) return; // Não gera se já existir um link
+  const handleTriggerClick = async () => {
+    if (pdfUrl) return; 
     setIsGenerating(true);
     try {
       toast({ title: "A gerar documento...", description: "Por favor, aguarde um momento." });
@@ -39,7 +38,7 @@ const ContractListItem: React.FC<{ contract: Contract; onSign: (contractId: stri
     }
   };
   
-  const handleSign = async () => {
+  const handleConfirmSignature = async () => {
     setIsSigning(true);
     try {
       await onSign(contract.id);
@@ -79,7 +78,7 @@ const ContractListItem: React.FC<{ contract: Contract; onSign: (contractId: stri
         {contract.status === 'PENDING_DOCTOR_SIGNATURE' && (
             <AlertDialog>
                 <AlertDialogTrigger asChild>
-                    <Button size="sm" className="bg-green-600 hover:bg-green-700" onClick={handleGeneratePdf} disabled={isGenerating}>
+                    <Button size="sm" className="bg-green-600 hover:bg-green-700" onClick={handleTriggerClick} disabled={isGenerating}>
                         {isGenerating ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <Edit className="mr-2 h-4 w-4" />} 
                         Rever e Assinar
                     </Button>
@@ -91,14 +90,14 @@ const ContractListItem: React.FC<{ contract: Contract; onSign: (contractId: stri
                             Reveja o documento abaixo. A sua assinatura digital será registada ao clicar em "Confirmar Assinatura".
                         </AlertDialogDescription>
                     </AlertDialogHeader>
-                    <div className="flex-grow my-4 border rounded-md overflow-hidden">
+                    <div className="flex-grow my-4 border rounded-md overflow-hidden bg-gray-200">
                         {isGenerating ? <LoadingState message="A gerar documento..."/> : 
-                         pdfUrl ? <iframe src={pdfUrl} className="w-full h-full" title="Contrato PDF"/> : <ErrorState message="Não foi possível carregar o documento." onRetry={handleGeneratePdf}/>
+                         pdfUrl ? <iframe src={pdfUrl} className="w-full h-full" title="Contrato PDF"/> : <ErrorState message="Não foi possível carregar o documento." onRetry={handleTriggerClick}/>
                         }
                     </div>
                     <AlertDialogFooter>
                         <AlertDialogCancel disabled={isSigning}>Voltar</AlertDialogCancel>
-                        <AlertDialogAction onClick={handleSign} disabled={isSigning || isGenerating || !pdfUrl} className="bg-green-600 hover:bg-green-700">
+                        <AlertDialogAction onClick={handleConfirmSignature} disabled={isSigning || isGenerating || !pdfUrl} className="bg-green-600 hover:bg-green-700">
                             {isSigning ? <Loader2 className="h-4 w-4 animate-spin" /> : "Confirmar Assinatura"}
                         </AlertDialogAction>
                     </AlertDialogFooter>
