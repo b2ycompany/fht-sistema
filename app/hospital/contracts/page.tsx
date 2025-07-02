@@ -11,7 +11,7 @@ import { useToast } from "@/hooks/use-toast";
 import { Loader2, ClipboardList, AlertTriangle, FileSignature, UserCheck, CalendarDays, Clock, DollarSign, Briefcase, RotateCcw, Edit } from 'lucide-react';
 import { getContractsForHospital, signContractByHospital, type Contract } from '@/lib/contract-service';
 import { formatCurrency } from '@/lib/utils';
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 
 const LoadingState = React.memo(({ message = "Carregando..." }: { message?: string }) => ( <div className="flex flex-col items-center justify-center py-10 min-h-[150px] w-full"><Loader2 className="h-8 w-8 animate-spin text-blue-600" /><p className="mt-3 text-sm text-gray-600">{message}</p></div> ));
 const EmptyState = React.memo(({ message }: { message: string; }) => ( <div className="text-center text-sm text-gray-500 py-10 min-h-[150px] flex flex-col items-center justify-center bg-gray-50/70 rounded-md border border-dashed"><ClipboardList className="w-12 h-12 text-gray-400 mb-4"/><p className="font-medium text-gray-600 mb-1">{message}</p></div> ));
@@ -56,11 +56,9 @@ const ContractItem: React.FC<{ contract: Contract, onAction: () => void }> = ({ 
             {contract.status === 'PENDING_HOSPITAL_SIGNATURE' && (
               <CardFooter className="flex justify-end bg-gray-50 p-3">
                   <AlertDialog open={isModalOpen} onOpenChange={setIsModalOpen}>
-                      <AlertDialogTrigger asChild>
-                          <Button size="sm" className="bg-indigo-600 hover:bg-indigo-700">
-                              <Edit className="mr-2 h-4 w-4" /> Rever e Assinar Contrato
-                          </Button>
-                      </AlertDialogTrigger>
+                      <Button size="sm" className="bg-indigo-600 hover:bg-indigo-700" onClick={() => setIsModalOpen(true)}>
+                          <Edit className="mr-2 h-4 w-4" /> Rever e Assinar Contrato
+                      </Button>
                       <AlertDialogContent className="max-w-4xl h-[90vh] flex flex-col">
                           <AlertDialogHeader>
                               <AlertDialogTitle>Revisão e Assinatura do Contrato</AlertDialogTitle>
