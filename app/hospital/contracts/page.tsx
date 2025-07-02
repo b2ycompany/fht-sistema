@@ -19,6 +19,7 @@ const ErrorState = React.memo(({ message, onRetry }: { message: string; onRetry?
 
 const ContractItem: React.FC<{ contract: Contract, onAction: () => void }> = ({ contract, onAction }) => {
     const [isSigning, setIsSigning] = useState(false);
+    const [isModalOpen, setIsModalOpen] = useState(false);
     const { toast } = useToast();
 
     const handleConfirmSignature = async () => {
@@ -26,6 +27,7 @@ const ContractItem: React.FC<{ contract: Contract, onAction: () => void }> = ({ 
         try {
             await signContractByHospital(contract.id);
             toast({ title: "Contrato Assinado!", description: `O(A) Dr(a). ${contract.doctorName} foi adicionado(a) à sua equipe.`});
+            setIsModalOpen(false);
             onAction();
         } catch (error: any) {
             toast({ title: "Erro ao assinar", description: error.message, variant: "destructive" });
@@ -53,7 +55,7 @@ const ContractItem: React.FC<{ contract: Contract, onAction: () => void }> = ({ 
             </CardContent>
             {contract.status === 'PENDING_HOSPITAL_SIGNATURE' && (
               <CardFooter className="flex justify-end bg-gray-50 p-3">
-                  <AlertDialog>
+                  <AlertDialog open={isModalOpen} onOpenChange={setIsModalOpen}>
                       <AlertDialogTrigger asChild>
                           <Button size="sm" className="bg-indigo-600 hover:bg-indigo-700">
                               <Edit className="mr-2 h-4 w-4" /> Rever e Assinar Contrato
