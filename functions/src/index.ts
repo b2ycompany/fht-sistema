@@ -79,18 +79,28 @@ interface PotentialMatchInput {
 setGlobalOptions({ region: "southamerica-east1", memory: "256MiB" });
 
 const timeToMinutes = (timeStr: string): number => {
-  if (!timeStr || !timeStr.includes(":")) { return 0; }
+  if (!timeStr || !timeStr.includes(":")) {
+    return 0;
+  }
   const [hours, minutes] = timeStr.split(":").map(Number);
   return hours * 60 + minutes;
 };
 
-const doIntervalsOverlap = (startA: number, endA: number, isOvernightA: boolean, startB: number, endB: number, isOvernightB: boolean): boolean => {
+const doIntervalsOverlap = (
+  startA: number,
+  endA: number,
+  isOvernightA: boolean,
+  startB: number,
+  endB: number,
+  isOvernightB: boolean
+): boolean => {
   const effectiveEndA = isOvernightA && endA <= startA ? endA + 1440 : endA;
   const effectiveEndB = isOvernightB && endB <= startB ? endB + 1440 : endB;
   return startA < effectiveEndB && startB < effectiveEndA;
 };
 
-export const findMatchesOnShiftRequirementWrite = onDocumentWritten({ document: "shiftRequirements/{requirementId}" }, async (event: FirestoreEvent<Change<DocumentSnapshot> | undefined, { requirementId: string }>): Promise<void> => {
+export const findMatchesOnShiftRequirementWrite = onDocumentWritten({ document: "shiftRequirements/{requirementId}" },
+  async (event: FirestoreEvent<Change<DocumentSnapshot> | undefined, { requirementId: string }>): Promise<void> => {
     const change = event.data;
     if (!change) return;
     const dataAfter = change.after.data() as ShiftRequirementData | undefined;
@@ -189,11 +199,7 @@ async function deleteQueryBatch(query: Query, context: string) {
     logger.info(`Batch delete concluído para: ${context}. ${snapshot.size} documentos removidos.`);
 }
 
-export const generateContractPdf = onCall(
-  {
-    cors: [/fhtgestao\.com\.br$/, "https://fht-sistema.web.app"],
-  },
-  async (request: CallableRequest) => {
+export const generateContractPdf = onCall({ cors: [/fhtgestao\.com\.br$/, "https://fht-sistema.web.app"] }, async (request: CallableRequest) => {
     if (!request.auth) {
         throw new HttpsError("unauthenticated", "A função só pode ser chamada por um usuário autenticado.");
     }
@@ -233,27 +239,26 @@ export const generateContractPdf = onCall(
         drawText("CONTRATO DE PRESTAÇÃO DE SERVIÇOS MÉDICOS AUTÔNOMOS", 16, 50);
         y -= 20;
 
-        drawText(`CONTRATANTE: ${contractData.hospitalName || 'Nome não disponível'}`, 12);
-        drawText(`CNPJ: ${hospitalData?.companyInfo?.cnpj || 'Não informado'}`, 12);
+        drawText(`CONTRATANTE: ${contractData.hospitalName ?? 'Nome não disponível'}`, 12);
+        drawText(`CNPJ: ${hospitalData?.companyInfo?.cnpj ?? 'Não informado'}`, 12);
         y -= 10;
         
-        drawText(`CONTRATADO(A): Dr(a). ${contractData.doctorName || 'Nome não disponível'}`, 12);
-        drawText(`CRM: ${doctorData?.professionalCrm || 'Não informado'}`, 12);
+        drawText(`CONTRATADO(A): Dr(a). ${contractData.doctorName ?? 'Nome não disponível'}`, 12);
+        drawText(`CRM: ${doctorData?.professionalCrm ?? 'Não informado'}`, 12);
         y -= 20;
 
         drawText("CLÁUSULA 1ª - DO OBJETO", 12, 50);
-        const shiftDate = contractData.shiftDates[0].toDate().toLocaleDateString('pt-BR');
+        const shiftDate = contractData.shiftDates?.[0]?.toDate()?.toLocaleDateString('pt-BR') ?? 'Data não informada';
         drawText(`O objeto do presente contrato é a prestação de serviços médicos pelo(a) CONTRATADO(A) ao CONTRATANTE,`, 11, 50);
-        drawText(`na especialidade de ${contractData.specialties.join(', ')}, a ser realizado no dia ${shiftDate}`, 11, 50);
-        drawText(`das ${contractData.startTime} às ${contractData.endTime}.`, 11, 50);
+        drawText(`na especialidade de ${(contractData.specialties ?? []).join(', ')}, a ser realizado no dia ${shiftDate}`, 11, 50);
+        drawText(`das ${contractData.startTime ?? ''} às ${contractData.endTime ?? ''}.`, 11, 50);
         y -= 20;
         
         drawText("CLÁUSULA 2ª - DA REMUNERAÇÃO", 12, 50);
-        drawText(`Pelos serviços prestados, o CONTRATANTE pagará ao CONTRATADO(A) o valor de R$ ${contractData.doctorRate.toFixed(2)} por hora.`, 11, 50);
+        drawText(`Pelos serviços prestados, o CONTRATANTE pagará ao CONTRATADO(A) o valor de R$ ${(contractData.doctorRate ?? 0).toFixed(2)} por hora.`, 11, 50);
         y -= 20;
 
         const pdfBytes = await pdfDoc.save();
-
         const bucket = storage.bucket();
         const filePath = `contracts/${contractId}.pdf`;
         const file = bucket.file(filePath);
