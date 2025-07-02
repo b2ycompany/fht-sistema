@@ -8,21 +8,22 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, ClipboardList, AlertTriangle, FileSignature, UserCheck, CalendarDays, Clock, DollarSign, Briefcase, RotateCcw } from 'lucide-react';
+import { Loader2, ClipboardList, AlertTriangle, FileSignature, UserCheck, CalendarDays, Clock, DollarSign, Briefcase, RotateCcw, Edit } from 'lucide-react';
 import { getContractsForHospital, signContractByHospital, type Contract } from '@/lib/contract-service';
 import { formatCurrency } from '@/lib/utils';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 
-// MUDANÇA: Componentes de estado definidos localmente para corrigir o erro de importação.
+
 const LoadingState = React.memo(({ message = "Carregando..." }: { message?: string }) => ( <div className="flex flex-col items-center justify-center py-10 min-h-[150px] w-full"><Loader2 className="h-8 w-8 animate-spin text-blue-600" /><p className="mt-3 text-sm text-gray-600">{message}</p></div> ));
 const EmptyState = React.memo(({ message }: { message: string; }) => ( <div className="text-center text-sm text-gray-500 py-10 min-h-[150px] flex flex-col items-center justify-center bg-gray-50/70 rounded-md border border-dashed"><ClipboardList className="w-12 h-12 text-gray-400 mb-4"/><p className="font-medium text-gray-600 mb-1">{message}</p></div> ));
 const ErrorState = React.memo(({ message, onRetry }: { message: string; onRetry?: () => void }) => ( <div className="flex flex-col items-center justify-center py-10 min-h-[150px] w-full text-center text-sm text-red-600 bg-red-50/70 rounded-md border border-dashed border-red-300"><AlertTriangle className="w-12 h-12 text-red-400 mb-4"/><p className="text-base font-semibold text-red-700 mb-1">Oops!</p><p>{message || "Não foi possível carregar."}</p>{onRetry && <Button variant="destructive" size="sm" onClick={onRetry} className="mt-4"><RotateCcw className="mr-2 h-4 w-4" />Tentar Novamente</Button>}</div> ));
 
-const ContractItem: React.FC<{ contract: Contract, onAction: () => void, actionLabel: string }> = ({ contract, onAction, actionLabel }) => {
-    const [isProcessing, setIsProcessing] = useState(false);
+const ContractItem: React.FC<{ contract: Contract, onAction: () => void }> = ({ contract, onAction }) => {
+    const [isSigning, setIsSigning] = useState(false);
     const { toast } = useToast();
 
     const handleSign = async () => {
-        setIsProcessing(true);
+        setIsSigning(true);
         try {
             await signContractByHospital(contract.id);
             toast({ title: "Contrato Assinado!", description: `O(A) Dr(a). ${contract.doctorName} foi adicionado(a) à sua equipe.`});
@@ -30,7 +31,7 @@ const ContractItem: React.FC<{ contract: Contract, onAction: () => void, actionL
         } catch (error: any) {
             toast({ title: "Erro ao assinar", description: error.message, variant: "destructive" });
         } finally {
-            setIsProcessing(false);
+            setIsSigning(false);
         }
     };
 
@@ -53,10 +54,33 @@ const ContractItem: React.FC<{ contract: Contract, onAction: () => void, actionL
             </CardContent>
             {contract.status === 'PENDING_HOSPITAL_SIGNATURE' && (
               <CardFooter className="flex justify-end bg-gray-50 p-3">
-                  <Button onClick={handleSign} disabled={isProcessing} className="bg-indigo-600 hover:bg-indigo-700">
-                      {isProcessing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FileSignature className="mr-2 h-4 w-4" />}
-                      {actionLabel}
-                  </Button>
+                  <AlertDialog>
+                      <AlertDialogTrigger asChild>
+                          <Button size="sm" className="bg-indigo-600 hover:bg-indigo-700">
+                              <Edit className="mr-2 h-4 w-4" /> Rever e Assinar Contrato
+                          </Button>
+                      </AlertDialogTrigger>
+                      <AlertDialogContent className="max-w-4xl h-[90vh] flex flex-col">
+                          <AlertDialogHeader>
+                              <AlertDialogTitle>Revisão e Assinatura do Contrato</AlertDialogTitle>
+                              <AlertDialogDescription>
+                                  Reveja o documento oficial do contrato gerado. A sua assinatura será registada ao clicar em "Confirmar Assinatura".
+                              </AlertDialogDescription>
+                          </AlertDialogHeader>
+                          <div className="flex-grow my-4 border rounded-md overflow-hidden">
+                              {contract.contractPdfUrl ? 
+                                <iframe src={contract.contractPdfUrl} className="w-full h-full" title="Contrato PDF"/> : 
+                                <ErrorState message="URL do documento não encontrada. O médico pode precisar de gerar o documento primeiro."/>
+                              }
+                          </div>
+                          <AlertDialogFooter>
+                              <AlertDialogCancel disabled={isSigning}>Voltar</AlertDialogCancel>
+                              <AlertDialogAction onClick={handleSign} disabled={isSigning || !contract.contractPdfUrl} className="bg-indigo-600 hover:bg-indigo-700">
+                                  {isSigning ? <Loader2 className="h-4 w-4 animate-spin" /> : "Confirmar Assinatura"}
+                              </AlertDialogAction>
+                          </AlertDialogFooter>
+                      </AlertDialogContent>
+                  </AlertDialog>
               </CardFooter>
             )}
         </Card>
@@ -98,7 +122,7 @@ export default function HospitalContractsPage() {
         
         return (
             <div className="space-y-4">
-                {contracts.map(c => <ContractItem key={c.id} contract={c} onAction={fetchAllContracts} actionLabel="Visualizar e Assinar"/>)}
+                {contracts.map(c => <ContractItem key={c.id} contract={c} onAction={fetchAllContracts}/>)}
             </div>
         );
     };

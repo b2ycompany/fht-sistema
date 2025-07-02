@@ -1,3 +1,4 @@
+// app/dashboard/contracts/page.tsx
 "use client";
 
 import React, { useState, useEffect, useCallback } from "react";
@@ -6,39 +7,48 @@ import { Card, CardContent, CardDescription, CardHeader, CardFooter, CardTitle }
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 import { Timestamp } from "firebase/firestore";
-import { Edit, AlertTriangle, Loader2, CalendarDays, Clock, MapPinIcon, DollarSign, ChevronDown, ChevronUp } from "lucide-react";
+import { Edit, AlertTriangle, Loader2, CalendarDays, Clock, MapPinIcon, DollarSign } from "lucide-react";
 import { getContractsForDoctor, signContractByDoctor, generateContractAndGetUrl, type Contract } from "@/lib/contract-service";
 import { cn, formatCurrency } from "@/lib/utils";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Badge, type BadgeProps } from "@/components/ui/badge";
 import { ClipboardList, RotateCcw } from "lucide-react";
 
+// Componentes de Estado (Loading, Empty, Error)
 const LoadingState = React.memo(({ message = "Carregando..." }: { message?: string }) => ( <div className="flex flex-col justify-center items-center text-center py-10 min-h-[150px] w-full"><Loader2 className="h-8 w-8 animate-spin text-blue-600" /><span className="text-sm text-gray-600 mt-2">{message}</span></div> ));
 const EmptyState = React.memo(({ message }: { message: string }) => ( <div className="text-center text-sm text-gray-500 py-10 min-h-[150px] flex flex-col items-center justify-center bg-gray-50/70 rounded-md border border-dashed border-gray-300 w-full"><ClipboardList className="w-12 h-12 text-gray-400 mb-4"/><p className="font-medium text-gray-600 mb-1">{message}</p></div> ));
 const ErrorState = React.memo(({ message, onRetry }: { message: string; onRetry?: () => void }) => ( <div className="text-center text-sm text-red-600 py-10 min-h-[150px] flex flex-col items-center justify-center bg-red-50/70 rounded-md border border-dashed border-red-300 w-full"><AlertTriangle className="w-12 h-12 text-red-400 mb-4"/><p className="font-semibold text-red-700 mb-1 text-base">Oops!</p><p className="max-w-md text-red-600">{message || "Não foi possível carregar."}</p>{onRetry && ( <Button variant="destructive" size="sm" onClick={onRetry} className="mt-4"><RotateCcw className="mr-2 h-4 w-4" /> Tentar Novamente</Button> )}</div> ));
 
 const ContractListItem: React.FC<{ contract: Contract; onSign: (contractId: string) => Promise<void>; }> = ({ contract, onSign }) => {
+  const [isGenerating, setIsGenerating] = useState(false);
   const [isSigning, setIsSigning] = useState(false);
+  const [pdfUrl, setPdfUrl] = useState(contract.contractPdfUrl || '');
   const { toast } = useToast();
-  const displayShiftDates = Array.isArray(contract.shiftDates) ? contract.shiftDates.map((ts: Timestamp) => ts.toDate().toLocaleDateString('pt-BR', {day: '2-digit', month: 'short'})).join(', ') : "Datas não disponíveis";
+
+  const handleGeneratePdf = async () => {
+    if (pdfUrl) return; // Não gera se já existir um link
+    setIsGenerating(true);
+    try {
+      toast({ title: "A gerar documento...", description: "Por favor, aguarde um momento." });
+      const url = await generateContractAndGetUrl(contract.id);
+      setPdfUrl(url);
+    } catch (error: any) {
+      toast({ title: "Erro ao Gerar Contrato", description: error.message, variant: "destructive" });
+    } finally {
+      setIsGenerating(false);
+    }
+  };
   
-  const handleGenerateAndSign = async () => {
+  const handleSign = async () => {
     setIsSigning(true);
     try {
-        let pdfUrl = contract.contractPdfUrl;
-        if (!pdfUrl) {
-            toast({ title: "A gerar documento...", description: "Por favor, aguarde um momento." });
-            pdfUrl = await generateContractAndGetUrl(contract.id);
-        }
-        window.open(pdfUrl, '_blank');
-        await onSign(contract.id);
-    } catch (error: any) {
-         toast({ title: "Erro ao Gerar Contrato", description: error.message, variant: "destructive" });
+      await onSign(contract.id);
     } finally {
-        setIsSigning(false);
+      setIsSigning(false);
     }
   };
 
+  const displayShiftDates = Array.isArray(contract.shiftDates) ? contract.shiftDates.map((ts: Timestamp) => ts.toDate().toLocaleDateString('pt-BR', {day: '2-digit', month: 'short'})).join(', ') : "Datas não disponíveis";
   const getStatusBadgeStyle = (status?: Contract['status']): { variant: BadgeProps["variant"], className: string } => { 
       switch(status) { 
           case 'PENDING_DOCTOR_SIGNATURE': return { variant: 'secondary', className: 'bg-amber-100 text-amber-800 border-amber-300' }; 
@@ -50,7 +60,7 @@ const ContractListItem: React.FC<{ contract: Contract; onSign: (contractId: stri
   const statusBadgeInfo = getStatusBadgeStyle(contract.status);
 
   return (
-    <Card className="shadow-sm hover:shadow-lg transition-shadow">
+    <Card className="shadow-sm hover:shadow-md transition-shadow duration-300 ease-in-out">
       <CardHeader className="pb-3">
         <div className="flex justify-between items-start">
             <div>
@@ -69,27 +79,27 @@ const ContractListItem: React.FC<{ contract: Contract; onSign: (contractId: stri
         {contract.status === 'PENDING_DOCTOR_SIGNATURE' && (
             <AlertDialog>
                 <AlertDialogTrigger asChild>
-                    <Button size="sm" className="bg-green-600 hover:bg-green-700">
-                        <Edit className="mr-2 h-4 w-4" /> Rever e Assinar
+                    <Button size="sm" className="bg-green-600 hover:bg-green-700" onClick={handleGeneratePdf} disabled={isGenerating}>
+                        {isGenerating ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <Edit className="mr-2 h-4 w-4" />} 
+                        Rever e Assinar
                     </Button>
                 </AlertDialogTrigger>
-                <AlertDialogContent>
+                <AlertDialogContent className="max-w-4xl h-[90vh] flex flex-col">
                     <AlertDialogHeader>
-                        <AlertDialogTitle>Revisão Final do Contrato</AlertDialogTitle>
+                        <AlertDialogTitle>Revisão e Assinatura do Contrato</AlertDialogTitle>
                         <AlertDialogDescription>
-                            Ao confirmar, o documento oficial do contrato será gerado e aberto numa nova aba para a sua revisão. Após rever, o seu aceite será registado.
+                            Reveja o documento abaixo. A sua assinatura digital será registada ao clicar em "Confirmar Assinatura".
                         </AlertDialogDescription>
                     </AlertDialogHeader>
-                    <div className="text-sm space-y-2 my-4 p-4 bg-gray-50 rounded-md border">
-                        <p><strong>Hospital:</strong> {contract.hospitalName}</p>
-                        <p><strong>Data(s):</strong> {displayShiftDates}</p>
-                        <p><strong>Horário:</strong> {contract.startTime} - {contract.endTime}</p>
-                        <p><strong>Seu Valor:</strong> <span className="font-bold text-green-700 text-base">{formatCurrency(contract.doctorRate)}/h</span></p>
+                    <div className="flex-grow my-4 border rounded-md overflow-hidden">
+                        {isGenerating ? <LoadingState message="A gerar documento..."/> : 
+                         pdfUrl ? <iframe src={pdfUrl} className="w-full h-full" title="Contrato PDF"/> : <ErrorState message="Não foi possível carregar o documento." onRetry={handleGeneratePdf}/>
+                        }
                     </div>
                     <AlertDialogFooter>
                         <AlertDialogCancel disabled={isSigning}>Voltar</AlertDialogCancel>
-                        <AlertDialogAction onClick={handleGenerateAndSign} disabled={isSigning} className="bg-green-600 hover:bg-green-700">
-                            {isSigning ? <Loader2 className="h-4 w-4 animate-spin" /> : "Gerar Contrato e Assinar"}
+                        <AlertDialogAction onClick={handleSign} disabled={isSigning || isGenerating || !pdfUrl} className="bg-green-600 hover:bg-green-700">
+                            {isSigning ? <Loader2 className="h-4 w-4 animate-spin" /> : "Confirmar Assinatura"}
                         </AlertDialogAction>
                     </AlertDialogFooter>
                 </AlertDialogContent>
@@ -135,7 +145,7 @@ export default function DoctorContractsPage() {
   const handleSignContract = async (contractId: string) => {
     try {
       await signContractByDoctor(contractId);
-      toast({ title: "Contrato Assinado!", description: "O documento foi aberto numa nova aba e o contrato foi enviado ao hospital para assinatura final." });
+      toast({ title: "Contrato Assinado!", description: "Enviado ao hospital para assinatura final." });
       fetchAllContracts();
       setActiveTab('pending_hospital');
     } catch (err: any) {
