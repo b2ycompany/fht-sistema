@@ -21,7 +21,7 @@ const ContractItem: React.FC<{ contract: Contract, onAction: () => void }> = ({ 
     const [isSigning, setIsSigning] = useState(false);
     const { toast } = useToast();
 
-    const handleSign = async () => {
+    const handleConfirmSignature = async () => {
         setIsSigning(true);
         try {
             await signContractByHospital(contract.id);
@@ -69,12 +69,12 @@ const ContractItem: React.FC<{ contract: Contract, onAction: () => void }> = ({ 
                           <div className="flex-grow my-4 border rounded-md overflow-hidden bg-gray-200">
                               {contract.contractPdfUrl ? 
                                 <iframe src={contract.contractPdfUrl} className="w-full h-full" title="Contrato PDF"/> : 
-                                <ErrorState message="URL do documento não encontrada. O médico gerou o documento?"/>
+                                <ErrorState message="URL do documento não encontrada. O médico pode precisar de gerar o documento primeiro."/>
                               }
                           </div>
                           <AlertDialogFooter>
                               <AlertDialogCancel disabled={isSigning}>Voltar</AlertDialogCancel>
-                              <AlertDialogAction onClick={handleSign} disabled={isSigning || !contract.contractPdfUrl} className="bg-indigo-600 hover:bg-indigo-700">
+                              <AlertDialogAction onClick={handleConfirmSignature} disabled={isSigning || !contract.contractPdfUrl} className="bg-indigo-600 hover:bg-indigo-700">
                                   {isSigning ? <Loader2 className="h-4 w-4 animate-spin" /> : "Confirmar Assinatura"}
                               </AlertDialogAction>
                           </AlertDialogFooter>
