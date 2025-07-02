@@ -1,7 +1,9 @@
+// lib/contract-service.ts
 "use strict";
 
 import { doc, collection, query, where, getDocs, updateDoc, serverTimestamp, Timestamp, orderBy, runTransaction } from "firebase/firestore";
 import { getFunctions, httpsCallable } from "firebase/functions";
+import { getApp } from "firebase/app"; // MUDANÇA: Importar getApp
 import { db, auth } from "./firebase";
 import { type DoctorProfile } from "./auth-service";
 
@@ -36,7 +38,9 @@ export interface Contract {
 }
 
 export const generateContractAndGetUrl = async (contractId: string): Promise<string> => {
-    const functions = getFunctions();
+    // MUDANÇA: Forçando a instância da função a usar a região correta
+    const app = getApp(); // Obtém a instância da app firebase já inicializada
+    const functions = getFunctions(app, 'southamerica-east1'); // Cria uma instância de functions apontada para o Brasil
     const generatePdf = httpsCallable(functions, 'generateContractPdf');
     
     try {
@@ -80,25 +84,6 @@ export const getContractsForHospital = async (statuses: Contract['status'][]): P
   } catch (error) {
     console.error("[getContractsForHospital] Erro:", error);
     throw new Error("Falha ao carregar os contratos do hospital.");
-  }
-};
-
-export const getPendingSignatureContractsForHospital = async (): Promise<Contract[]> => {
-  const hospitalId = auth.currentUser?.uid;
-  if (!hospitalId) return [];
-  const contractsRef = collection(db, "contracts");
-  const q = query(
-    contractsRef, 
-    where("hospitalId", "==", hospitalId), 
-    where("status", "==", "PENDING_HOSPITAL_SIGNATURE"), 
-    orderBy("updatedAt", "desc")
-  );
-  try {
-    const querySnapshot = await getDocs(q);
-    return querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Contract));
-  } catch (error) {
-    console.error("Erro ao buscar contratos pendentes para o hospital:", error);
-    throw new Error("Não foi possível carregar os contratos pendentes.");
   }
 };
 
