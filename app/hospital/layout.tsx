@@ -1,3 +1,4 @@
+// app/hospital/layout.tsx
 "use client";
 
 import type React from "react";
@@ -8,7 +9,7 @@ import { Building, ClipboardList, User, Briefcase, FileText, LogOut, Menu, X, Lo
 import { useToast } from "@/hooks/use-toast";
 import { useMobile } from "@/hooks/use-mobile";
 import { useAuth } from "@/components/auth-provider";
-import { logoutUser, getCurrentUserData, type HospitalProfile } from "@/lib/auth-service";
+import { logoutUser } from "@/lib/auth-service";
 import Image from "next/image";
 import Logo from "@/public/logo-fht.svg";
 import { cn } from "@/lib/utils";
@@ -19,30 +20,13 @@ export default function HospitalLayout({ children }: { children: React.ReactNode
   const router = useRouter();
   const { toast } = useToast();
   const isMobile = useMobile(768);
-  const { user, loading: authLoading } = useAuth();
-  const [profile, setProfile] = useState<HospitalProfile | null>(null);
-  const [isProfileLoading, setIsProfileLoading] = useState(true);
+  const { user, loading } = useAuth();
 
   useEffect(() => {
-    if (!authLoading) {
-      if (user) {
-        getCurrentUserData().then(userProfile => {
-          if (userProfile && userProfile.role === 'hospital') {
-            setProfile(userProfile as HospitalProfile);
-          } else {
-            router.push("/login");
-          }
-        }).catch(() => {
-          router.push("/login");
-        }).finally(() => {
-          setIsProfileLoading(false);
-        });
-      } else {
-        router.push("/login");
-        setIsProfileLoading(false);
-      }
+    if (!loading && !user) {
+      router.push("/login");
     }
-  }, [user, authLoading, router]);
+  }, [user, loading, router]);
 
   const handleLogout = async () => {
     try {
@@ -70,7 +54,7 @@ export default function HospitalLayout({ children }: { children: React.ReactNode
     { href: "/hospital/profile", label: "Perfil Empresa", icon: <Briefcase className="h-5 w-5" /> },
   ];
 
-  if (authLoading || isProfileLoading) {
+  if (loading) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-gray-50">
         <Loader2 className="animate-spin h-12 w-12 text-blue-600" />
@@ -78,7 +62,7 @@ export default function HospitalLayout({ children }: { children: React.ReactNode
     );
   }
 
-  if (!user || !profile) {
+  if (!user) {
     return null;
   }
 
