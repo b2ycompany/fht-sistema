@@ -10,7 +10,35 @@ import { useToast } from "@/hooks/use-toast";
 import { Loader2, ClipboardList, AlertTriangle, FileSignature, UserCheck, CalendarDays, Clock, DollarSign, Briefcase, RotateCcw, Edit } from 'lucide-react';
 import { getContractsForHospital, signContractByHospital, type Contract } from '@/lib/contract-service';
 import { formatCurrency } from '@/lib/utils';
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
+
+function SimpleModalTest() {
+  const [isModalOpen, setIsModalOpen] = React.useState(false);
+  return (
+    <div className="p-8 border-4 border-red-500 rounded-lg mb-8 bg-white">
+      <h2 className="font-bold text-xl mb-4 text-center text-red-700">-- ÁREA DE TESTE DE DEPURAÇÃO --</h2>
+      <p className="mb-4 text-center text-gray-600">Por favor, clique no botão abaixo para testar a funcionalidade do pop-up de forma isolada.</p>
+      <div className="flex justify-center">
+        <AlertDialog open={isModalOpen} onOpenChange={setIsModalOpen}>
+          <AlertDialogTrigger asChild>
+            <Button variant="destructive" size="lg">Abrir Pop-up de Teste</Button>
+          </AlertDialogTrigger>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Teste de Pop-up</AlertDialogTitle>
+            </AlertDialogHeader>
+            <AlertDialogDescription>
+              Se você está a ver isto, a funcionalidade básica do pop-up (AlertDialog) está a funcionar corretamente no seu projeto!
+            </AlertDialogDescription>
+            <AlertDialogFooter>
+              <AlertDialogAction onClick={() => setIsModalOpen(false)}>Fechar</AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      </div>
+    </div>
+  );
+}
 
 const LoadingState = React.memo(({ message = "Carregando..." }: { message?: string }) => ( <div className="flex flex-col items-center justify-center py-10 min-h-[150px] w-full"><Loader2 className="h-8 w-8 animate-spin text-blue-600" /><p className="mt-3 text-sm text-gray-600">{message}</p></div> ));
 const EmptyState = React.memo(({ message }: { message: string; }) => ( <div className="text-center text-sm text-gray-500 py-10 min-h-[150px] flex flex-col items-center justify-center bg-gray-50/70 rounded-md border border-dashed"><ClipboardList className="w-12 h-12 text-gray-400 mb-4"/><p className="font-medium text-gray-600 mb-1">{message}</p></div> ));
@@ -55,9 +83,11 @@ const ContractItem: React.FC<{ contract: Contract, onAction: () => void }> = ({ 
             {contract.status === 'PENDING_HOSPITAL_SIGNATURE' && (
               <CardFooter className="flex justify-end bg-gray-50 p-3">
                   <AlertDialog open={isModalOpen} onOpenChange={setIsModalOpen}>
-                      <Button size="sm" className="bg-indigo-600 hover:bg-indigo-700" onClick={() => setIsModalOpen(true)}>
-                          <Edit className="mr-2 h-4 w-4" /> Rever e Assinar Contrato
-                      </Button>
+                      <AlertDialogTrigger asChild>
+                        <Button size="sm" className="bg-indigo-600 hover:bg-indigo-700">
+                            <Edit className="mr-2 h-4 w-4" /> Rever e Assinar Contrato
+                        </Button>
+                      </AlertDialogTrigger>
                       <AlertDialogContent className="max-w-4xl h-[90vh] flex flex-col">
                           <AlertDialogHeader>
                               <AlertDialogTitle>Revisão e Assinatura do Contrato</AlertDialogTitle>
@@ -127,6 +157,7 @@ export default function HospitalContractsPage() {
 
     return (
         <div className="space-y-6">
+            <SimpleModalTest />
             <h1 className="text-3xl font-bold text-gray-900">Gestão de Contratos</h1>
             <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
                 <TabsList className="grid w-full grid-cols-2">
