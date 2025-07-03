@@ -3,12 +3,14 @@
 
 import * as React from "react";
 import { ColumnDef, flexRender, getCoreRowModel, useReactTable } from "@tanstack/react-table";
-import { DollarSign, Building, Users, UserCheck, Loader2 } from "lucide-react";
+import { DollarSign, Building, Users, UserCheck, Loader2, FileText } from "lucide-react";
 import { db } from "@/lib/firebase";
 import { collection, getDocs, query, where, doc, getDoc } from "firebase/firestore";
 import { useToast } from "@/hooks/use-toast";
 import { type HospitalProfile } from "@/lib/auth-service";
+import { type Contract } from "@/lib/contract-service"; // Importando o tipo Contract
 import { formatCurrency } from "@/lib/utils";
+import { startOfMonth, endOfMonth } from 'date-fns';
 
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -20,11 +22,10 @@ interface BillingRates {
     monthlyFeePerActiveDoctor: number;
 }
 interface HospitalBillingData extends HospitalProfile {
-    internalDoctors: number;
-    externalDoctors: number;
-    newExternalThisMonth: number;
-    monthlyUsageCost: number;
-    registrationFeeCost: number;
+    activeDoctorsCount: number;
+    usageFee: number;
+    shiftRevenue: number;
+    registrationFee: number;
     totalBillable: number;
 }
 
@@ -32,28 +33,31 @@ interface HospitalBillingData extends HospitalProfile {
 export const columns: ColumnDef<HospitalBillingData>[] = [
     { accessorKey: "displayName", header: "Hospital" },
     { accessorKey: "cnpj", header: "CNPJ" },
-    { header: "Médicos (Plataforma)", cell: ({ row }) => row.original.internalDoctors },
-    { header: "Médicos (Externos)", cell: ({ row }) => row.original.externalDoctors },
-    { header: "Custo Mensal (Uso)", cell: ({ row }) => formatCurrency(row.original.monthlyUsageCost) },
-    { header: "Taxas de Cadastro (Mês)", cell: ({ row }) => formatCurrency(row.original.registrationFeeCost) },
+    { accessorKey: "activeDoctorsCount", header: "Médicos Ativos" },
+    { header: "Taxa de Uso (Mês)", cell: ({ row }) => formatCurrency(row.original.usageFee) },
+    { header: "Receita de Plantões (Mês)", cell: ({ row }) => formatCurrency(row.original.shiftRevenue) },
+    { header: "Receita de Cadastros (Mês)", cell: ({ row }) => formatCurrency(row.original.registrationFee) },
     { header: "Faturamento Total (Mês)", cell: ({ row }) => <div className="font-bold text-base">{formatCurrency(row.original.totalBillable)}</div> },
-    { id: "actions", cell: () => <Button variant="outline" size="sm">Gerar Fatura</Button> },
+    { id: "actions", cell: () => <Button variant="outline" size="sm">Ver Detalhes</Button> },
 ];
 
 export default function AdminBillingPage() {
     const { toast } = useToast();
     const [billingData, setBillingData] = React.useState<HospitalBillingData[]>([]);
     const [isLoading, setIsLoading] = React.useState(true);
-    const [kpis, setKpis] = React.useState({ totalBillable: 0, totalUsage: 0, totalFees: 0 });
+    const [kpis, setKpis] = React.useState({ totalBillable: 0, totalShiftRevenue: 0, totalUsageAndFees: 0 });
 
     React.useEffect(() => {
         const fetchBillingData = async () => {
             setIsLoading(true);
             try {
-                // 1. Buscar as taxas de faturamento
+                // 1. Buscar as taxas e todos os contratos
                 const settingsDoc = await getDoc(doc(db, "settings", "billing"));
                 if (!settingsDoc.exists()) throw new Error("Configurações de faturamento não encontradas.");
                 const rates = settingsDoc.data() as BillingRates;
+
+                const contractsSnapshot = await getDocs(collection(db, "contracts"));
+                const allContracts = contractsSnapshot.docs.map(d => d.data() as Contract);
 
                 // 2. Buscar todos os hospitais
                 const hospitalsQuery = query(collection(db, "users"), where("role", "==", "hospital"));
@@ -61,39 +65,44 @@ export default function AdminBillingPage() {
                 const hospitalProfiles = hospitalsSnapshot.docs.map(d => ({ ...d.data(), uid: d.id } as HospitalProfile));
 
                 // 3. Calcular os dados de faturamento para cada hospital
-                const startOfCurrentMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
+                const now = new Date();
+                const startOfCurrentMonth = startOfMonth(now);
+                const endOfCurrentMonth = endOfMonth(now);
+
                 const data: HospitalBillingData[] = await Promise.all(
                     hospitalProfiles.map(async (hospital) => {
                         const doctorsSnapshot = await getDocs(collection(db, "users", hospital.uid, "hospitalDoctors"));
+                        const activeDoctorsCount = doctorsSnapshot.size;
                         
-                        let internalDoctors = 0;
-                        let externalDoctors = 0;
                         let newExternalThisMonth = 0;
-
                         doctorsSnapshot.forEach(doc => {
                             const doctorData = doc.data();
-                            if (doctorData.source === 'PLATFORM') {
-                                internalDoctors++;
-                            } else if (doctorData.source === 'EXTERNAL') {
-                                externalDoctors++;
-                                if (doctorData.addedAt.toDate() >= startOfCurrentMonth) {
-                                    newExternalThisMonth++;
-                                }
+                            if (doctorData.source === 'EXTERNAL' && doctorData.addedAt.toDate() >= startOfCurrentMonth) {
+                                newExternalThisMonth++;
                             }
                         });
 
-                        const totalActiveDoctors = internalDoctors + externalDoctors;
-                        const monthlyUsageCost = totalActiveDoctors * rates.monthlyFeePerActiveDoctor;
-                        const registrationFeeCost = newExternalThisMonth * rates.externalDoctorRegistrationFee;
+                        // Calcula a receita dos plantões concluídos neste mês para este hospital
+                        const shiftRevenue = allContracts
+                            .filter(c => 
+                                c.hospitalId === hospital.uid &&
+                                c.status === 'COMPLETED' && // Ou o status que define um plantão como "faturável"
+                                c.updatedAt.toDate() >= startOfCurrentMonth &&
+                                c.updatedAt.toDate() <= endOfCurrentMonth
+                            )
+                            .reduce((acc, c) => acc + (c.hospitalRate - c.doctorRate), 0);
+                        
+                        // Calcula as taxas de uso e cadastro
+                        const usageFee = activeDoctorsCount * rates.monthlyFeePerActiveDoctor;
+                        const registrationFee = newExternalThisMonth * rates.externalDoctorRegistrationFee;
 
                         return {
                             ...hospital,
-                            internalDoctors,
-                            externalDoctors,
-                            newExternalThisMonth,
-                            monthlyUsageCost,
-                            registrationFeeCost,
-                            totalBillable: monthlyUsageCost + registrationFeeCost
+                            activeDoctorsCount,
+                            usageFee,
+                            shiftRevenue,
+                            registrationFee,
+                            totalBillable: usageFee + registrationFee + shiftRevenue,
                         };
                     })
                 );
@@ -102,9 +111,9 @@ export default function AdminBillingPage() {
 
                 // Calcular KPIs globais
                 const totalBillable = data.reduce((acc, h) => acc + h.totalBillable, 0);
-                const totalUsage = data.reduce((acc, h) => acc + h.monthlyUsageCost, 0);
-                const totalFees = data.reduce((acc, h) => acc + h.registrationFeeCost, 0);
-                setKpis({ totalBillable, totalUsage, totalFees });
+                const totalShiftRevenue = data.reduce((acc, h) => acc + h.shiftRevenue, 0);
+                const totalUsageAndFees = data.reduce((acc, h) => acc + h.usageFee + h.registrationFee, 0);
+                setKpis({ totalBillable, totalShiftRevenue, totalUsageAndFees });
 
             } catch (error: any) {
                 toast({ title: "Erro ao calcular faturamento", description: error.message, variant: "destructive" });
@@ -115,17 +124,15 @@ export default function AdminBillingPage() {
         fetchBillingData();
     }, [toast]);
 
-    const table = useReactTable({
-        data: billingData, columns, getCoreRowModel: getCoreRowModel(),
-    });
+    const table = useReactTable({ data: billingData, columns, getCoreRowModel: getCoreRowModel() });
 
     return (
         <div className="w-full space-y-6">
             <h1 className="text-2xl md:text-3xl font-bold">Painel de Faturamento</h1>
             <div className="grid gap-4 md:grid-cols-3">
                 <Card><CardHeader className="flex-row items-center justify-between pb-2"><CardTitle className="text-sm font-medium">Faturamento Total (Mês)</CardTitle><DollarSign/></CardHeader><CardContent><div className="text-2xl font-bold">{formatCurrency(kpis.totalBillable)}</div></CardContent></Card>
-                <Card><CardHeader className="flex-row items-center justify-between pb-2"><CardTitle className="text-sm font-medium">Receita de Uso (Mês)</CardTitle><Users/></CardHeader><CardContent><div className="text-2xl font-bold">{formatCurrency(kpis.totalUsage)}</div></CardContent></Card>
-                <Card><CardHeader className="flex-row items-center justify-between pb-2"><CardTitle className="text-sm font-medium">Receita de Cadastros (Mês)</CardTitle><UserCheck/></CardHeader><CardContent><div className="text-2xl font-bold">{formatCurrency(kpis.totalFees)}</div></CardContent></Card>
+                <Card><CardHeader className="flex-row items-center justify-between pb-2"><CardTitle className="text-sm font-medium">Receita de Plantões (Mês)</CardTitle><FileText/></CardHeader><CardContent><div className="text-2xl font-bold">{formatCurrency(kpis.totalShiftRevenue)}</div></CardContent></Card>
+                <Card><CardHeader className="flex-row items-center justify-between pb-2"><CardTitle className="text-sm font-medium">Receita de Taxas (Uso/Cadastro)</CardTitle><Users/></CardHeader><CardContent><div className="text-2xl font-bold">{formatCurrency(kpis.totalUsageAndFees)}</div></CardContent></Card>
             </div>
 
             <Card>
