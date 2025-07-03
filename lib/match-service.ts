@@ -11,9 +11,13 @@ import {
   orderBy,
   writeBatch,
   getDoc,
+  // CORREÇÃO: Adicionadas as importações que faltavam
+  runTransaction,
+  type Transaction
 } from "firebase/firestore";
 import { db, auth } from "./firebase";
-import { type Contract } from "./contract-service"; // Importa a interface do Contrato atualizada
+import { type Contract } from "./contract-service"; 
+import { sendContractReadyForDoctorEmail } from './notification-service';
 
 // A interface PotentialMatch continua igual.
 export interface PotentialMatch {
@@ -44,7 +48,7 @@ export interface PotentialMatch {
   backofficeReviewerId?: string;
   backofficeReviewedAt?: Timestamp;
   backofficeNotes?: string;
-  negotiatedRateForDoctor?: number; // Este campo é o que o admin preenche na UI
+  negotiatedRateForDoctor?: number; 
   contractId?: string;
   createdAt: Timestamp;
   updatedAt: Timestamp;
@@ -68,86 +72,93 @@ export const getMatchesForBackofficeReview = async (): Promise<PotentialMatch[]>
   }
 };
 
-/**
- * ## LÓGICA ATUALIZADA (FASE 1) ##
- * Aprova o match, calcula os valores financeiros e cria um CONTRATO formal 
- * com todos os dados detalhados para as próximas fases.
- */
 export const approveMatchAndCreateContract = async (
   matchId: string,
-  negotiatedRate: number, // Valor final que o médico irá receber (ex: 100)
-  platformMarginPercentage: number, // Margem em % que o admin definiu (ex: 10)
+  negotiatedRate: number, 
+  platformMarginPercentage: number,
   backofficeNotes?: string
 ): Promise<void> => {
   const currentUser = auth.currentUser;
   if (!currentUser) throw new Error("Admin não logado.");
 
-  const batch = writeBatch(db);
   const matchDocRef = doc(db, "potentialMatches", matchId);
+  
+  let newContractId = '';
+  let emailData = { doctorEmail: '', doctorName: '', hospitalName: '' };
 
   try {
-    const matchDocSnap = await getDoc(matchDocRef);
-    if (!matchDocSnap.exists()) {
-      throw new Error("Match não encontrado. Pode já ter sido processado.");
-    }
-    const matchData = matchDocSnap.data() as PotentialMatch;
-    
-    // MUDANÇA: Lógica de cálculo financeiro
-    const hospitalRate = matchData.offeredRateByHospital; // Valor que o hospital ofertou na demanda. Ex: 150
-    const doctorRate = negotiatedRate; // Valor final para o médico, definido pelo admin. Ex: 100
-    const platformMarginRate = hospitalRate - doctorRate; // Diferença em R$. Ex: 50
+    // CORREÇÃO: Adicionado o tipo 'Transaction' ao parâmetro
+    await runTransaction(db, async (transaction: Transaction) => {
+        const matchDocSnap = await transaction.get(matchDocRef);
+        if (!matchDocSnap.exists()) {
+          throw new Error("Match não encontrado. Pode já ter sido processado.");
+        }
+        const matchData = matchDocSnap.data() as PotentialMatch;
+        
+        const hospitalRate = matchData.offeredRateByHospital;
+        const doctorRate = negotiatedRate;
+        const platformMarginRate = hospitalRate - doctorRate;
 
-    if (platformMarginRate < 0) {
-        throw new Error("O valor proposto ao médico não pode ser maior que o valor pago pelo hospital.");
-    }
+        if (platformMarginRate < 0) {
+            throw new Error("O valor proposto ao médico não pode ser maior que o valor pago pelo hospital.");
+        }
 
-    // 1. Atualiza o status do Match original
-    batch.update(matchDocRef, {
-      status: "BACKOFFICE_APPROVED_CONTRACT_CREATED",
-      negotiatedRateForDoctor: doctorRate,
-      backofficeReviewerId: currentUser.uid,
-      backofficeReviewedAt: serverTimestamp(),
-      backofficeNotes: backofficeNotes || "",
-      updatedAt: serverTimestamp(),
+        const contractRef = doc(collection(db, "contracts"));
+        newContractId = contractRef.id;
+
+        const newContractData: Omit<Contract, 'id'> = {
+            shiftRequirementId: matchData.shiftRequirementId,
+            timeSlotId: matchData.timeSlotId,
+            doctorId: matchData.doctorId,
+            hospitalId: matchData.hospitalId,
+            doctorName: matchData.doctorName || 'N/A',
+            hospitalName: matchData.hospitalName || 'N/A',
+            shiftDates: [matchData.matchedDate],
+            startTime: matchData.shiftRequirementStartTime,
+            endTime: matchData.shiftRequirementEndTime,
+            isOvernight: matchData.shiftRequirementIsOvernight,
+            serviceType: matchData.shiftRequirementServiceType,
+            specialties: matchData.shiftRequirementSpecialties,
+            locationCity: matchData.shiftCity || 'N/A',
+            locationState: matchData.shiftState || 'N/A',
+            hospitalRate, doctorRate, platformMarginRate, platformMarginPercentage,
+            status: 'PENDING_DOCTOR_SIGNATURE',
+            createdAt: serverTimestamp() as Timestamp,
+            updatedAt: serverTimestamp() as Timestamp,
+        };
+        
+        transaction.set(contractRef, newContractData);
+        transaction.update(matchDocRef, {
+            status: "BACKOFFICE_APPROVED_CONTRACT_CREATED",
+            negotiatedRateForDoctor: doctorRate,
+            backofficeReviewerId: currentUser.uid,
+            backofficeReviewedAt: serverTimestamp(),
+            backofficeNotes: backofficeNotes || "",
+            updatedAt: serverTimestamp(),
+            contractId: newContractId,
+        });
+
+        const doctorDocSnap = await transaction.get(doc(db, "users", matchData.doctorId));
+        emailData = {
+            doctorEmail: doctorDocSnap.data()?.email,
+            doctorName: matchData.doctorName || 'N/A',
+            hospitalName: matchData.hospitalName || 'N/A',
+        };
     });
-
-    // 2. Cria o novo CONTRATO na coleção 'contracts'
-    const contractRef = doc(collection(db, "contracts"));
     
-    // MUDANÇA: Usando a nova estrutura de Contrato
-    const newContractData: Omit<Contract, 'id'> = {
-        shiftRequirementId: matchData.shiftRequirementId,
-        timeSlotId: matchData.timeSlotId,
-        doctorId: matchData.doctorId,
-        hospitalId: matchData.hospitalId,
-        doctorName: matchData.doctorName || 'N/A',
-        hospitalName: matchData.hospitalName || 'N/A',
-        shiftDates: [matchData.matchedDate],
-        startTime: matchData.shiftRequirementStartTime,
-        endTime: matchData.shiftRequirementEndTime,
-        isOvernight: matchData.shiftRequirementIsOvernight,
-        serviceType: matchData.shiftRequirementServiceType,
-        specialties: matchData.shiftRequirementSpecialties,
-        locationCity: matchData.shiftCity || 'N/A',
-        locationState: matchData.shiftState || 'N/A',
-        
-        // Dados Financeiros Detalhados
-        hospitalRate: hospitalRate,
-        doctorRate: doctorRate,
-        platformMarginRate: platformMarginRate,
-        platformMarginPercentage: platformMarginPercentage,
-        
-        status: 'PENDING_DOCTOR_SIGNATURE',
-        createdAt: serverTimestamp() as Timestamp,
-        updatedAt: serverTimestamp() as Timestamp,
-    };
+    console.log(`[MatchService] Match ${matchId} aprovado. CONTRATO ${newContractId} criado.`);
     
-    batch.set(contractRef, newContractData);
-    batch.update(matchDocRef, { contractId: contractRef.id });
-    
-    await batch.commit();
-    
-    console.log(`[MatchService] Match ${matchId} aprovado. CONTRATO ${contractRef.id} criado com dados financeiros.`);
+    if (emailData.doctorEmail && newContractId) {
+        console.log(`[MatchService] A acionar notificação por email para ${emailData.doctorEmail}`);
+        sendContractReadyForDoctorEmail(
+            emailData.doctorEmail,
+            emailData.doctorName,
+            emailData.hospitalName,
+            newContractId
+        );
+    } else {
+        console.warn(`[MatchService] Email do médico não encontrado para o contrato ${newContractId}. Notificação não enviada.`);
+    }
 
   } catch (error) {
     console.error(`Falha ao aprovar match e criar contrato para ${matchId}:`, error);
