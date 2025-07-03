@@ -4,7 +4,8 @@
 import React, { useEffect, useState, type ReactNode, type FC, type SVGProps } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { ShieldCheck, Users, LogOut, Menu, X as IconX, Settings, LayoutDashboard, Loader2, FileText } from "lucide-react"; // ADICIONADO: LayoutDashboard e FileText
+// CORREÇÃO: Adicionado o ícone 'DollarSign' para o novo item de menu
+import { ShieldCheck, Users, LogOut, Menu, X as IconX, Settings, LayoutDashboard, Loader2, FileText, DollarSign } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/components/auth-provider";
 import { logoutUser, getCurrentUserData, type UserProfile, type AdminProfile } from "@/lib/auth-service";
@@ -64,12 +65,14 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
 
   const handleLogout = async () => { try { await logoutUser(); toast({ title: "Logout!" }); router.push('/login'); } catch (e:any) { toast({ title: "Erro Logout", description: e.message, variant: "destructive" });}};
   
-  // ATUALIZADO: Adicionado links para Dashboard e Utilizadores
+  // ATUALIZADO: Adicionado o novo link para a página de Faturamento
   const navItems: Array<{ href: string; label: string; icon: React.ReactElement<SVGProps<SVGSVGElement> & {className?: string; size?: number}> }> = [
     { href: "/admin/dashboard", label: "Dashboard", icon: <LayoutDashboard className="h-5 w-5" /> },
     { href: "/admin/matches", label: "Painel de Revisão", icon: <ShieldCheck className="h-5 w-5" /> },
     { href: "/admin/contracts", label: "Contratos", icon: <FileText className="h-5 w-5" /> },
     { href: "/admin/users", label: "Utilizadores", icon: <Users className="h-5 w-5" /> },
+    // NOVO ITEM ADICIONADO
+    { href: "/admin/billing", label: "Faturamento", icon: <DollarSign className="h-5 w-5" /> },
   ];
 
   if (authLoading || profileLoading) { return ( <div className="flex min-h-screen items-center justify-center bg-gray-100"> <Loader2 className="h-12 w-12 animate-spin text-blue-600" /> <p className="ml-3">Verificando acesso...</p></div> ); }
