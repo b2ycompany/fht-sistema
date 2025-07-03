@@ -20,7 +20,9 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 interface BillingRates {
     feePerManagedDoctor: number;
 }
+// CORREÇÃO: Adicionada a propriedade opcional 'cnpj'
 interface HospitalBillingData extends HospitalProfile {
+    cnpj?: string; // Adicionado para corrigir o erro de tipo
     managedDoctorsCount: number;
     usageFee: number;
     shiftRevenue: number;
@@ -74,14 +76,14 @@ export default function AdminBillingPage() {
                         // Calcula a receita de Taxa por Intermediação (margem nos plantões)
                         const shiftRevenue = allContracts
                             .filter(c => {
-                                // CORREÇÃO DEFINITIVA: Usando a data da assinatura do hospital
+                                // CORREÇÃO: Lógica de verificação da data foi tornada mais segura
                                 const signatureDate = c.hospitalSignature?.signedAt?.toDate();
                                 const isBillableStatus = c.status === 'ACTIVE_SIGNED' || c.status === 'COMPLETED';
 
                                 return (
                                     c.hospitalId === hospital.uid &&
                                     isBillableStatus &&
-                                    signatureDate && // Garante que a data da assinatura exista
+                                    signatureDate && // Garante que a data da assinatura exista antes de a comparar
                                     signatureDate >= startOfCurrentMonth &&
                                     signatureDate <= endOfCurrentMonth
                                 );
@@ -124,7 +126,7 @@ export default function AdminBillingPage() {
         <div className="w-full space-y-6">
             <h1 className="text-2xl md:text-3xl font-bold">Painel de Faturamento da Plataforma</h1>
             <div className="grid gap-4 md:grid-cols-3">
-                <Card><CardHeader className="flex-row items-center justify-between pb-2"><CardTitle className="text-sm font-medium">Receita Total da Plataforma (Mês)</CardTitle><DollarSign/></CardHeader><CardContent><div className="text-2xl font-bold">{formatCurrency(kpis.totalPlatformRevenue)}</div></CardContent></Card>
+                <Card><CardHeader className="flex-row items-center justify-between pb-2"><CardTitle className="text-sm font-medium">Receita Total (Mês)</CardTitle><DollarSign/></CardHeader><CardContent><div className="text-2xl font-bold">{formatCurrency(kpis.totalPlatformRevenue)}</div></CardContent></Card>
                 <Card><CardHeader className="flex-row items-center justify-between pb-2"><CardTitle className="text-sm font-medium">Receita de Plantões (Mês)</CardTitle><FileText/></CardHeader><CardContent><div className="text-2xl font-bold">{formatCurrency(kpis.totalShiftRevenue)}</div></CardContent></Card>
                 <Card><CardHeader className="flex-row items-center justify-between pb-2"><CardTitle className="text-sm font-medium">Receita por Uso (Taxas)</CardTitle><Users/></CardHeader><CardContent><div className="text-2xl font-bold">{formatCurrency(kpis.totalUsageFee)}</div></CardContent></Card>
             </div>
