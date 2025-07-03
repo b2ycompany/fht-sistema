@@ -83,12 +83,13 @@ const ContractItem: React.FC<{ contract: Contract, onAction: () => void }> = ({ 
                           </Button>
                       </AlertDialogTrigger>
                       <AlertDialogContent className="max-w-4xl h-[90vh] flex flex-col">
-                          <AlertDialogHeader>
-                              <AlertDialogTitle>Revisão e Assinatura do Contrato</AlertDialogTitle>
-                              <AlertDialogDescription>
-                                  Reveja o documento oficial do contrato. A sua assinatura será registada ao clicar em "Confirmar Assinatura".
-                              </AlertDialogDescription>
-                          </AlertDialogHeader>
+ <AlertDialogHeader>
+  <AlertDialogTitle>Revisão e Assinatura do Contrato</AlertDialogTitle>
+</AlertDialogHeader>
+<AlertDialogDescription className="text-sm text-muted-foreground mb-2">
+  Reveja o documento oficial do contrato. A sua assinatura será registrada ao clicar em "Confirmar Assinatura".
+</AlertDialogDescription>
+
                           <div className="flex-grow my-4 border rounded-md overflow-hidden bg-gray-200">
                               {contract.contractPdfUrl ? 
                                 <iframe src={contract.contractPdfUrl} className="w-full h-full" title="Contrato PDF"/> : 
