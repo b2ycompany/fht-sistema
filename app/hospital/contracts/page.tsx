@@ -10,7 +10,7 @@ import { useToast } from "@/hooks/use-toast";
 import { Loader2, ClipboardList, AlertTriangle, FileSignature, UserCheck, CalendarDays, Clock, DollarSign, Briefcase, RotateCcw, Edit } from 'lucide-react';
 import { getContractsForHospital, signContractByHospital, type Contract } from '@/lib/contract-service';
 import { formatCurrency } from '@/lib/utils';
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 
 const LoadingState = React.memo(({ message = "Carregando..." }: { message?: string }) => (
     <div className="flex flex-col items-center justify-center py-10 min-h-[150px] w-full">
@@ -60,55 +60,52 @@ const ContractItem: React.FC<{ contract: Contract, onAction: () => void }> = ({ 
     const shiftDate = contract.shiftDates[0]?.toDate()?.toLocaleDateString('pt-BR') || 'Data inválida';
 
     return (
-        <>
-            <Card className="border-l-4 border-indigo-500 bg-white shadow-sm">
-                <CardHeader>
-                    <CardTitle className="flex items-center gap-2 text-lg text-gray-800">
-                        <UserCheck size={20} className="text-indigo-600"/> Contrato com Dr(a). {contract.doctorName || 'N/A'}
-                    </CardTitle>
-                    <CardDescription className="flex items-center gap-2 pt-1">
-                        <Briefcase size={14} /> Especialidades: {contract.specialties.join(', ')}
-                    </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-2 text-sm text-gray-700">
-                    <p><CalendarDays size={14} className="inline mr-2"/><strong>Data:</strong> {shiftDate}</p>
-                    <p><Clock size={14} className="inline mr-2"/><strong>Horário:</strong> {contract.startTime} - {contract.endTime}</p>
-                    <p className="font-semibold text-red-700"><DollarSign size={14} className="inline mr-2"/><strong>Seu Custo:</strong> {formatCurrency(contract.hospitalRate)}/h</p>
-                </CardContent>
-                {contract.status === 'PENDING_HOSPITAL_SIGNATURE' && (
-                  <CardFooter className="flex justify-end bg-gray-50 p-3">
-                      <Button size="sm" className="bg-indigo-600 hover:bg-indigo-700" onClick={() => setIsModalOpen(true)}>
-                          <Edit className="mr-2 h-4 w-4" /> Rever e Assinar Contrato
-                      </Button>
-                  </CardFooter>
-                )}
-            </Card>
-
-            <AlertDialog open={isModalOpen} onOpenChange={setIsModalOpen}>
-                <AlertDialogContent className="max-w-4xl h-[90vh] flex flex-col">
-                    <AlertDialogHeader>
-                        <AlertDialogTitle>Revisão e Assinatura do Contrato</AlertDialogTitle>
-                        <AlertDialogDescription>
-                            Reveja o documento oficial do contrato. A sua assinatura será registada ao clicar em "Confirmar Assinatura".
-                        </AlertDialogDescription>
-                    </AlertDialogHeader>
-                    <div className="flex-grow my-4 border rounded-md overflow-hidden bg-gray-200">
-                        {contract.contractPdfUrl ? 
-                          <iframe src={contract.contractPdfUrl} className="w-full h-full" title="Contrato PDF"/> : 
-                          <div className="flex items-center justify-center h-full">
-                              <ErrorState message="URL do documento não encontrada. O médico pode não ter gerado o PDF."/>
+        <Card className="border-l-4 border-indigo-500 bg-white shadow-sm">
+            <CardHeader>
+                <CardTitle className="flex items-center gap-2 text-lg text-gray-800">
+                    <UserCheck size={20} className="text-indigo-600"/> Contrato com Dr(a). {contract.doctorName || 'N/A'}
+                </CardTitle>
+                <CardDescription className="flex items-center gap-2 pt-1">
+                    <Briefcase size={14} /> Especialidades: {contract.specialties.join(', ')}
+                </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-2 text-sm text-gray-700">
+                <p><CalendarDays size={14} className="inline mr-2"/><strong>Data:</strong> {shiftDate}</p>
+                <p><Clock size={14} className="inline mr-2"/><strong>Horário:</strong> {contract.startTime} - {contract.endTime}</p>
+                <p className="font-semibold text-red-700"><DollarSign size={14} className="inline mr-2"/><strong>Seu Custo:</strong> {formatCurrency(contract.hospitalRate)}/h</p>
+            </CardContent>
+            {contract.status === 'PENDING_HOSPITAL_SIGNATURE' && (
+              <CardFooter className="flex justify-end bg-gray-50 p-3">
+                  <AlertDialog open={isModalOpen} onOpenChange={setIsModalOpen}>
+                      <AlertDialogTrigger asChild>
+                          <Button size="sm" className="bg-indigo-600 hover:bg-indigo-700">
+                              <Edit className="mr-2 h-4 w-4" /> Rever e Assinar Contrato
+                          </Button>
+                      </AlertDialogTrigger>
+                      <AlertDialogContent className="max-w-4xl h-[90vh] flex flex-col">
+                          <AlertDialogHeader>
+                              <AlertDialogTitle>Revisão e Assinatura do Contrato</AlertDialogTitle>
+                              <AlertDialogDescription>
+                                  Reveja o documento oficial do contrato. A sua assinatura será registada ao clicar em "Confirmar Assinatura".
+                              </AlertDialogDescription>
+                          </AlertDialogHeader>
+                          <div className="flex-grow my-4 border rounded-md overflow-hidden bg-gray-200">
+                              {contract.contractPdfUrl ? 
+                                <iframe src={contract.contractPdfUrl} className="w-full h-full" title="Contrato PDF"/> : 
+                                <ErrorState message="URL do documento não encontrada."/>
+                              }
                           </div>
-                        }
-                    </div>
-                    <AlertDialogFooter>
-                        <AlertDialogCancel disabled={isSigning}>Voltar</AlertDialogCancel>
-                        <AlertDialogAction onClick={handleConfirmSignature} disabled={isSigning || !contract.contractPdfUrl} className="bg-indigo-600 hover:bg-indigo-700">
-                            {isSigning ? <Loader2 className="h-4 w-4 animate-spin" /> : "Confirmar Assinatura"}
-                        </AlertDialogAction>
-                    </AlertDialogFooter>
-                </AlertDialogContent>
-            </AlertDialog>
-        </>
+                          <AlertDialogFooter>
+                              <AlertDialogCancel disabled={isSigning}>Voltar</AlertDialogCancel>
+                              <AlertDialogAction onClick={handleConfirmSignature} disabled={isSigning || !contract.contractPdfUrl} className="bg-indigo-600 hover:bg-indigo-700">
+                                  {isSigning ? <Loader2 className="h-4 w-4 animate-spin" /> : "Confirmar Assinatura"}
+                              </AlertDialogAction>
+                          </AlertDialogFooter>
+                      </AlertDialogContent>
+                  </AlertDialog>
+              </CardFooter>
+            )}
+        </Card>
     );
 }
 
