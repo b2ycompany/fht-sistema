@@ -12,7 +12,6 @@ import { getContractsForHospital, signContractByHospital, type Contract } from '
 import { formatCurrency } from '@/lib/utils';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 
-// Componentes de estado (Loading, Empty, Error)
 const LoadingState = React.memo(({ message = "Carregando..." }: { message?: string }) => (
     <div className="flex flex-col items-center justify-center py-10 min-h-[150px] w-full">
         <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
@@ -39,7 +38,6 @@ const ErrorState = React.memo(({ message, onRetry }: { message: string; onRetry?
 ));
 ErrorState.displayName = 'ErrorState';
 
-// Componente do item de contrato
 const ContractItem: React.FC<{ contract: Contract, onAction: () => void }> = ({ contract, onAction }) => {
     const [isSigning, setIsSigning] = useState(false);
     const [isModalOpen, setIsModalOpen] = useState(false);
@@ -97,7 +95,9 @@ const ContractItem: React.FC<{ contract: Contract, onAction: () => void }> = ({ 
                     <div className="flex-grow my-4 border rounded-md overflow-hidden bg-gray-200">
                         {contract.contractPdfUrl ? 
                           <iframe src={contract.contractPdfUrl} className="w-full h-full" title="Contrato PDF"/> : 
-                          <ErrorState message="URL do documento não encontrada."/>
+                          <div className="flex items-center justify-center h-full">
+                              <ErrorState message="URL do documento não encontrada. O médico pode não ter gerado o PDF."/>
+                          </div>
                         }
                     </div>
                     <AlertDialogFooter>
@@ -112,7 +112,6 @@ const ContractItem: React.FC<{ contract: Contract, onAction: () => void }> = ({ 
     );
 }
 
-// Componente principal da página
 export default function HospitalContractsPage() {
     const [activeTab, setActiveTab] = useState("pending");
     const [pendingContracts, setPendingContracts] = useState<Contract[]>([]);
