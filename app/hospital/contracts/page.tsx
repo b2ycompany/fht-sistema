@@ -10,7 +10,7 @@ import { useToast } from "@/hooks/use-toast";
 import { Loader2, ClipboardList, AlertTriangle, FileSignature, UserCheck, CalendarDays, Clock, DollarSign, Briefcase, RotateCcw, Edit } from 'lucide-react';
 import { getContractsForHospital, signContractByHospital, type Contract } from '@/lib/contract-service';
 import { formatCurrency } from '@/lib/utils';
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Timestamp } from 'firebase/firestore';
 
 const LoadingState = React.memo(({ message = "Carregando..." }: { message?: string }) => (
@@ -39,8 +39,38 @@ const ErrorState = React.memo(({ message, onRetry }: { message: string; onRetry?
 ));
 ErrorState.displayName = 'ErrorState';
 
-const ContractItem: React.FC<{ contract: Contract, onSignClick: () => void }> = ({ contract, onSignClick }) => {
+const ContractItem: React.FC<{ contract: Contract, onAction: () => void }> = ({ contract, onAction }) => {
+    const [isSigning, setIsSigning] = useState(false);
+    const [isModalOpen, setIsModalOpen] = useState(false);
+    const { toast } = useToast();
+
+    const handleButtonClick = () => {
+        console.log(`[HOSPITAL-DIAGNOSIS] PASSO 1: Botão para contrato ${contract.id} foi CLICADO.`);
+        setIsModalOpen(true);
+    };
+    
+    const handleModalStateChange = (open: boolean) => {
+        console.log(`[HOSPITAL-DIAGNOSIS] PASSO 3: O estado do modal mudou para: ${open}`);
+        setIsModalOpen(open);
+    };
+
+    const handleConfirmSignature = async () => {
+        setIsSigning(true);
+        try {
+            await signContractByHospital(contract.id);
+            toast({ title: "Contrato Assinado!", description: `O(A) Dr(a). ${contract.doctorName} foi adicionado(a) à sua equipe.`});
+            setIsModalOpen(false);
+            onAction();
+        } catch (error: any) {
+            toast({ title: "Erro ao assinar", description: error.message, variant: "destructive" });
+        } finally {
+            setIsSigning(false);
+        }
+    };
+
     const shiftDate = contract.shiftDates[0]?.toDate()?.toLocaleDateString('pt-BR') || 'Data inválida';
+
+    console.log(`[HOSPITAL-DIAGNOSIS] PASSO 2: Renderizando ContractItem. O estado do modal 'isModalOpen' é: ${isModalOpen}`);
 
     return (
         <Card className="border-l-4 border-indigo-500 bg-white shadow-sm">
@@ -59,9 +89,33 @@ const ContractItem: React.FC<{ contract: Contract, onSignClick: () => void }> = 
             </CardContent>
             {contract.status === 'PENDING_HOSPITAL_SIGNATURE' && (
               <CardFooter className="flex justify-end bg-gray-50 p-3">
-                  <Button size="sm" className="bg-indigo-600 hover:bg-indigo-700" onClick={onSignClick}>
-                      <Edit className="mr-2 h-4 w-4" /> Rever e Assinar Contrato
-                  </Button>
+                  <AlertDialog open={isModalOpen} onOpenChange={handleModalStateChange}>
+                      <AlertDialogTrigger asChild>
+                          <Button size="sm" className="bg-indigo-600 hover:bg-indigo-700" onClick={handleButtonClick}>
+                              <Edit className="mr-2 h-4 w-4" /> Rever e Assinar Contrato
+                          </Button>
+                      </AlertDialogTrigger>
+                      <AlertDialogContent className="max-w-4xl h-[90vh] flex flex-col">
+                          <AlertDialogHeader>
+                              <AlertDialogTitle>Revisão e Assinatura do Contrato</AlertDialogTitle>
+                              <AlertDialogDescription>
+                                  Reveja o documento oficial do contrato. A sua assinatura será registada ao clicar em "Confirmar Assinatura".
+                              </AlertDialogDescription>
+                          </AlertDialogHeader>
+                          <div className="flex-grow my-4 border rounded-md overflow-hidden bg-gray-200">
+                              {contract.contractPdfUrl ? 
+                                <iframe src={contract.contractPdfUrl} className="w-full h-full" title="Contrato PDF"/> : 
+                                <ErrorState message="URL do documento não encontrada."/>
+                              }
+                          </div>
+                          <AlertDialogFooter>
+                              <AlertDialogCancel disabled={isSigning}>Voltar</AlertDialogCancel>
+                              <AlertDialogAction onClick={handleConfirmSignature} disabled={isSigning || !contract.contractPdfUrl} className="bg-indigo-600 hover:bg-indigo-700">
+                                  {isSigning ? <Loader2 className="h-4 w-4 animate-spin" /> : "Confirmar Assinatura"}
+                              </AlertDialogAction>
+                          </AlertDialogFooter>
+                      </AlertDialogContent>
+                  </AlertDialog>
               </CardFooter>
             )}
         </Card>
@@ -74,9 +128,6 @@ export default function HospitalContractsPage() {
     const [activeContracts, setActiveContracts] = useState<Contract[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
-    const [selectedContract, setSelectedContract] = useState<Contract | null>(null);
-    const [isSigning, setIsSigning] = useState(false);
-    const { toast } = useToast();
 
     const fetchAllContracts = useCallback(async () => {
         setIsLoading(true);
@@ -98,26 +149,6 @@ export default function HospitalContractsPage() {
     useEffect(() => {
         fetchAllContracts();
     }, [fetchAllContracts]);
-
-    const handleOpenModal = (contract: Contract) => {
-        setSelectedContract(contract);
-    };
-
-    const handleConfirmSignature = async () => {
-        if (!selectedContract) return;
-        setIsSigning(true);
-        try {
-            await signContractByHospital(selectedContract.id);
-            toast({ title: "Contrato Assinado!", description: `O(A) Dr(a). ${selectedContract.doctorName} foi adicionado(a) à sua equipe.`});
-            setSelectedContract(null);
-            fetchAllContracts();
-            setActiveTab('active');
-        } catch (error: any) {
-            toast({ title: "Erro ao assinar", description: error.message, variant: "destructive" });
-        } finally {
-            setIsSigning(false);
-        }
-    };
     
     const renderContent = (contracts: Contract[]) => {
         if (isLoading) return <LoadingState />;
@@ -126,7 +157,7 @@ export default function HospitalContractsPage() {
         
         return (
             <div className="space-y-4">
-                {contracts.map(c => <ContractItem key={c.id} contract={c} onSignClick={() => handleOpenModal(c)}/>)}
+                {contracts.map(c => <ContractItem key={c.id} contract={c} onAction={fetchAllContracts}/>)}
             </div>
         );
     };
@@ -146,31 +177,6 @@ export default function HospitalContractsPage() {
                     {renderContent(activeContracts)}
                 </TabsContent>
             </Tabs>
-
-            <AlertDialog open={!!selectedContract} onOpenChange={(isOpen) => !isOpen && setSelectedContract(null)}>
-                {selectedContract && (
-                    <AlertDialogContent className="max-w-4xl h-[90vh] flex flex-col">
-                        <AlertDialogHeader>
-                            <AlertDialogTitle>Revisão e Assinatura do Contrato</AlertDialogTitle>
-                            <AlertDialogDescription>
-                                Reveja o documento oficial do contrato. A sua assinatura será registada ao clicar em "Confirmar Assinatura".
-                            </AlertDialogDescription>
-                        </AlertDialogHeader>
-                        <div className="flex-grow my-4 border rounded-md overflow-hidden bg-gray-200">
-                            {selectedContract.contractPdfUrl ? 
-                              <iframe src={selectedContract.contractPdfUrl} className="w-full h-full" title="Contrato PDF"/> : 
-                              <ErrorState message="URL do documento não encontrada."/>
-                            }
-                        </div>
-                        <AlertDialogFooter>
-                            <AlertDialogCancel disabled={isSigning} onClick={() => setSelectedContract(null)}>Voltar</AlertDialogCancel>
-                            <AlertDialogAction onClick={handleConfirmSignature} disabled={isSigning || !selectedContract.contractPdfUrl} className="bg-indigo-600 hover:bg-indigo-700">
-                                {isSigning ? <Loader2 className="h-4 w-4 animate-spin" /> : "Confirmar Assinatura"}
-                            </AlertDialogAction>
-                        </AlertDialogFooter>
-                    </AlertDialogContent>
-                )}
-            </AlertDialog>
         </div>
     );
 }
