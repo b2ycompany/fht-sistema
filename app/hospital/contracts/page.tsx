@@ -137,10 +137,10 @@ export default function HospitalContractsPage() {
         fetchAllContracts();
     }, [fetchAllContracts]);
     
-    const renderContent = (contracts: Contract[], type: 'pending' | 'active') => {
+    const renderContent = (contracts: Contract[], emptyMessage: string) => {
         if (isLoading) return <LoadingState />;
         if (error) return <ErrorState message={error || ""} onRetry={fetchAllContracts} />;
-        if (contracts.length === 0) return <EmptyState message={`Nenhum contrato ${type === 'pending' ? 'pendente' : 'ativo'}.`} />;
+        if (contracts.length === 0) return <EmptyState message={emptyMessage} />;
         
         return (
             <div className="space-y-4">
@@ -157,8 +157,12 @@ export default function HospitalContractsPage() {
                     <TabsTrigger value="pending">Contratos Pendentes <Badge variant={pendingContracts.length > 0 ? "destructive" : "secondary"} className="ml-2">{isLoading ? '...' : pendingContracts.length}</Badge></TabsTrigger>
                     <TabsTrigger value="active">Contratos Ativos <Badge variant="secondary" className="ml-2">{isLoading ? '...' : activeContracts.length}</Badge></TabsTrigger>
                 </TabsList>
-                <TabsContent value="pending" className="mt-4">{renderContent(pendingContracts, 'pending')}</TabsContent>
-                <TabsContent value="active" className="mt-4">{renderContent(activeContracts, 'active')}</TabsContent>
+                <TabsContent value="pending" className="mt-4">
+                    {renderContent(pendingContracts, "Nenhum contrato pendente.")}
+                </TabsContent>
+                <TabsContent value="active" className="mt-4">
+                    {renderContent(activeContracts, "Nenhum contrato ativo.")}
+                </TabsContent>
             </Tabs>
         </div>
     );
