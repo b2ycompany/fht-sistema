@@ -8,7 +8,7 @@ import { db } from "@/lib/firebase";
 import { collection, getDocs, query, where, doc, getDoc } from "firebase/firestore";
 import { useToast } from "@/hooks/use-toast";
 import { type HospitalProfile } from "@/lib/auth-service";
-import { type Contract } from "@/lib/contract-service"; // Importando o tipo Contract
+import { type Contract } from "@/lib/contract-service";
 import { formatCurrency } from "@/lib/utils";
 import { startOfMonth, endOfMonth } from 'date-fns';
 
@@ -51,20 +51,21 @@ export default function AdminBillingPage() {
         const fetchBillingData = async () => {
             setIsLoading(true);
             try {
-                // 1. Buscar as taxas e todos os contratos
+                // 1. Buscar as taxas de faturamento
                 const settingsDoc = await getDoc(doc(db, "settings", "billing"));
                 if (!settingsDoc.exists()) throw new Error("Configurações de faturamento não encontradas.");
                 const rates = settingsDoc.data() as BillingRates;
 
+                // 2. Buscar todos os contratos
                 const contractsSnapshot = await getDocs(collection(db, "contracts"));
                 const allContracts = contractsSnapshot.docs.map(d => d.data() as Contract);
 
-                // 2. Buscar todos os hospitais
+                // 3. Buscar todos os hospitais
                 const hospitalsQuery = query(collection(db, "users"), where("role", "==", "hospital"));
                 const hospitalsSnapshot = await getDocs(hospitalsQuery);
                 const hospitalProfiles = hospitalsSnapshot.docs.map(d => ({ ...d.data(), uid: d.id } as HospitalProfile));
 
-                // 3. Calcular os dados de faturamento para cada hospital
+                // 4. Calcular os dados de faturamento para cada hospital
                 const now = new Date();
                 const startOfCurrentMonth = startOfMonth(now);
                 const endOfCurrentMonth = endOfMonth(now);
@@ -77,22 +78,23 @@ export default function AdminBillingPage() {
                         let newExternalThisMonth = 0;
                         doctorsSnapshot.forEach(doc => {
                             const doctorData = doc.data();
-                            if (doctorData.source === 'EXTERNAL' && doctorData.addedAt.toDate() >= startOfCurrentMonth) {
+                            // CORREÇÃO: Adicionada verificação se 'doctorData.addedAt' existe
+                            if (doctorData.source === 'EXTERNAL' && doctorData.addedAt && doctorData.addedAt.toDate() >= startOfCurrentMonth) {
                                 newExternalThisMonth++;
                             }
                         });
 
-                        // Calcula a receita dos plantões concluídos neste mês para este hospital
+                        // CORREÇÃO: Adicionada verificação se 'c.updatedAt' existe
                         const shiftRevenue = allContracts
                             .filter(c => 
                                 c.hospitalId === hospital.uid &&
-                                c.status === 'COMPLETED' && // Ou o status que define um plantão como "faturável"
+                                c.status === 'COMPLETED' &&
+                                c.updatedAt && // <-- Verificação de segurança aqui
                                 c.updatedAt.toDate() >= startOfCurrentMonth &&
                                 c.updatedAt.toDate() <= endOfCurrentMonth
                             )
                             .reduce((acc, c) => acc + (c.hospitalRate - c.doctorRate), 0);
                         
-                        // Calcula as taxas de uso e cadastro
                         const usageFee = activeDoctorsCount * rates.monthlyFeePerActiveDoctor;
                         const registrationFee = newExternalThisMonth * rates.externalDoctorRegistrationFee;
 
@@ -116,6 +118,7 @@ export default function AdminBillingPage() {
                 setKpis({ totalBillable, totalShiftRevenue, totalUsageAndFees });
 
             } catch (error: any) {
+                console.error("Erro no cálculo do faturamento:", error); // Log mais detalhado no console
                 toast({ title: "Erro ao calcular faturamento", description: error.message, variant: "destructive" });
             } finally {
                 setIsLoading(false);
