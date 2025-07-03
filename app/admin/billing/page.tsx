@@ -17,16 +17,9 @@ import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 
-// Importações para gerar o PDF
+// CORREÇÃO 1 de 2: A forma como importamos as bibliotecas de PDF
 import jsPDF from 'jspdf';
-import 'jspdf-autotable';
-
-// Estendendo a interface do jspdf para incluir a função autoTable
-declare module 'jspdf' {
-  interface jsPDF {
-    autoTable: (options: any) => jsPDF;
-  }
-}
+import autoTable from 'jspdf-autotable';
 
 // Interfaces para os dados
 interface BillingRates {
@@ -40,13 +33,11 @@ interface HospitalBillingData extends HospitalProfile {
     totalBillable: number;
 }
 
-// =======================================================================
-// FUNÇÃO PARA GERAR A FATURA EM PDF
-// =======================================================================
 const generateInvoicePdf = (hospitalData: HospitalBillingData) => {
     const doc = new jsPDF();
     const billingMonth = format(new Date(), 'MMMM de yyyy', { locale: ptBR });
 
+    // Cabeçalho da Fatura
     doc.setFontSize(20);
     doc.text("FATURA DE SERVIÇOS", 105, 20, { align: 'center' });
     doc.setFontSize(12);
@@ -61,7 +52,8 @@ const generateInvoicePdf = (hospitalData: HospitalBillingData) => {
     doc.text("FHT Gestão e Serviços Médicos", 205, 45, { align: 'right' });
     doc.text("CNPJ: 00.000.000/0001-00", 205, 50, { align: 'right' }); 
 
-    doc.autoTable({
+    // CORREÇÃO 2 de 2: A forma como chamamos a função autoTable
+    autoTable(doc, {
         startY: 65,
         head: [['Descrição do Serviço', 'Valor']],
         body: [
@@ -81,7 +73,6 @@ const generateInvoicePdf = (hospitalData: HospitalBillingData) => {
     doc.save(`fatura-${hospitalData.displayName?.replace(/\s/g, '_')}-${format(new Date(), 'MM-yyyy')}.pdf`);
 };
 
-// Definição das colunas da tabela de faturamento
 export const columns: ColumnDef<HospitalBillingData>[] = [
     { accessorKey: "displayName", header: "Hospital" },
     { accessorKey: "cnpj", header: "CNPJ" },
@@ -89,15 +80,7 @@ export const columns: ColumnDef<HospitalBillingData>[] = [
     { header: "Faturamento por Uso", cell: ({ row }) => formatCurrency(row.original.usageFee) },
     { header: "Faturamento por Plantões (Mês)", cell: ({ row }) => formatCurrency(row.original.shiftRevenue) },
     { header: "Total a Cobrar", cell: ({ row }) => <div className="font-bold text-base text-blue-600">{formatCurrency(row.original.totalBillable)}</div> },
-    {
-        id: "actions",
-        // CORREÇÃO: Restaurado o botão "Gerar Fatura" com a sua funcionalidade
-        cell: ({ row }) => (
-            <Button variant="outline" size="sm" onClick={() => generateInvoicePdf(row.original)}>
-                Gerar Fatura
-            </Button>
-        ),
-    },
+    { id: "actions", cell: ({ row }) => (<Button variant="outline" size="sm" onClick={() => generateInvoicePdf(row.original)}>Gerar Fatura</Button>),},
 ];
 
 export default function AdminBillingPage() {
@@ -111,9 +94,7 @@ export default function AdminBillingPage() {
             setIsLoading(true);
             try {
                 const settingsDoc = await getDoc(doc(db, "settings", "billing"));
-                if (!settingsDoc.exists() || !settingsDoc.data()?.feePerManagedDoctor) {
-                    throw new Error("Taxa 'feePerManagedDoctor' não encontrada nas configurações.");
-                }
+                if (!settingsDoc.exists() || !settingsDoc.data()?.feePerManagedDoctor) { throw new Error("Taxa 'feePerManagedDoctor' não encontrada nas configurações."); }
                 const rates = settingsDoc.data() as BillingRates;
                 const contractsSnapshot = await getDocs(collection(db, "contracts"));
                 const allContracts = contractsSnapshot.docs.map(d => d.data() as Contract);
@@ -128,11 +109,7 @@ export default function AdminBillingPage() {
                         const doctorsSnapshot = await getDocs(collection(db, "users", hospital.uid, "hospitalDoctors"));
                         const managedDoctorsCount = doctorsSnapshot.size;
                         const usageFee = managedDoctorsCount * rates.feePerManagedDoctor;
-                        const shiftRevenue = allContracts.filter(c => {
-                            const signatureDate = c.hospitalSignature?.signedAt?.toDate();
-                            const isBillableStatus = c.status === 'ACTIVE_SIGNED' || c.status === 'COMPLETED';
-                            return ( c.hospitalId === hospital.uid && isBillableStatus && signatureDate && signatureDate >= startOfCurrentMonth && signatureDate <= endOfCurrentMonth );
-                        }).reduce((acc, c) => acc + (c.hospitalRate - c.doctorRate), 0);
+                        const shiftRevenue = allContracts.filter(c => { const signatureDate = c.hospitalSignature?.signedAt?.toDate(); const isBillableStatus = c.status === 'ACTIVE_SIGNED' || c.status === 'COMPLETED'; return (c.hospitalId === hospital.uid && isBillableStatus && signatureDate && signatureDate >= startOfCurrentMonth && signatureDate <= endOfCurrentMonth); }).reduce((acc, c) => acc + (c.hospitalRate - c.doctorRate), 0);
                         return { ...hospital, managedDoctorsCount, usageFee, shiftRevenue, totalBillable: usageFee + shiftRevenue, };
                     })
                 );
@@ -140,12 +117,8 @@ export default function AdminBillingPage() {
                 const totalUsageFee = data.reduce((acc, h) => acc + h.usageFee, 0);
                 const totalShiftRevenue = data.reduce((acc, h) => acc + h.shiftRevenue, 0);
                 setKpis({ totalPlatformRevenue: totalUsageFee + totalShiftRevenue, totalShiftRevenue, totalUsageFee });
-            } catch (error: any) {
-                console.error("Erro no cálculo do faturamento:", error);
-                toast({ title: "Erro ao calcular faturamento", description: error.message, variant: "destructive" });
-            } finally {
-                setIsLoading(false);
-            }
+            } catch (error: any) { console.error("Erro no cálculo do faturamento:", error); toast({ title: "Erro ao calcular faturamento", description: error.message, variant: "destructive" }); }
+            finally { setIsLoading(false); }
         };
         fetchBillingData();
     }, [toast]);
