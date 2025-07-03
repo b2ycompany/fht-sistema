@@ -9,7 +9,6 @@ import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { cn, formatCurrency, formatPercentage, formatHours } from "@/lib/utils";
 import { getHospitalDashboardData, type DashboardData } from "@/lib/hospital-shift-service";
-// MUDANÇA: Usando a função genérica para consistência
 import { getContractsForHospital, signContractByHospital, type Contract } from "@/lib/contract-service"; 
 import { Loader2, AlertCircle, Users, DollarSign, TrendingUp, WalletCards, Target, Clock, Hourglass, FileSignature, ClipboardList, UserCheck, CalendarDays, RotateCcw, Briefcase } from "lucide-react";
 import { useAuth } from '@/components/auth-provider';
@@ -18,37 +17,14 @@ import ProfileStatusAlert, { type ProfileStatus } from '@/components/ui/ProfileS
 import Link from "next/link";
 import { SimpleLineChart } from "@/components/charts/SimpleLineChart";
 import { SimpleBarChart } from "@/components/charts/SimpleBarChart";
+import { ContractCard } from "@/components/shared/ContractCard"; // ADICIONADO: A importação do componente correto
 
+// --- Componentes de Estado (Loading, Empty, Error) permanecem os mesmos ---
 const LoadingState = React.memo(({ message = "Carregando..." }: { message?: string }) => ( <div className="flex flex-col items-center justify-center py-10 min-h-[150px] w-full"><Loader2 className="h-8 w-8 animate-spin text-blue-600" /><p className="mt-3 text-sm text-gray-600">{message}</p></div> ));
 const EmptyState = React.memo(({ title, message }: { title: string, message: string; }) => ( <div className="text-center text-sm text-gray-500 py-10 min-h-[150px] flex flex-col items-center justify-center bg-gray-50/70 rounded-md border border-dashed"><ClipboardList className="w-12 h-12 text-gray-400 mb-4"/><p className="font-medium text-gray-600 mb-1">{title}</p><p>{message}</p></div> ));
 const ErrorState = React.memo(({ message, onRetry }: { message: string; onRetry?: () => void }) => ( <div className="flex flex-col items-center justify-center py-10 min-h-[150px] w-full text-center text-sm text-red-600 bg-red-50/70 rounded-md border border-dashed border-red-300"><AlertCircle className="w-12 h-12 text-red-400 mb-4"/><p className="text-base font-semibold text-red-700 mb-1">Oops!</p><p>{message || "Não foi possível carregar."}</p>{onRetry && <Button variant="destructive" size="sm" onClick={onRetry} className="mt-4"><RotateCcw className="mr-2 h-4 w-4" />Tentar Novamente</Button>}</div> ));
 
-
-const ContractItem: React.FC<{ contract: Contract, onAction: () => void }> = ({ contract, onAction }) => {
-    const [isProcessing, setIsProcessing] = useState(false);
-    const { toast } = useToast();
-    const handleSign = async () => { setIsProcessing(true); try { await signContractByHospital(contract.id); toast({ title: "Contrato Assinado!", description: `O(A) Dr(a). ${contract.doctorName} foi adicionado à sua equipe.`}); onAction(); } catch (error: any) { toast({ title: "Erro ao assinar", description: error.message, variant: "destructive" }); } finally { setIsProcessing(false); } };
-    const shiftDate = contract.shiftDates[0]?.toDate()?.toLocaleDateString('pt-BR') || 'Data inválida';
-
-    return ( 
-        <Card className="border-l-4 border-indigo-500">
-            <CardHeader>
-                <CardTitle className="flex items-center gap-2"><UserCheck size={20}/> Contratação Pendente: Dr(a). {contract.doctorName || 'N/A'}</CardTitle>
-                <CardDescription>Especialidades: {contract.specialties.join(', ')}</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-2 text-sm">
-                <p className="flex items-center gap-2"><CalendarDays size={14}/> <strong>Data do Plantão:</strong> {shiftDate}</p>
-                <p className="flex items-center gap-2"><Clock size={14}/> <strong>Horário:</strong> {contract.startTime} - {contract.endTime}</p>
-                {/* MUDANÇA: Exibindo o 'hospitalRate' e corrigindo a etiqueta. */}
-                <p className="flex items-center gap-2 text-red-700 font-semibold"><DollarSign size={14}/> <strong>Seu Custo:</strong> {formatCurrency(contract.hospitalRate)}/h</p>
-                <p className="text-xs text-gray-600 mt-3 pt-3 border-t">O médico aceitou a proposta. A sua assinatura é necessária para formalizar a contratação.</p>
-            </CardContent>
-            <CardFooter className="flex justify-end">
-                <Button onClick={handleSign} disabled={isProcessing}>{isProcessing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FileSignature className="mr-2 h-4 w-4" />}Visualizar e Assinar Contrato</Button>
-            </CardFooter>
-        </Card> 
-    );
-};
+// REMOVIDO: O componente local "ContractItem" foi completamente removido daqui.
 
 const KPICard: React.FC<{ title: string; value: string | number; description?: string; icon: React.ElementType; isLoading: boolean; href?: string; }> = ({ title, value, description, icon: Icon, isLoading, href }) => {
     const cardContent = ( <Card className={cn("shadow-sm transition-shadow duration-200 min-w-0", href ? "hover:shadow-md hover:border-primary cursor-pointer" : "")}><CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2"><CardTitle className="text-sm font-medium text-gray-600 truncate pr-2">{title}</CardTitle><Icon className="h-4 w-4 text-muted-foreground shrink-0" /></CardHeader><CardContent className="pt-0 pb-3 px-3 overflow-hidden">{isLoading ? (<div className="h-8 flex items-center"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>) : (<div className={cn("font-bold text-gray-900", "text-lg md:text-xl lg:text-2xl", "leading-tight")} title={value?.toString()}>{value}</div>)}{description && !isLoading && <p className="text-xs text-muted-foreground pt-1 truncate">{description}</p>}</CardContent></Card> );
@@ -75,7 +51,6 @@ export default function HospitalDashboardPage() {
             const [profile, specificData, contracts] = await Promise.all([
                 getCurrentUserData(),
                 getHospitalDashboardData(user.uid),
-                // MUDANÇA: Usando a função genérica para buscar os contratos pendentes.
                 getContractsForHospital(['PENDING_HOSPITAL_SIGNATURE']),
             ]);
             if (profile?.role === 'hospital') setHospitalProfile(profile as HospitalProfile);
@@ -94,6 +69,20 @@ export default function HospitalDashboardPage() {
         else if (!authLoading && !user) setIsLoading(false);
     }, [user, authLoading, loadAllData]);
 
+    // ADICIONADO: Função para lidar com a assinatura a partir do dashboard.
+    const handleSignContractOnDashboard = async (contractId: string) => {
+        try {
+            await signContractByHospital(contractId);
+            toast({ title: "Contrato Assinado!", description: "O plantão foi formalizado com sucesso." });
+            // A função loadAllData já recarrega todos os dados necessários.
+            await loadAllData();
+        } catch (err: any) {
+            // O toast de erro já é tratado dentro de loadAllData, mas podemos adicionar um aqui para o caso específico da assinatura.
+            toast({ title: "Erro ao Assinar", description: (err as Error).message, variant: "destructive" });
+        }
+    };
+
+
     if (isLoading && !hospitalProfile) return <div className="p-6"><LoadingState message="A carregar dashboard..." /></div>;
     
     return (
@@ -108,6 +97,7 @@ export default function HospitalDashboardPage() {
                 </TabsList>
                 
                 <TabsContent value="overview" className="mt-4">
+                    {/* Seção de KPIs permanece a mesma */}
                     <section aria-labelledby="kpi-heading">
                         <h2 id="kpi-heading" className="sr-only">Indicadores Chave</h2>
                         <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7">
@@ -120,6 +110,7 @@ export default function HospitalDashboardPage() {
                             <KPICard title="Top Demanda (Espec.)" value={dashboardData?.kpis?.topSpecialtyDemand ?? '-'} icon={TrendingUp} isLoading={isLoading} description="Mais requisitada" />
                         </div>
                     </section>
+                     {/* Seção de Gráficos permanece a mesma */}
                     <section aria-labelledby="charts-heading" className="mt-6">
                         <h2 id="charts-heading" className="text-xl font-semibold mb-4 text-gray-700">Análises Gráficas</h2>
                         {error && (!dashboardData?.monthlyCosts || !dashboardData?.specialtyDemand) && (<ErrorState message={`Erro ao carregar dados para gráficos: ${error}`} onRetry={loadAllData} />)}
@@ -135,7 +126,17 @@ export default function HospitalDashboardPage() {
                         <CardHeader><CardTitle>Contratos Aguardando sua Assinatura</CardTitle><CardDescription>Plantões aceitos pelos médicos que precisam da sua assinatura final.</CardDescription></CardHeader>
                         <CardContent>
                             {isLoading ? <LoadingState message="A buscar contratos..." /> : error ? <ErrorState message={error} onRetry={loadAllData} /> : pendingContracts.length === 0 ? <EmptyState title="Nenhum contrato pendente" message="Quando um médico aceitar uma proposta, aparecerá aqui." /> :
-                             <div className="space-y-4">{pendingContracts.map(contract => (<ContractItem key={contract.id} contract={contract} onAction={loadAllData} />))}</div>
+                             // ALTERADO: A renderização agora usa o componente <ContractCard />
+                             <div className="space-y-4">
+                                {pendingContracts.map(contract => (
+                                    <ContractCard 
+                                        key={contract.id} 
+                                        contract={contract} 
+                                        onSign={handleSignContractOnDashboard} 
+                                        userType="hospital" 
+                                    />
+                                ))}
+                             </div>
                             }
                         </CardContent>
                     </Card>

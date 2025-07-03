@@ -1,19 +1,20 @@
 "use client";
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { useAuth } from '@/components/auth-provider';
+// REMOVIDO: a importação do useAuth não é necessária aqui, mas não causa problema.
+// import { useAuth } from '@/components/auth-provider'; 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Badge, type BadgeProps } from "@/components/ui/badge";
+import { Badge } from "@/components/ui/badge"; // REMOVIDO: type BadgeProps
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, ClipboardList, AlertTriangle, FileSignature, UserCheck, CalendarDays, Clock, DollarSign, Briefcase, RotateCcw, Edit } from 'lucide-react';
+import { Loader2, ClipboardList, AlertTriangle, RotateCcw } from 'lucide-react'; // REMOVIDOS: Ícones do ContractItem local
 import { getContractsForHospital, signContractByHospital, type Contract } from '@/lib/contract-service';
-import { formatCurrency } from '@/lib/utils';
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
-import { Timestamp } from 'firebase/firestore';
-import { cn } from '@/lib/utils';
+// REMOVIDO: importações do AlertDialog, Timestamp, cn, formatCurrency, que agora estão dentro do ContractCard
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog"; // Mantido para referência, mas não será usado diretamente aqui
+import { ContractCard } from '@/components/shared/ContractCard'; // ADICIONADO: A importação do componente correto
 
+// --- Componentes de Estado (Loading, Empty, Error) permanecem os mesmos ---
 const LoadingState = React.memo(({ message = "Carregando..." }: { message?: string }) => (
     <div className="flex flex-col items-center justify-center py-10 min-h-[150px] w-full">
         <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
@@ -40,47 +41,8 @@ const ErrorState = React.memo(({ message, onRetry }: { message: string; onRetry?
 ));
 ErrorState.displayName = 'ErrorState';
 
-const ContractItem: React.FC<{ contract: Contract, onSignClick: () => void }> = ({ contract, onSignClick }) => {
-    const shiftDate = contract.shiftDates[0]?.toDate()?.toLocaleDateString('pt-BR') || 'Data inválida';
-    const getStatusBadgeStyle = (status?: Contract['status']): { variant: BadgeProps["variant"], className: string } => {
-        switch (status) {
-            case 'PENDING_HOSPITAL_SIGNATURE': return { variant: 'secondary', className: 'bg-sky-100 text-sky-800 border-sky-300' };
-            case 'ACTIVE_SIGNED': return { variant: 'default', className: 'bg-green-100 text-green-800 border-green-300' };
-            default: return { variant: 'outline', className: 'bg-gray-100 text-gray-800 border-gray-300' };
-        }
-    };
-    const statusBadgeInfo = getStatusBadgeStyle(contract.status);
-
-    return (
-        <Card className="border-l-4 border-indigo-500 bg-white shadow-sm">
-            <CardHeader>
-                <div className="flex justify-between items-start">
-                    <CardTitle className="flex items-center gap-2 text-lg text-gray-800">
-                        <UserCheck size={20} className="text-indigo-600"/> Contrato com Dr(a). {contract.doctorName || 'N/A'}
-                    </CardTitle>
-                    <Badge variant={statusBadgeInfo.variant} className={cn("capitalize text-xs", statusBadgeInfo.className)}>
-                        {contract.status.replace(/_/g, ' ').toLowerCase()}
-                    </Badge>
-                </div>
-                <CardDescription className="flex items-center gap-2 pt-1">
-                    <Briefcase size={14} /> Especialidades: {contract.specialties.join(', ')}
-                </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-2 text-sm text-gray-700">
-                <p><CalendarDays size={14} className="inline mr-2"/><strong>Data:</strong> {shiftDate}</p>
-                <p><Clock size={14} className="inline mr-2"/><strong>Horário:</strong> {contract.startTime} - {contract.endTime}</p>
-                <p className="font-semibold text-red-700"><DollarSign size={14} className="inline mr-2"/><strong>Seu Custo:</strong> {formatCurrency(contract.hospitalRate)}/h</p>
-            </CardContent>
-            {contract.status === 'PENDING_HOSPITAL_SIGNATURE' && (
-              <CardFooter className="flex justify-end bg-gray-50 p-3">
-                  <Button size="sm" className="bg-indigo-600 hover:bg-indigo-700" onClick={onSignClick}>
-                      <Edit className="mr-2 h-4 w-4" /> Rever e Assinar Contrato
-                  </Button>
-              </CardFooter>
-            )}
-        </Card>
-    );
-}
+// REMOVIDO: O componente local "ContractItem" foi completamente removido daqui.
+// A lógica agora está centralizada no componente partilhado "ContractCard".
 
 export default function HospitalContractsPage() {
     const [activeTab, setActiveTab] = useState("pending");
@@ -88,10 +50,11 @@ export default function HospitalContractsPage() {
     const [activeContracts, setActiveContracts] = useState<Contract[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
-    
-    const [selectedContract, setSelectedContract] = useState<Contract | null>(null);
-    const [isSigning, setIsSigning] = useState(false);
     const { toast } = useToast();
+
+    // REMOVIDO: Os estados selectedContract e isSigning não são mais necessários aqui.
+    // const [selectedContract, setSelectedContract] = useState<Contract | null>(null);
+    // const [isSigning, setIsSigning] = useState(false);
 
     const fetchAllContracts = useCallback(async () => {
         setIsLoading(true);
@@ -114,26 +77,21 @@ export default function HospitalContractsPage() {
         fetchAllContracts();
     }, [fetchAllContracts]);
 
-    const handleOpenModal = (contract: Contract) => {
-        setSelectedContract(contract);
-    };
+    // REMOVIDO: A função handleOpenModal não é mais necessária.
 
-    const handleConfirmSignature = async () => {
-        if (!selectedContract) return;
-        setIsSigning(true);
+    // ALTERADO: A função de assinatura foi simplificada para corresponder à nova estrutura.
+    const handleSignContract = async (contractId: string) => {
         try {
-            await signContractByHospital(selectedContract.id);
-            toast({ title: "Contrato Assinado!", description: `O(A) Dr(a). ${selectedContract.doctorName} foi adicionado(a) à sua equipe.`});
-            setSelectedContract(null);
-            await fetchAllContracts();
-            setActiveTab('active');
+            await signContractByHospital(contractId);
+            toast({ title: "Contrato Assinado!", description: "O médico foi notificado e o plantão está confirmado." });
+            await fetchAllContracts(); // Recarrega os dados
+            setActiveTab('active'); // Muda para a aba de ativos
         } catch (error: any) {
             toast({ title: "Erro ao assinar", description: error.message, variant: "destructive" });
-        } finally {
-            setIsSigning(false);
         }
     };
     
+    // ALTERADO: A função renderContent agora usa o componente <ContractCard />
     const renderContent = (contracts: Contract[]) => {
         if (isLoading) return <LoadingState />;
         if (error) return <ErrorState message={error || ""} onRetry={fetchAllContracts} />;
@@ -141,7 +99,14 @@ export default function HospitalContractsPage() {
         
         return (
             <div className="space-y-4">
-                {contracts.map(c => <ContractItem key={c.id} contract={c} onSignClick={() => handleOpenModal(c)}/>)}
+                {contracts.map(c => (
+                    <ContractCard 
+                        key={c.id} 
+                        contract={c} 
+                        onSign={handleSignContract} 
+                        userType="hospital" 
+                    />
+                ))}
             </div>
         );
     };
@@ -162,30 +127,7 @@ export default function HospitalContractsPage() {
                 </TabsContent>
             </Tabs>
 
-            <AlertDialog open={!!selectedContract} onOpenChange={(isOpen) => { if (!isOpen) setSelectedContract(null); }}>
-                {selectedContract && (
-                    <AlertDialogContent className="max-w-4xl h-[90vh] flex flex-col">
-                        <AlertDialogHeader>
-                            <AlertDialogTitle>Revisão e Assinatura do Contrato</AlertDialogTitle>
-                            <AlertDialogDescription>
-                                Reveja o documento oficial do contrato. A sua assinatura será registada ao clicar em "Confirmar Assinatura".
-                            </AlertDialogDescription>
-                        </AlertDialogHeader>
-                        <div className="flex-grow my-4 border rounded-md overflow-hidden bg-gray-200">
-                            {selectedContract.contractPdfUrl ? 
-                              <iframe src={selectedContract.contractPdfUrl} className="w-full h-full" title="Contrato PDF"/> : 
-                              <ErrorState message="URL do documento não encontrada."/>
-                            }
-                        </div>
-                        <AlertDialogFooter>
-                            <AlertDialogCancel disabled={isSigning} onClick={() => setSelectedContract(null)}>Voltar</AlertDialogCancel>
-                            <AlertDialogAction onClick={handleConfirmSignature} disabled={isSigning || !selectedContract.contractPdfUrl} className="bg-indigo-600 hover:bg-indigo-700">
-                                {isSigning ? <Loader2 className="h-4 w-4 animate-spin" /> : "Confirmar Assinatura"}
-                            </AlertDialogAction>
-                        </AlertDialogFooter>
-                    </AlertDialogContent>
-                )}
-            </AlertDialog>
+            {/* REMOVIDO: O AlertDialog que estava aqui foi removido, pois o ContractCard agora tem o seu próprio. */}
         </div>
     );
 }
