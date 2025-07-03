@@ -35,7 +35,7 @@ export const columns: ColumnDef<HospitalBillingData>[] = [
     { header: "Faturamento por Uso", cell: ({ row }) => formatCurrency(row.original.usageFee) },
     { header: "Faturamento por Plantões (Mês)", cell: ({ row }) => formatCurrency(row.original.shiftRevenue) },
     { header: "Total a Cobrar", cell: ({ row }) => <div className="font-bold text-base text-blue-600">{formatCurrency(row.original.totalBillable)}</div> },
-    { id: "actions", cell: () => <Button variant="outline" size="sm">Gerar Fatura</Button> },
+    { id: "actions", cell: () => <Button variant="outline" size="sm">Ver Detalhes</Button> },
 ];
 
 export default function AdminBillingPage() {
@@ -48,41 +48,44 @@ export default function AdminBillingPage() {
         const fetchBillingData = async () => {
             setIsLoading(true);
             try {
-                // 1. Buscar a nova taxa de faturamento
                 const settingsDoc = await getDoc(doc(db, "settings", "billing"));
                 if (!settingsDoc.exists() || !settingsDoc.data()?.feePerManagedDoctor) {
-                    throw new Error("Taxa 'feePerManagedDoctor' não encontrada nas configurações de faturamento.");
+                    throw new Error("Taxa 'feePerManagedDoctor' não encontrada nas configurações.");
                 }
                 const rates = settingsDoc.data() as BillingRates;
 
-                // 2. Buscar todos os contratos e hospitais
                 const contractsSnapshot = await getDocs(collection(db, "contracts"));
                 const allContracts = contractsSnapshot.docs.map(d => d.data() as Contract);
+                
                 const hospitalsQuery = query(collection(db, "users"), where("role", "==", "hospital"));
                 const hospitalsSnapshot = await getDocs(hospitalsQuery);
                 const hospitalProfiles = hospitalsSnapshot.docs.map(d => ({ ...d.data(), uid: d.id } as HospitalProfile));
 
-                // 3. Calcular os dados de faturamento para cada hospital
                 const now = new Date();
                 const startOfCurrentMonth = startOfMonth(now);
                 const endOfCurrentMonth = endOfMonth(now);
 
                 const data: HospitalBillingData[] = await Promise.all(
                     hospitalProfiles.map(async (hospital) => {
-                        // Calcula a receita de Taxa por Utilização
                         const doctorsSnapshot = await getDocs(collection(db, "users", hospital.uid, "hospitalDoctors"));
                         const managedDoctorsCount = doctorsSnapshot.size;
                         const usageFee = managedDoctorsCount * rates.feePerManagedDoctor;
 
                         // Calcula a receita de Taxa por Intermediação (margem nos plantões)
                         const shiftRevenue = allContracts
-                            .filter(c => 
-                                c.hospitalId === hospital.uid &&
-                                c.status === 'COMPLETED' &&
-                                c.updatedAt &&
-                                c.updatedAt.toDate() >= startOfCurrentMonth &&
-                                c.updatedAt.toDate() <= endOfCurrentMonth
-                            )
+                            .filter(c => {
+                                // CORREÇÃO DEFINITIVA: Usando a data da assinatura do hospital
+                                const signatureDate = c.hospitalSignature?.signedAt?.toDate();
+                                const isBillableStatus = c.status === 'ACTIVE_SIGNED' || c.status === 'COMPLETED';
+
+                                return (
+                                    c.hospitalId === hospital.uid &&
+                                    isBillableStatus &&
+                                    signatureDate && // Garante que a data da assinatura exista
+                                    signatureDate >= startOfCurrentMonth &&
+                                    signatureDate <= endOfCurrentMonth
+                                );
+                            })
                             .reduce((acc, c) => acc + (c.hospitalRate - c.doctorRate), 0);
                         
                         return {
@@ -97,7 +100,6 @@ export default function AdminBillingPage() {
 
                 setBillingData(data);
 
-                // Calcular KPIs globais da plataforma
                 const totalUsageFee = data.reduce((acc, h) => acc + h.usageFee, 0);
                 const totalShiftRevenue = data.reduce((acc, h) => acc + h.shiftRevenue, 0);
                 setKpis({ 
