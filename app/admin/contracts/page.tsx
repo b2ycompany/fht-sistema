@@ -1,6 +1,10 @@
 // app/admin/contracts/page.tsx
 "use client";
 
+// Adicione estas duas linhas junto às outras importações
+import { Textarea } from "@/components/ui/textarea";
+import { cancelContractByAdmin } from "@/lib/contract-service";
+
 import * as React from "react";
 import {
     ColumnDef,
@@ -70,118 +74,110 @@ const TableEmptyState = () => (
         </TableCell>
     </TableRow>
 );
+// Cole este novo componente logo após o TableEmptyState
+const ActionCell: React.FC<{ contract: Contract }> = ({ contract }) => {
+    const [isSheetOpen, setIsSheetOpen] = React.useState(false);
+    const [isAlertOpen, setIsAlertOpen] = React.useState(false);
+    const [cancellationReason, setCancellationReason] = React.useState("");
+    const [isCancelling, setIsCancelling] = React.useState(false);
+    const { toast } = useToast();
 
+    const handleCancelContract = async () => {
+        if (!cancellationReason.trim()) {
+            toast({ title: "Motivo obrigatório", description: "Por favor, preencha o motivo do cancelamento.", variant: "destructive" });
+            return;
+        }
+        setIsCancelling(true);
+        try {
+            await cancelContractByAdmin(contract.id, cancellationReason);
+            toast({ title: "Sucesso!", description: "O contrato foi cancelado." });
+            setIsAlertOpen(false);
+        } catch (error: any) {
+            toast({ title: "Erro ao cancelar", description: error.message, variant: "destructive" });
+        } finally {
+            setIsCancelling(false);
+        }
+    };
+
+    return (
+        <Sheet open={isSheetOpen} onOpenChange={setIsSheetOpen}>
+            <AlertDialog open={isAlertOpen} onOpenChange={setIsAlertOpen}>
+                <DropdownMenu>
+                    <DropdownMenuTrigger asChild><Button variant="ghost" className="h-8 w-8 p-0"><span className="sr-only">Abrir menu</span><MoreHorizontal className="h-4 w-4" /></Button></DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                        <DropdownMenuLabel>Ações</DropdownMenuLabel>
+                        <DropdownMenuItem onClick={() => setIsSheetOpen(true)}>Ver Detalhes</DropdownMenuItem>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem className="text-red-600 focus:bg-red-50 focus:text-red-700" disabled={contract.status === 'CANCELLED' || contract.status === 'COMPLETED'} onClick={() => setIsAlertOpen(true)}>
+                            Cancelar Contrato
+                        </DropdownMenuItem>
+                    </DropdownMenuContent>
+                </DropdownMenu>
+
+                <SheetContent className="w-[400px] sm:w-[540px] overflow-y-auto">
+                    <SheetHeader>
+                        <SheetTitle>Detalhes do Contrato</SheetTitle>
+                        <SheetDescription>ID do Contrato: {contract.id}</SheetDescription>
+                    </SheetHeader>
+                    <div className="py-4 space-y-2 text-sm">
+                        <p><strong>Status:</strong> <Badge variant={contract.status === 'CANCELLED' ? 'destructive' : 'default'} className="capitalize">{contract.status.replace(/_/g, " ")}</Badge></p>
+                        <p><strong>Médico:</strong> {contract.doctorName}</p>
+                        <p><strong>Hospital:</strong> {contract.hospitalName}</p>
+                        <p><strong>Data do Plantão:</strong> {contract.shiftDates?.[0]?.toDate()?.toLocaleDateString('pt-BR') || 'N/A'}</p>
+                        <p><strong>Horário:</strong> {contract.startTime} - {contract.endTime}</p>
+                        <p><strong>Especialidades:</strong> {contract.specialties.join(", ")}</p>
+                        <p className="font-semibold pt-2 border-t mt-2">Valores</p>
+                        <p><strong>Valor Hospital:</strong> {formatCurrency(contract.hospitalRate)}/h</p>
+                        <p><strong>Valor Médico:</strong> {formatCurrency(contract.doctorRate)}/h</p>
+                        <p><strong>Margem Plataforma:</strong> {formatCurrency(contract.hospitalRate - contract.doctorRate)}/h ({contract.platformMarginPercentage}%)</p>
+                        {contract.status === 'CANCELLED' && <p className="text-red-600"><strong>Motivo do Cancelamento:</strong> {contract.cancellationReason || 'Não informado'}</p>}
+                    </div>
+                </SheetContent>
+
+                <AlertDialogContent>
+                    <AlertDialogHeader><AlertDialogTitle>Confirmar Cancelamento?</AlertDialogTitle><AlertDialogDescription>Esta ação é irreversível. O contrato será marcado como "CANCELADO".</AlertDialogDescription></AlertDialogHeader>
+                    <Textarea placeholder="Descreva o motivo do cancelamento..." value={cancellationReason} onChange={(e) => setCancellationReason(e.target.value)} />
+                    <AlertDialogFooter><AlertDialogCancel>Voltar</AlertDialogCancel><AlertDialogAction onClick={handleCancelContract} disabled={isCancelling}>{isCancelling ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null} Confirmar</AlertDialogAction></AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
+        </Sheet>
+    );
+};
 // 2. LÓGICA DA TABELA (COLUNAS E AÇÕES) - Nenhuma alteração na lógica, apenas na tipagem implícita
 
+// Substitua todo o seu bloco "export const columns" por este
 export const columns: ColumnDef<Contract>[] = [
     {
         accessorKey: "status",
         header: "Status",
         cell: ({ row }) => {
             const status = row.getValue("status") as string;
-            const variant: "default" | "secondary" | "destructive" | "outline" =
-                status === 'ACTIVE_SIGNED' ? 'default' :
-                status === 'COMPLETED' ? 'outline' :
-                status.includes('PENDING') ? 'secondary' :
-                'destructive';
-            
-            const badgeClass = 
-                status === 'ACTIVE_SIGNED' ? 'bg-green-100 text-green-800 border-green-300' :
-                status === 'COMPLETED' ? 'bg-gray-100 text-gray-800 border-gray-300' :
-                status.includes('PENDING') ? 'bg-amber-100 text-amber-800 border-amber-300' :
-                'bg-red-100 text-red-800 border-red-300';
-
-            return <Badge variant={variant} className={cn("capitalize", badgeClass)}>{status.replace(/_/g, " ").toLowerCase()}</Badge>;
+            const badgeClass = status === 'ACTIVE_SIGNED' ? 'bg-green-100 text-green-800' : status.includes('PENDING') ? 'bg-amber-100 text-amber-800' : status === 'CANCELLED' ? 'bg-red-100 text-red-800' : 'bg-gray-100 text-gray-800';
+            return <Badge variant="outline" className={cn("capitalize", badgeClass)}>{status.replace(/_/g, " ").toLowerCase()}</Badge>;
         },
     },
     {
         id: "participants",
         header: "Participantes",
-        cell: ({ row }) => {
-            const contract = row.original;
-            return (
-                <div className="flex flex-col">
-                    <span className="font-medium">{contract.doctorName}</span>
-                    <span className="text-xs text-muted-foreground">{contract.hospitalName}</span>
-                </div>
-            );
-        }
+        cell: ({ row }) => (<div className="flex flex-col"><span className="font-medium">{row.original.doctorName}</span><span className="text-xs text-muted-foreground">{row.original.hospitalName}</span></div>),
     },
     {
         accessorKey: "shiftDates",
         header: ({ column }) => <Button variant="ghost" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>Data <ArrowUpDown className="ml-2 h-4 w-4" /></Button>,
-        cell: ({ row }) => {
-            const dates = row.getValue("shiftDates") as any[];
-            const formattedDate = dates?.[0]?.toDate()?.toLocaleDateString('pt-BR') || 'N/A';
-            return <div className="font-medium">{formattedDate}</div>;
-        },
+        cell: ({ row }) => <div className="font-medium">{row.original.shiftDates?.[0]?.toDate()?.toLocaleDateString('pt-BR') || 'N/A'}</div>,
     },
     {
         id: 'values',
         header: "Valores (H/M/P)",
         cell: ({ row }) => {
             const contract = row.original;
-            const hospitalValue = formatCurrency(contract.hospitalRate);
-            const doctorValue = formatCurrency(contract.doctorRate);
-            const platformMarginValue = contract.hospitalRate - contract.doctorRate;
-            const marginValue = formatCurrency(platformMarginValue);
-            return (
-                <div className="flex flex-col text-xs">
-                    <span title={`Hospital: ${hospitalValue}/h`}>H: <strong className="text-red-600">{hospitalValue}</strong></span>
-                    <span title={`Médico: ${doctorValue}/h`}>M: <strong className="text-green-600">{doctorValue}</strong></span>
-                    <span title={`Plataforma: ${marginValue}/h`}>P: <strong>{marginValue}</strong></span>
-                </div>
-            )
+            return (<div className="flex flex-col text-xs"><span title={`Hospital: ${formatCurrency(contract.hospitalRate)}/h`}>H: <strong className="text-red-600">{formatCurrency(contract.hospitalRate)}</strong></span><span title={`Médico: ${formatCurrency(contract.doctorRate)}/h`}>M: <strong className="text-green-600">{formatCurrency(contract.doctorRate)}</strong></span><span title={`Plataforma: ${formatCurrency(contract.hospitalRate - contract.doctorRate)}/h`}>P: <strong>{formatCurrency(contract.hospitalRate - contract.doctorRate)}</strong></span></div>)
         }
     },
     {
         id: "actions",
         enableHiding: false,
-        cell: ({ row }) => {
-            const contract = row.original;
-            const handleCancelContract = () => {
-                console.log("Cancelar contrato:", contract.id);
-            };
-
-            return (
-                <Sheet>
-                    <AlertDialog>
-                        <DropdownMenu>
-                            <DropdownMenuTrigger asChild><Button variant="ghost" className="h-8 w-8 p-0"><span className="sr-only">Abrir menu</span><MoreHorizontal className="h-4 w-4" /></Button></DropdownMenuTrigger>
-                            <DropdownMenuContent align="end">
-                                <DropdownMenuLabel>Ações</DropdownMenuLabel>
-                                <SheetTrigger asChild><DropdownMenuItem>Ver Detalhes</DropdownMenuItem></SheetTrigger>
-                                <DropdownMenuSeparator />
-                                <AlertDialogTrigger asChild>
-                                    <DropdownMenuItem className="text-red-600 focus:bg-red-50 focus:text-red-700" disabled={contract.status !== 'ACTIVE_SIGNED'}>
-                                        Cancelar Contrato
-                                    </DropdownMenuItem>
-                                </AlertDialogTrigger>
-                            </DropdownMenuContent>
-                        </DropdownMenu>
-
-                        <SheetContent className="w-[400px] sm:w-[540px]">
-                            <SheetHeader>
-                                <SheetTitle>Detalhes do Contrato</SheetTitle>
-                                <SheetDescription>ID: {contract.id}</SheetDescription>
-                            </SheetHeader>
-                            <div className="py-4 space-y-4">
-                                <p><strong>Médico:</strong> {contract.doctorName}</p>
-                                <p><strong>Hospital:</strong> {contract.hospitalName}</p>
-                                <p><strong>Status:</strong> {contract.status}</p>
-                                {/* Adicione mais detalhes aqui */}
-                            </div>
-                        </SheetContent>
-                        
-                        <AlertDialogContent>
-                            <AlertDialogHeader><AlertDialogTitle>Tem a certeza?</AlertDialogTitle><AlertDialogDescription>Esta ação não pode ser desfeita. O contrato será permanentemente cancelado. Por favor, forneça um motivo.</AlertDialogDescription></AlertDialogHeader>
-                            <Input placeholder="Motivo do cancelamento..." />
-                            <AlertDialogFooter><AlertDialogCancel>Voltar</AlertDialogCancel><AlertDialogAction onClick={handleCancelContract}>Confirmar Cancelamento</AlertDialogAction></AlertDialogFooter>
-                        </AlertDialogContent>
-                    </AlertDialog>
-                </Sheet>
-            )
-        },
+        cell: ({ row }) => <ActionCell contract={row.original} />,
     },
 ];
 

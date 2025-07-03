@@ -3,7 +3,7 @@
 
 import { doc, collection, query, where, getDocs, updateDoc, serverTimestamp, Timestamp, orderBy, runTransaction } from "firebase/firestore";
 import { getFunctions, httpsCallable } from "firebase/functions";
-import { getApp } from "firebase/app"; // MUDANÇA: Importar getApp
+import { getApp } from "firebase/app"; 
 import { db, auth } from "./firebase";
 import { type DoctorProfile } from "./auth-service";
 
@@ -33,14 +33,14 @@ export interface Contract {
   status: 'PENDING_DOCTOR_SIGNATURE' | 'PENDING_HOSPITAL_SIGNATURE' | 'ACTIVE_SIGNED' | 'CANCELLED' | 'COMPLETED' | 'REJECTED';
   doctorSignature?: { signedAt: Timestamp; ipAddress?: string; };
   hospitalSignature?: { signedAt: Timestamp; signedByUID: string; };
+  cancellationReason?: string; // Adicionado para rastreabilidade
   createdAt: Timestamp;
   updatedAt: Timestamp;
 }
 
 export const generateContractAndGetUrl = async (contractId: string): Promise<string> => {
-    // MUDANÇA: Forçando a instância da função a usar a região correta
-    const app = getApp(); // Obtém a instância da app firebase já inicializada
-    const functions = getFunctions(app, 'southamerica-east1'); // Cria uma instância de functions apontada para o Brasil
+    const app = getApp();
+    const functions = getFunctions(app, 'southamerica-east1');
     const generatePdf = httpsCallable(functions, 'generateContractPdf');
     
     try {
@@ -139,4 +139,29 @@ export const signContractByHospital = async (contractId: string): Promise<void> 
             }, { merge: true });
         }
     });
+};
+
+// =======================================================================
+// NOVA FUNÇÃO ADICIONADA
+// =======================================================================
+export const cancelContractByAdmin = async (contractId: string, reason: string): Promise<void> => {
+    if (!contractId || !reason) {
+        throw new Error("ID do contrato e motivo são obrigatórios para o cancelamento.");
+    }
+    
+    const contractRef = doc(db, "contracts", contractId);
+
+    try {
+        await updateDoc(contractRef, {
+            status: 'CANCELLED',
+            cancellationReason: reason,
+            cancelledAt: serverTimestamp(),
+            updatedAt: serverTimestamp()
+        });
+        // Opcional: Adicionar lógica para reabrir a vaga (timeslot) do médico
+        // e a demanda (shiftRequirement) do hospital.
+    } catch (error) {
+        console.error("Erro ao cancelar contrato:", error);
+        throw new Error("Não foi possível atualizar o status do contrato no banco de dados.");
+    }
 };
