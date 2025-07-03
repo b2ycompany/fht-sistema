@@ -11,12 +11,13 @@ import {
   orderBy,
   writeBatch,
   getDoc,
-  // CORREÇÃO: Adicionadas as importações que faltavam
+  // IMPORTAÇÕES ATUALIZADAS
   runTransaction,
   type Transaction
 } from "firebase/firestore";
 import { db, auth } from "./firebase";
 import { type Contract } from "./contract-service"; 
+// IMPORTAÇÃO ADICIONADA
 import { sendContractReadyForDoctorEmail } from './notification-service';
 
 // A interface PotentialMatch continua igual.
@@ -72,6 +73,9 @@ export const getMatchesForBackofficeReview = async (): Promise<PotentialMatch[]>
   }
 };
 
+// =======================================================================
+// FUNÇÃO ATUALIZADA E CORRIGIDA
+// =======================================================================
 export const approveMatchAndCreateContract = async (
   matchId: string,
   negotiatedRate: number, 
@@ -87,14 +91,24 @@ export const approveMatchAndCreateContract = async (
   let emailData = { doctorEmail: '', doctorName: '', hospitalName: '' };
 
   try {
-    // CORREÇÃO: Adicionado o tipo 'Transaction' ao parâmetro
     await runTransaction(db, async (transaction: Transaction) => {
+        // PASSO 1: FAZER TODAS AS LEITURAS PRIMEIRO
         const matchDocSnap = await transaction.get(matchDocRef);
         if (!matchDocSnap.exists()) {
           throw new Error("Match não encontrado. Pode já ter sido processado.");
         }
         const matchData = matchDocSnap.data() as PotentialMatch;
         
+        const doctorDocRef = doc(db, "users", matchData.doctorId);
+        const doctorDocSnap = await transaction.get(doctorDocRef);
+        
+        emailData = {
+            doctorEmail: doctorDocSnap.data()?.email,
+            doctorName: matchData.doctorName || 'N/A',
+            hospitalName: matchData.hospitalName || 'N/A',
+        };
+
+        // PASSO 2: PREPARAR E EXECUTAR TODAS AS ESCRITAS
         const hospitalRate = matchData.offeredRateByHospital;
         const doctorRate = negotiatedRate;
         const platformMarginRate = hospitalRate - doctorRate;
@@ -104,7 +118,7 @@ export const approveMatchAndCreateContract = async (
         }
 
         const contractRef = doc(collection(db, "contracts"));
-        newContractId = contractRef.id;
+        newContractId = contractRef.id; 
 
         const newContractData: Omit<Contract, 'id'> = {
             shiftRequirementId: matchData.shiftRequirementId,
@@ -137,13 +151,6 @@ export const approveMatchAndCreateContract = async (
             updatedAt: serverTimestamp(),
             contractId: newContractId,
         });
-
-        const doctorDocSnap = await transaction.get(doc(db, "users", matchData.doctorId));
-        emailData = {
-            doctorEmail: doctorDocSnap.data()?.email,
-            doctorName: matchData.doctorName || 'N/A',
-            hospitalName: matchData.hospitalName || 'N/A',
-        };
     });
     
     console.log(`[MatchService] Match ${matchId} aprovado. CONTRATO ${newContractId} criado.`);
@@ -165,6 +172,7 @@ export const approveMatchAndCreateContract = async (
     throw new Error(`Falha ao aprovar match: ${(error as Error).message}`);
   }
 };
+
 
 export const rejectMatchByBackoffice = async (
   matchId: string,
