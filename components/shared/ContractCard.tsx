@@ -3,13 +3,23 @@
 
 import React, { useState } from 'react';
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardFooter, CardTitle } from "@/components/ui/card";
+import {
+  Card, CardContent, CardDescription, CardHeader, CardFooter, CardTitle
+} from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
 import { Timestamp } from "firebase/firestore";
-import { Edit, Loader2, CalendarDays, Clock, MapPinIcon, DollarSign, AlertTriangle, RotateCcw } from 'lucide-react';
-import { type Contract, generateContractAndGetUrl } from '@/lib/contract-service';
+import {
+  Edit, Loader2, CalendarDays, Clock, MapPinIcon, DollarSign, AlertTriangle, RotateCcw
+} from 'lucide-react';
+import {
+  type Contract,
+  generateContractAndGetUrl
+} from '@/lib/contract-service';
 import { formatCurrency } from "@/lib/utils";
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle
+} from "@/components/ui/alert-dialog";
 import { Badge, type BadgeProps } from "@/components/ui/badge";
 import { cn } from '@/lib/utils';
 
@@ -48,15 +58,7 @@ export const ContractCard: React.FC<ContractCardProps> = ({ contract, onSign, us
 
   const handleTriggerClick = async () => {
     if (userType === 'hospital') {
-      if (!contract.contractPdfUrl) {
-        toast({
-          title: "Documento não encontrado",
-          description: "O PDF do contrato ainda não foi gerado pelo médico.",
-          variant: "destructive"
-        });
-        return;
-      }
-      setPdfUrl(contract.contractPdfUrl);
+      setPdfUrl(contract.contractPdfUrl || '');
       setIsModalOpen(true);
       return;
     }
@@ -66,20 +68,13 @@ export const ContractCard: React.FC<ContractCardProps> = ({ contract, onSign, us
       if (pdfUrl) return;
 
       setIsProcessing(true);
-      toast({
-        title: "A gerar documento...",
-        description: "Por favor, aguarde."
-      });
+      toast({ title: "A gerar documento...", description: "Por favor, aguarde." });
 
       try {
         const url = await generateContractAndGetUrl(contract.id);
         setPdfUrl(url);
       } catch (error: any) {
-        toast({
-          title: "Erro ao Gerar Contrato",
-          description: error.message,
-          variant: "destructive"
-        });
+        toast({ title: "Erro ao Gerar Contrato", description: error.message, variant: "destructive" });
         setIsModalOpen(false);
       } finally {
         setIsProcessing(false);
@@ -93,11 +88,7 @@ export const ContractCard: React.FC<ContractCardProps> = ({ contract, onSign, us
       await onSign(contract.id);
       setIsModalOpen(false);
     } catch (error: any) {
-      toast({
-        title: "Erro ao Assinar",
-        description: error.message,
-        variant: "destructive"
-      });
+      toast({ title: "Erro ao Assinar", description: error.message, variant: "destructive" });
     } finally {
       setIsProcessing(false);
     }
@@ -177,7 +168,7 @@ export const ContractCard: React.FC<ContractCardProps> = ({ contract, onSign, us
                   ? <LoadingState message="A gerar documento..." />
                   : pdfUrl
                     ? <iframe src={pdfUrl} className="w-full h-full" title="Contrato PDF" />
-                    : (userType === 'hospital' && !contract.contractPdfUrl)
+                    : (userType === 'hospital')
                       ? <ErrorState message="Documento PDF ainda não foi gerado pelo médico." />
                       : <div className="flex items-center justify-center h-full"><p>Clique novamente para gerar o documento.</p></div>
                 }
