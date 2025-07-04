@@ -13,6 +13,7 @@ if (admin.apps.length === 0) { admin.initializeApp(); }
 const db = getFirestore();
 const storage = getStorage();
 
+// Interfaces (sem alteração)
 interface ShiftRequirementData {
   hospitalId: string;
   hospitalName?: string;
@@ -109,29 +110,56 @@ export const findMatchesOnShiftRequirementWrite = onDocumentWritten({ document: 
     }
     const requirement = dataAfter;
     logger.info(`INICIANDO BUSCA DE MATCHES para a Demanda: ${event.params.requirementId}`);
+    
     try {
+      // =======================================================================
+      // CORREÇÃO: A lógica da query foi reestruturada em 2 passos
+      // =======================================================================
+
+      // Passo 1: Fazer a consulta ao Firestore com apenas UM filtro de array (cidades)
       let timeSlotsQuery: Query = db.collection("doctorTimeSlots")
         .where("status", "==", "AVAILABLE")
         .where("state", "==", requirement.state)
         .where("serviceType", "==", requirement.serviceType)
-        .where("date", "in", requirement.dates)
-        .where('cities', 'array-contains-any', requirement.cities);
+        .where("date", "in", requirement.dates);
 
-      if (requirement.specialtiesRequired && requirement.specialtiesRequired.length > 0) {
-        timeSlotsQuery = timeSlotsQuery.where('specialties', 'array-contains-any', requirement.specialtiesRequired);
+      // Apenas adicionamos o filtro de cidades se ele existir
+      if (requirement.cities && requirement.cities.length > 0) {
+        timeSlotsQuery = timeSlotsQuery.where('cities', 'array-contains-any', requirement.cities);
       }
       
       const timeSlotsSnapshot = await timeSlotsQuery.get();
+      
       if (timeSlotsSnapshot.empty) {
-        logger.info(`Nenhum TimeSlot compatível encontrado para a Req ${event.params.requirementId}.`);
+        logger.info(`Nenhum TimeSlot encontrado para os critérios básicos (local, data, etc).`);
         return;
       }
-      logger.info(`[MATCHING] Encontrados ${timeSlotsSnapshot.size} candidatos para a Req ${event.params.requirementId}.`);
+      
+      // Passo 2: Filtrar os resultados em memória para a segunda condição de array (especialidades)
+      const specialtiesRequired = requirement.specialtiesRequired;
+      const finalCandidates = timeSlotsSnapshot.docs.filter(doc => {
+        if (!specialtiesRequired || specialtiesRequired.length === 0) {
+            return true; // Se a demanda não exige especialidade, todos os resultados passam
+        }
+        const timeSlotSpecialties = doc.data().specialties as string[] | undefined;
+        if (!timeSlotSpecialties || timeSlotSpecialties.length === 0) {
+            return false; // Se o médico não tem especialidade, não pode dar match com uma demanda que exige
+        }
+        // Verifica se há pelo menos uma especialidade em comum
+        return timeSlotSpecialties.some(s => specialtiesRequired.includes(s));
+      });
+
+      if (finalCandidates.length === 0) {
+        logger.info(`Nenhum candidato final após o filtro de especialidades.`);
+        return;
+      }
+      
+      logger.info(`[MATCHING] Encontrados ${finalCandidates.length} candidatos finais para a Req ${event.params.requirementId}.`);
       
       const batch = db.batch();
       let matchesCreatedCount = 0;
       
-      for (const timeSlotDoc of timeSlotsSnapshot.docs) {
+      for (const timeSlotDoc of finalCandidates) {
         const timeSlot = timeSlotDoc.data() as TimeSlotData;
 
         if (!doIntervalsOverlap(timeToMinutes(timeSlot.startTime), timeToMinutes(timeSlot.endTime), timeSlot.isOvernight, timeToMinutes(requirement.startTime), timeToMinutes(requirement.endTime), requirement.isOvernight)) {
@@ -139,6 +167,8 @@ export const findMatchesOnShiftRequirementWrite = onDocumentWritten({ document: 
         }
         
         const matchedDate = requirement.dates.find((reqDate) => reqDate.isEqual(timeSlot.date))!;
+        if (!matchedDate) continue; // Segurança extra
+
         const deterministicMatchId = `${event.params.requirementId}_${timeSlotDoc.id}_${matchedDate.seconds}`;
         const matchRef = db.collection("potentialMatches").doc(deterministicMatchId);
         
@@ -163,12 +193,14 @@ export const findMatchesOnShiftRequirementWrite = onDocumentWritten({ document: 
         batch.set(matchRef, newPotentialMatchData);
         matchesCreatedCount++;
       }
+      
       if (matchesCreatedCount > 0) {
         await batch.commit();
-        logger.info(`[SUCESSO] ${matchesCreatedCount} novo(s) PotentialMatch(es) criado(s) para a Req ${event.params.requirementId}.`);
+        logger.info(`[SUCESSO] ${matchesCreatedCount} novo(s) PotentialMatch(es) criado(s).`);
       } else {
-        logger.info(`Nenhum novo match foi criado para a Req ${event.params.requirementId} após filtros de sobreposição.`);
+        logger.info(`Nenhum novo match foi criado após todos os filtros.`);
       }
+
     } catch (error) {
       logger.error(`ERRO CRÍTICO ao processar matches para a Req ${event.params.requirementId}:`, error);
     }
