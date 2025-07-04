@@ -13,7 +13,6 @@ if (admin.apps.length === 0) { admin.initializeApp(); }
 const db = getFirestore();
 const storage = getStorage();
 
-// MUDANÇA 1 de 4: Interfaces atualizadas para 'cities'
 interface ShiftRequirementData {
   hospitalId: string;
   hospitalName?: string;
@@ -27,7 +26,7 @@ interface ShiftRequirementData {
   numberOfVacancies: number;
   status: string;
   notes?: string;
-  cities: string[]; // <-- MUDANÇA
+  cities: string[];
   state: string;
 }
 
@@ -42,7 +41,7 @@ interface TimeSlotData {
   specialties: string[];
   desiredHourlyRate: number;
   state: string;
-  cities: string[]; // <-- MUDANÇA
+  cities: string[];
   status: string;
   notes?: string;
 }
@@ -74,7 +73,7 @@ interface PotentialMatchInput {
   status: string;
   createdAt: FieldValue;
   updatedAt: FieldValue;
-  shiftCities: string[]; // <-- MUDANÇA
+  shiftCities: string[];
   shiftState: string;
 }
 
@@ -116,10 +115,7 @@ export const findMatchesOnShiftRequirementWrite = onDocumentWritten({ document: 
         .where("state", "==", requirement.state)
         .where("serviceType", "==", requirement.serviceType)
         .where("date", "in", requirement.dates)
-        // MUDANÇA 2 de 4: Agora compara a lista de cidades da demanda com a lista do médico
         .where('cities', 'array-contains-any', requirement.cities);
-      
-      // MUDANÇA 3 de 4: A linha que filtrava o valor (desiredHourlyRate <= offeredRate) foi REMOVIDA para permitir negociação.
 
       if (requirement.specialtiesRequired && requirement.specialtiesRequired.length > 0) {
         timeSlotsQuery = timeSlotsQuery.where('specialties', 'array-contains-any', requirement.specialtiesRequired);
@@ -161,7 +157,6 @@ export const findMatchesOnShiftRequirementWrite = onDocumentWritten({ document: 
           doctorTimeSlotNotes: timeSlot.notes || "", doctorDesiredRate: timeSlot.desiredHourlyRate, doctorSpecialties: timeSlot.specialties || [],
           doctorServiceType: timeSlot.serviceType, status: "PENDING_BACKOFFICE_REVIEW",
           createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp(),
-          // MUDANÇA 4 de 4: salvando a lista de cidades no match
           shiftCities: requirement.cities,
           shiftState: requirement.state,
         };
