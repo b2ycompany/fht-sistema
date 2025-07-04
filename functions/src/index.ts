@@ -1,3 +1,4 @@
+// functions/src/index.ts
 import { onDocumentWritten, onDocumentDeleted, FirestoreEvent } from "firebase-functions/v2/firestore";
 import { HttpsError, onCall, CallableRequest } from "firebase-functions/v2/https";
 import { setGlobalOptions } from "firebase-functions/v2";
@@ -12,6 +13,7 @@ if (admin.apps.length === 0) { admin.initializeApp(); }
 const db = getFirestore();
 const storage = getStorage();
 
+// Interfaces (sem alteração)
 interface ShiftRequirementData {
   hospitalId: string;
   hospitalName?: string;
@@ -76,24 +78,16 @@ interface PotentialMatchInput {
   shiftState: string;
 }
 
-setGlobalOptions({ region: "southamerica-east1", memory: "256MiB" });
+// CORREÇÃO: A região foi alterada para corresponder à sua base de dados
+setGlobalOptions({ region: "us-central1", memory: "256MiB" });
 
 const timeToMinutes = (timeStr: string): number => {
-  if (!timeStr || !timeStr.includes(":")) {
-    return 0;
-  }
+  if (!timeStr || !timeStr.includes(":")) { return 0; }
   const [hours, minutes] = timeStr.split(":").map(Number);
   return hours * 60 + minutes;
 };
 
-const doIntervalsOverlap = (
-  startA: number,
-  endA: number,
-  isOvernightA: boolean,
-  startB: number,
-  endB: number,
-  isOvernightB: boolean
-): boolean => {
+const doIntervalsOverlap = (startA: number, endA: number, isOvernightA: boolean, startB: number, endB: number, isOvernightB: boolean): boolean => {
   const effectiveEndA = isOvernightA && endA <= startA ? endA + 1440 : endA;
   const effectiveEndB = isOvernightB && endB <= startB ? endB + 1440 : endB;
   return startA < effectiveEndB && startB < effectiveEndA;
