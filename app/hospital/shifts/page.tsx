@@ -45,7 +45,7 @@ import { SimpleBarChart } from "@/components/charts/SimpleBarChart";
 
 import {
   Plus, Loader2, Users, DollarSign, Briefcase, ClipboardList, Info, Trash2, CheckCircle, History, X, CalendarDays, TrendingUp, WalletCards, MapPin, Target, Clock, Hourglass, RotateCcw, FilePenLine,
-  AlertCircle, Eye, XCircle
+  AlertCircle, Eye, XCircle, Check, ChevronsUpDown
 } from "lucide-react";
 
 type ButtonVariant = VariantProps<typeof Button>["variant"];
@@ -75,7 +75,7 @@ const AddShiftDialog: React.FC<AddShiftDialogProps> = ({ onShiftSubmitted, initi
   const [numberOfVacancies, setNumberOfVacancies] = useState<string>(String(initialData?.numberOfVacancies || "1"));
   const [requiredSpecialties, setRequiredSpecialties] = useState<string[]>(initialData?.specialtiesRequired || []);
   const [selectedState, setSelectedState] = useState<string>(initialData?.state || "");
-  const [selectedCity, setSelectedCity] = useState<string>(initialData?.city || "");
+  const [selectedCities, setSelectedCities] = useState<string[]>(initialData?.cities || []);
   const [selectedServiceType, setSelectedServiceType] = useState<string>(initialData?.serviceType || "");
   const [offeredRateInput, setOfferedRateInput] = useState<string>(String(initialData?.offeredRate || ""));
   const [notes, setNotes] = useState<string>(initialData?.notes || "");
@@ -87,20 +87,20 @@ const AddShiftDialog: React.FC<AddShiftDialogProps> = ({ onShiftSubmitted, initi
   
   const applyQuickTime = (start: string, end: string) => { setStartTime(start); setEndTime(end); };
   useEffect(() => { if (initialData?.state) { setAvailableCities(citiesByState[initialData.state] || []); } }, [initialData?.state]);
-  const resetFormFields = useCallback(() => { setDates([]); setStartTime("07:00"); setEndTime("19:00"); setNumberOfVacancies("1"); setRequiredSpecialties([]); setSpecialtySearchValue(""); setTimeError(null); setSelectedState(""); setSelectedCity(""); setAvailableCities([]); setSelectedServiceType(""); setOfferedRateInput(""); setNotes(""); }, []);
+  const resetFormFields = useCallback(() => { setDates([]); setStartTime("07:00"); setEndTime("19:00"); setNumberOfVacancies("1"); setRequiredSpecialties([]); setSpecialtySearchValue(""); setTimeError(null); setSelectedState(""); setSelectedCities([]); setAvailableCities([]); setSelectedServiceType(""); setOfferedRateInput(""); setNotes(""); }, []);
   const validateTimes = useCallback((start: string, end: string) => { if (start && end && start === end ) { setTimeError("Início não pode ser igual ao término."); } else { setTimeError(null); } }, []);
   useEffect(() => { validateTimes(startTime, endTime); }, [startTime, endTime, validateTimes]);
   useEffect(() => {
-    if (selectedState) {
-        setAvailableCities(citiesByState[selectedState] || []);
-        if (!initialData || selectedState !== initialData.state) {
-            setSelectedCity("");
-        }
-    } else {
-        setAvailableCities([]);
-        setSelectedCity("");
-    }
-  }, [selectedState, initialData]);
+  if (selectedState) {
+      setAvailableCities(citiesByState[selectedState] || []);
+      if (!initialData || selectedState !== initialData.state) {
+          setSelectedCities([]);
+      }
+  } else {
+      setAvailableCities([]);
+      setSelectedCities([]);
+  }
+}, [selectedState, initialData]);
   const handleSelectRequiredSpecialty = (specialty: string) => { if (!requiredSpecialties.includes(specialty)) setRequiredSpecialties((prev: string[]) => [...prev, specialty]); setSpecialtySearchValue(""); setSpecialtyPopoverOpen(false); };
   const handleRemoveRequiredSpecialty = (specialtyToRemove: string) => { setRequiredSpecialties((prev: string[]) => prev.filter((s: string) => s !== specialtyToRemove)); };
   const filteredSpecialties = useMemo(() => medicalSpecialties.filter(s => typeof s === 'string' && s.toLowerCase().includes(specialtySearchValue.toLowerCase()) && !requiredSpecialties.includes(s)), [specialtySearchValue, requiredSpecialties]);
@@ -113,7 +113,7 @@ const AddShiftDialog: React.FC<AddShiftDialogProps> = ({ onShiftSubmitted, initi
     if (!selectedServiceType) { toast({title:"Tipo de Atendimento Obrigatório", variant: "destructive"}); return; }
     if (isNaN(offeredRate) || offeredRate <= 0) { toast({title:"Valor Hora Inválido", variant: "destructive"}); return; }
     if (isNaN(numVacancies) || numVacancies <= 0) { toast({title:"Nº de Profissionais Inválido", variant: "destructive"}); return; }
-    if (!selectedState || !selectedCity) { toast({title:"Localização Obrigatória", variant: "destructive"}); return; }
+    if (!selectedState || selectedCities.length === 0) { toast({title:"Localização Obrigatória", description: "Selecione o estado e pelo menos uma cidade.", variant: "destructive"}); return; }
 
     setIsLoadingSubmit(true);
     const currentUser = auth.currentUser;
@@ -126,7 +126,7 @@ const AddShiftDialog: React.FC<AddShiftDialogProps> = ({ onShiftSubmitted, initi
       if (isEditing && initialData?.id) {
         const updatePayload: ShiftUpdatePayload = {
           startTime, endTime, isOvernight: isOvernightShift,
-          state: selectedState, city: selectedCity,
+          state: selectedState, cities: selectedCities,
           serviceType: selectedServiceType, specialtiesRequired: requiredSpecialties,
           offeredRate, numberOfVacancies: numVacancies,
           ...(finalNotes ? { notes: finalNotes } : { notes: "" }),
@@ -138,7 +138,7 @@ const AddShiftDialog: React.FC<AddShiftDialogProps> = ({ onShiftSubmitted, initi
         const createPayload: ShiftFormPayload = {
           publishedByUID: currentUser.uid, dates: dateTimestamps,
           startTime, endTime, isOvernight: isOvernightShift,
-          state: selectedState, city: selectedCity,
+          state: selectedState, cities: selectedCities,
           serviceType: selectedServiceType, specialtiesRequired: requiredSpecialties,
           offeredRate, numberOfVacancies: numVacancies,
           ...(finalNotes && { notes: finalNotes }),
@@ -168,7 +168,44 @@ const AddShiftDialog: React.FC<AddShiftDialogProps> = ({ onShiftSubmitted, initi
                 </div> 
             </div> 
             <div className="space-y-2"> <Label className="font-semibold text-gray-800 flex items-center"><Clock/>Horário*</Label> <div className="flex flex-wrap gap-2 mb-3"> <Button variant="outline" size="sm" onClick={() => applyQuickTime("07:00", "19:00")}>Diurno</Button> <Button variant="outline" size="sm" onClick={() => applyQuickTime("19:00", "07:00")}>Noturno</Button> <Button variant="outline" size="sm" onClick={() => applyQuickTime("08:00", "12:00")}>Manhã</Button> <Button variant="outline" size="sm" onClick={() => applyQuickTime("13:00", "18:00")}>Tarde</Button> <Button variant="outline" size="sm" onClick={() => applyQuickTime("00:00", "23:30")}>24h</Button> </div> <div className="grid grid-cols-1 sm:grid-cols-2 gap-4"> <div><Label htmlFor="sTime">Início*</Label><Select value={startTime} onValueChange={setStartTime}><SelectTrigger id="sTime" className={cn(timeError && "border-red-500")}><SelectValue/></SelectTrigger><SelectContent>{timeOptions.map(t=><SelectItem key={"s"+t} value={t}>{t}</SelectItem>)}</SelectContent></Select></div> <div><Label htmlFor="eTime">Término*</Label><Select value={endTime} onValueChange={setEndTime}><SelectTrigger id="eTime" className={cn(timeError && "border-red-500")}><SelectValue/></SelectTrigger><SelectContent>{timeOptions.map(t=><SelectItem key={"e"+t} value={t}>{t}</SelectItem>)}</SelectContent></Select></div> {timeError && <p className="text-red-600 col-span-2">{timeError}</p>} </div> </div> 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4"> <div><Label htmlFor="state-m" className="font-semibold text-gray-800 flex items-center"><MapPin/>Estado*</Label><Select value={selectedState} onValueChange={setSelectedState}><SelectTrigger id="state-m"><SelectValue placeholder="UF..."/></SelectTrigger><SelectContent>{brazilianStates.map(s=><SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent></Select></div> <div><Label htmlFor="city-m" className="font-semibold text-gray-800">Cidade*</Label><Select value={selectedCity} onValueChange={setSelectedCity} disabled={!selectedState||!availableCities.length}><SelectTrigger id="city-m"><SelectValue placeholder={!selectedState?"UF?":(!availableCities.length?"Sem cidades":"Cidade...")}/></SelectTrigger><SelectContent>{availableCities.map(c=><SelectItem key={c} value={c}>{c}</SelectItem>)}</SelectContent></Select></div> </div> 
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+    <div>
+        <Label htmlFor="state-m" className="font-semibold text-gray-800 flex items-center"><MapPin/>Estado*</Label>
+        <Select value={selectedState} onValueChange={setSelectedState}><SelectTrigger id="state-m"><SelectValue placeholder="UF..."/></SelectTrigger><SelectContent>{brazilianStates.map(s=><SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent></Select>
+    </div>
+    <div>
+        <Label htmlFor="city-m" className="font-semibold text-gray-800">Cidades*</Label>
+        <Popover>
+            <PopoverTrigger asChild>
+                <Button variant="outline" role="combobox" className="w-full justify-between font-normal h-9" disabled={!selectedState||!availableCities.length}>
+                    {selectedCities.length > 0 ? `${selectedCities.length} cidade(s) selecionada(s)` : "Selecione..."}
+                    <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-[--radix-popover-trigger-width] p-0">
+                <Command>
+                    <CommandInput placeholder="Buscar cidade..." />
+                    <CommandList>
+                        <CommandEmpty>Nenhuma cidade encontrada.</CommandEmpty>
+                        <CommandGroup>
+                            {availableCities.map((city) => (
+                                <CommandItem
+                                    key={city} value={city}
+                                    onSelect={() => {
+                                        const newSelection = selectedCities.includes(city) ? selectedCities.filter(c => c !== city) : [...selectedCities, city];
+                                        setSelectedCities(newSelection);
+                                    }}>
+                                    <Check className={cn("mr-2 h-4 w-4", selectedCities.includes(city) ? "opacity-100" : "opacity-0")}/>
+                                    {city}
+                                </CommandItem>
+                            ))}
+                        </CommandGroup>
+                    </CommandList>
+                </Command>
+            </PopoverContent>
+        </Popover>
+    </div>
+</div>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4"> <div><Label htmlFor="serv-type-m" className="font-semibold text-gray-800 flex items-center"><Briefcase/>Tipo*</Label><Select value={selectedServiceType} onValueChange={setSelectedServiceType}><SelectTrigger id="serv-type-m"><SelectValue placeholder="Selecione..."/></SelectTrigger><SelectContent>{serviceTypesOptions.map(o=><SelectItem key={o.value} value={o.value}>{o.label} <span className="text-xs text-gray-500">({formatCurrency(o.rateExample)}/h)</span></SelectItem>)}</SelectContent></Select></div> <div><Label htmlFor="rate-m" className="font-semibold text-gray-800 flex items-center"><DollarSign/>Valor/Hora (R$)*</Label><Input id="rate-m" type="number" min="1" step="any" placeholder="150.00" value={offeredRateInput} onChange={e=>setOfferedRateInput(e.target.value)}/></div> <div><Label htmlFor="vac-m" className="font-semibold text-gray-800 flex items-center"><Users/>Profissionais*</Label><Input id="vac-m" type="number" min="1" step="1" placeholder="1" value={numberOfVacancies} onChange={e=>setNumberOfVacancies(e.target.value)}/></div> </div> 
             <div className="space-y-2"> <Label className="font-semibold text-gray-800 flex items-center"><ClipboardList/>Especialidades (Opcional)</Label> <Popover open={specialtyPopoverOpen} onOpenChange={setSpecialtyPopoverOpen}><PopoverTrigger asChild><Button variant="outline" className="w-full justify-start font-normal h-9">{requiredSpecialties.length?requiredSpecialties.join(', '):"Selecione..."}</Button></PopoverTrigger><PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0"><Command><CommandInput value={specialtySearchValue} onValueChange={setSpecialtySearchValue}/><CommandList><CommandEmpty>Nenhuma.</CommandEmpty><CommandGroup>{filteredSpecialties.map(s=>(<CommandItem key={s} value={s} onSelect={()=>handleSelectRequiredSpecialty(s)}>{s}</CommandItem>))}</CommandGroup></CommandList></Command></PopoverContent></Popover> {requiredSpecialties.length > 0 && ( <div className="flex flex-wrap gap-1.5 mt-2 pt-2 border-t"> {requiredSpecialties.map((s: string)=>(<Badge key={s} variant="secondary">{s}<button type="button" onClick={()=>handleRemoveRequiredSpecialty(s)} className="ml-1.5"><X className="h-3 w-3"/></button></Badge>))} </div> )} </div> 
             <div className="space-y-1.5"> <Label htmlFor="notes-m" className="font-semibold text-gray-800 flex items-center"><Info/>Notas (Opcional)</Label> <Textarea id="notes-m" placeholder="Detalhes adicionais..." value={notes} onChange={e=>setNotes(e.target.value)}/></div> 
@@ -212,7 +249,7 @@ const ShiftListItem: React.FC<ShiftListItemProps> = React.memo(({ shift, actions
   };
   const statusBadgeInfo = getStatusBadgeProps(shift.status);
 
-  return ( <div className={cn("flex flex-col sm:flex-row items-start sm:justify-between border rounded-lg p-4 gap-x-4 gap-y-3 transition-all duration-300 bg-white shadow-xs hover:shadow-md")}> <div className="flex-1 space-y-2 min-w-0"> <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2"> <div className="flex items-center gap-2 text-sm font-semibold text-gray-800"> <CalendarDays className="h-4 w-4 shrink-0 text-blue-600" /> <span suppressHydrationWarning>{getDisplayDate()}</span> <span className="text-gray-500 font-normal">({shift.startTime} - {shift.endTime})</span> </div> <Badge variant={statusBadgeInfo.variant} className={cn("text-xs capitalize self-start sm:self-center", statusBadgeInfo.className)}> {statusLabel(shift.status)} </Badge> </div> <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1.5 text-xs text-gray-600 mt-1 pl-1"> <div className="flex items-center gap-1.5 truncate"><MapPin className="h-3.5 w-3.5 shrink-0 text-purple-500" /><span>{shift.city}, {shift.state}</span></div> <div className="flex items-center gap-1.5 truncate"><Briefcase className="h-3.5 w-3.5 shrink-0 text-cyan-500" /><span>{serviceTypeLabel}</span></div> <div className="flex items-center gap-1.5 text-green-600 font-medium"><DollarSign className="h-3.5 w-3.5 shrink-0" /><span>{formatCurrency(shift.offeredRate)}/hora</span></div> <div className="flex items-center gap-1.5 text-gray-700 font-medium"><Users className="h-3.5 w-3.5 shrink-0" /><span>{shift.numberOfVacancies ?? 1} profissional(is) por data</span></div> </div> {shift.specialtiesRequired && shift.specialtiesRequired.length > 0 && ( <div className="flex flex-wrap items-center gap-1.5 pt-1.5 pl-1"> <span className="text-xs text-gray-500 mr-1 font-medium shrink-0">Especialidades:</span> {shift.specialtiesRequired.map((s: string) => (<Badge key={s} variant="outline" className="text-gray-700 text-[11px] px-1.5 py-0.5 font-normal border-blue-200 bg-blue-50">{s}</Badge>))} </div> )} {shift.notes && ( <p className="text-xs text-gray-500 pt-1.5 pl-1 italic flex items-start gap-1.5"> <Info className="inline h-3.5 w-3.5 mr-0.5 shrink-0 relative top-0.5"/> <span className="truncate">{shift.notes}</span> </p> )} </div> {actions && actions.length > 0 && ( <div className="flex items-center space-x-1 shrink-0 mt-2 sm:mt-0 self-end sm:self-center"> {actions.map((action: any) => ( <Button key={action.label} variant={action.variant ?? "ghost"} size="icon" onClick={action.onClick} className={cn("h-8 w-8 p-0", action.className)} aria-label={action.label} disabled={action.disabled} title={action.disabled ? "Esta vaga não pode ser alterada." : action.label}> <action.icon className="h-4 w-4"/> </Button> ))} </div> )} </div> );
+  return ( <div className={cn("flex flex-col sm:flex-row items-start sm:justify-between border rounded-lg p-4 gap-x-4 gap-y-3 transition-all duration-300 bg-white shadow-xs hover:shadow-md")}> <div className="flex-1 space-y-2 min-w-0"> <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2"> <div className="flex items-center gap-2 text-sm font-semibold text-gray-800"> <CalendarDays className="h-4 w-4 shrink-0 text-blue-600" /> <span suppressHydrationWarning>{getDisplayDate()}</span> <span className="text-gray-500 font-normal">({shift.startTime} - {shift.endTime})</span> </div> <Badge variant={statusBadgeInfo.variant} className={cn("text-xs capitalize self-start sm:self-center", statusBadgeInfo.className)}> {statusLabel(shift.status)} </Badge> </div> <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1.5 text-xs text-gray-600 mt-1 pl-1"> <div className="flex items-center gap-1.5 truncate"><MapPin className="h-3.5 w-3.5 shrink-0 text-purple-500" /><span>{shift.cities.join(', ')}, {shift.state}</span></div> <div className="flex items-center gap-1.5 truncate"><Briefcase className="h-3.5 w-3.5 shrink-0 text-cyan-500" /><span>{serviceTypeLabel}</span></div> <div className="flex items-center gap-1.5 text-green-600 font-medium"><DollarSign className="h-3.5 w-3.5 shrink-0" /><span>{formatCurrency(shift.offeredRate)}/hora</span></div> <div className="flex items-center gap-1.5 text-gray-700 font-medium"><Users className="h-3.5 w-3.5 shrink-0" /><span>{shift.numberOfVacancies ?? 1} profissional(is) por data</span></div> </div> {shift.specialtiesRequired && shift.specialtiesRequired.length > 0 && ( <div className="flex flex-wrap items-center gap-1.5 pt-1.5 pl-1"> <span className="text-xs text-gray-500 mr-1 font-medium shrink-0">Especialidades:</span> {shift.specialtiesRequired.map((s: string) => (<Badge key={s} variant="outline" className="text-gray-700 text-[11px] px-1.5 py-0.5 font-normal border-blue-200 bg-blue-50">{s}</Badge>))} </div> )} {shift.notes && ( <p className="text-xs text-gray-500 pt-1.5 pl-1 italic flex items-start gap-1.5"> <Info className="inline h-3.5 w-3.5 mr-0.5 shrink-0 relative top-0.5"/> <span className="truncate">{shift.notes}</span> </p> )} </div> {actions && actions.length > 0 && ( <div className="flex items-center space-x-1 shrink-0 mt-2 sm:mt-0 self-end sm:self-center"> {actions.map((action: any) => ( <Button key={action.label} variant={action.variant ?? "ghost"} size="icon" onClick={action.onClick} className={cn("h-8 w-8 p-0", action.className)} aria-label={action.label} disabled={action.disabled} title={action.disabled ? "Esta vaga não pode ser alterada." : action.label}> <action.icon className="h-4 w-4"/> </Button> ))} </div> )} </div> );
 });
 ShiftListItem.displayName = 'ShiftListItem';
 

@@ -13,7 +13,7 @@ if (admin.apps.length === 0) { admin.initializeApp(); }
 const db = getFirestore();
 const storage = getStorage();
 
-// Interfaces (sem alteração)
+// MUDANÇA: Interfaces atualizadas para 'cities'
 interface ShiftRequirementData {
   hospitalId: string;
   hospitalName?: string;
@@ -27,7 +27,7 @@ interface ShiftRequirementData {
   numberOfVacancies: number;
   status: string;
   notes?: string;
-  city: string;
+  cities: string[]; // <-- MUDANÇA
   state: string;
 }
 
@@ -42,7 +42,7 @@ interface TimeSlotData {
   specialties: string[];
   desiredHourlyRate: number;
   state: string;
-  city: string;
+  cities: string[]; // <-- MUDANÇA
   status: string;
   notes?: string;
 }
@@ -74,11 +74,10 @@ interface PotentialMatchInput {
   status: string;
   createdAt: FieldValue;
   updatedAt: FieldValue;
-  shiftCity: string;
+  shiftCities: string[]; // <-- MUDANÇA
   shiftState: string;
 }
 
-// CORREÇÃO: A região foi alterada para corresponder à sua base de dados
 setGlobalOptions({ region: "us-central1", memory: "256MiB" });
 
 const timeToMinutes = (timeStr: string): number => {
@@ -102,44 +101,54 @@ export const findMatchesOnShiftRequirementWrite = onDocumentWritten({ document: 
     const isNewRequirement = !dataBefore;
     const statusChangedToOpen = dataBefore?.status !== 'OPEN' && dataAfter?.status === 'OPEN';
     if (!isNewRequirement && !statusChangedToOpen) {
-      logger.info(`Gatilho ignorado para Req ${event.params.requirementId} pois não é novo nem teve status alterado para OPEN.`);
+      logger.info(`Gatilho ignorado para Req ${event.params.requirementId}: não é novo nem reaberto.`);
       return;
     }
     if (dataAfter?.status !== 'OPEN') {
-        logger.info(`Gatilho ignorado para Req ${event.params.requirementId} pois o status final não é OPEN.`);
+        logger.info(`Gatilho ignorado para Req ${event.params.requirementId}: status final não é OPEN.`);
         return;
     }
     const requirement = dataAfter;
-    logger.info(`INICIANDO BUSCA DE MATCHES OTIMIZADA para a Demanda OPEN: ${event.params.requirementId}`);
+    logger.info(`INICIANDO BUSCA DE MATCHES para a Demanda: ${event.params.requirementId}`);
     try {
+      // =======================================================================
+      // MUDANÇA PRINCIPAL: Lógica da Query atualizada
+      // =======================================================================
       let timeSlotsQuery: Query = db.collection("doctorTimeSlots")
         .where("status", "==", "AVAILABLE")
         .where("state", "==", requirement.state)
-        .where("city", "==", requirement.city)
         .where("serviceType", "==", requirement.serviceType)
-        .where("desiredHourlyRate", "<=", requirement.offeredRate)
-        .where("date", "in", requirement.dates);
+        .where("date", "in", requirement.dates)
+        .where('cities', 'array-contains-any', requirement.cities);
+
       if (requirement.specialtiesRequired && requirement.specialtiesRequired.length > 0) {
         timeSlotsQuery = timeSlotsQuery.where('specialties', 'array-contains-any', requirement.specialtiesRequired);
       }
+      
       const timeSlotsSnapshot = await timeSlotsQuery.get();
       if (timeSlotsSnapshot.empty) {
         logger.info(`Nenhum TimeSlot compatível encontrado para a Req ${event.params.requirementId}.`);
         return;
       }
       logger.info(`[MATCHING] Encontrados ${timeSlotsSnapshot.size} candidatos para a Req ${event.params.requirementId}.`);
+      
       const batch = db.batch();
       let matchesCreatedCount = 0;
+      
       for (const timeSlotDoc of timeSlotsSnapshot.docs) {
         const timeSlot = timeSlotDoc.data() as TimeSlotData;
+
         if (!doIntervalsOverlap(timeToMinutes(timeSlot.startTime), timeToMinutes(timeSlot.endTime), timeSlot.isOvernight, timeToMinutes(requirement.startTime), timeToMinutes(requirement.endTime), requirement.isOvernight)) {
           continue;
         }
+        
         const matchedDate = requirement.dates.find((reqDate) => reqDate.isEqual(timeSlot.date))!;
         const deterministicMatchId = `${event.params.requirementId}_${timeSlotDoc.id}_${matchedDate.seconds}`;
         const matchRef = db.collection("potentialMatches").doc(deterministicMatchId);
+        
         const matchSnap = await matchRef.get();
         if (matchSnap.exists) { continue; }
+        
         const newPotentialMatchData: PotentialMatchInput = {
           shiftRequirementId: event.params.requirementId, hospitalId: requirement.hospitalId, hospitalName: requirement.hospitalName || "",
           originalShiftRequirementDates: requirement.dates, matchedDate: matchedDate, shiftRequirementStartTime: requirement.startTime,
@@ -148,12 +157,12 @@ export const findMatchesOnShiftRequirementWrite = onDocumentWritten({ document: 
           shiftRequirementNotes: requirement.notes || "", numberOfVacanciesInRequirement: requirement.numberOfVacancies,
           timeSlotId: timeSlotDoc.id, doctorId: timeSlot.doctorId,
           doctorName: timeSlot.doctorName ?? "", 
-          timeSlotStartTime: timeSlot.startTime,
-          timeSlotEndTime: timeSlot.endTime, timeSlotIsOvernight: timeSlot.isOvernight, doctorDesiredRate: timeSlot.desiredHourlyRate,
-          doctorSpecialties: timeSlot.specialties || [], doctorServiceType: timeSlot.serviceType, 
-          doctorTimeSlotNotes: timeSlot.notes || "", status: "PENDING_BACKOFFICE_REVIEW",
+          timeSlotStartTime: timeSlot.startTime, timeSlotEndTime: timeSlot.endTime, timeSlotIsOvernight: timeSlot.isOvernight,
+          doctorTimeSlotNotes: timeSlot.notes || "", doctorDesiredRate: timeSlot.desiredHourlyRate, doctorSpecialties: timeSlot.specialties || [],
+          doctorServiceType: timeSlot.serviceType, status: "PENDING_BACKOFFICE_REVIEW",
           createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp(), 
-          shiftCity: requirement.city, shiftState: requirement.state,
+          shiftCities: requirement.cities,
+          shiftState: requirement.state,
         };
         batch.set(matchRef, newPotentialMatchData);
         matchesCreatedCount++;
@@ -162,7 +171,7 @@ export const findMatchesOnShiftRequirementWrite = onDocumentWritten({ document: 
         await batch.commit();
         logger.info(`[SUCESSO] ${matchesCreatedCount} novo(s) PotentialMatch(es) criado(s) para a Req ${event.params.requirementId}.`);
       } else {
-        logger.info(`Nenhum novo match foi criado para a Req ${event.params.requirementId}.`);
+        logger.info(`Nenhum novo match foi criado para a Req ${event.params.requirementId} após filtros de sobreposição.`);
       }
     } catch (error) {
       logger.error(`ERRO CRÍTICO ao processar matches para a Req ${event.params.requirementId}:`, error);

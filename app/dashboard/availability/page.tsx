@@ -50,9 +50,8 @@ import {
 } from "@/lib/availability-service";
 
 import {
-  Plus, Loader2, AlertCircle, Users, DollarSign, Briefcase, ClipboardList, Info, Trash2, CheckCircle, History, X, CalendarDays, Edit3, FilePenLine, RotateCcw,
-  MapPin,
-  Clock
+  Plus, Loader2, AlertCircle, Users, DollarSign, Briefcase, ClipboardList, Info, Trash2, CheckCircle, History, X, CalendarDays, FilePenLine, RotateCcw,
+  MapPin, Clock, Check, ChevronsUpDown
 } from "lucide-react";
 
 const LoadingState = React.memo(({ message = "Carregando..." }: { message?: string }) => ( <div className="flex flex-col justify-center items-center text-center py-10 min-h-[150px] w-full"> <Loader2 className="h-8 w-8 animate-spin text-blue-600" /> <span className="ml-3 text-sm text-gray-600 mt-3">{message}</span> </div> ));
@@ -93,7 +92,7 @@ const TimeSlotListItem: React.FC<{ slot: TimeSlot; onEdit: () => void; onDelete:
           </Badge>
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1 text-xs text-gray-600 mt-1 pl-1">
-          <div className="flex items-center gap-1.5 truncate"><MapPin className="h-3.5 w-3.5 shrink-0 text-purple-500" /><span>{slot.city}, {slot.state}</span></div>
+          <div className="flex items-center gap-1.5 truncate"><MapPin className="h-3.5 w-3.5 shrink-0 text-purple-500" /><span>{slot.cities.join(', ')}, {slot.state}</span></div>
           <div className="flex items-center gap-1.5 truncate"><Briefcase className="h-3.5 w-3.5 shrink-0 text-cyan-500" /><span>{serviceTypeLabel}</span></div>
           <div className="flex items-center gap-1.5 text-green-600 font-medium sm:col-span-2"><DollarSign className="h-3.5 w-3.5 shrink-0" /><span>{formatCurrency(slot.desiredHourlyRate)}/hora (pretendido)</span></div>
         </div>
@@ -121,7 +120,7 @@ const TimeSlotFormDialog: React.FC<{ onFormSubmitted: () => void; initialData?: 
   const [desiredRateInput, setDesiredRateInput] = useState<string>(String(initialData?.desiredHourlyRate || ""));
   const [selectedSpecialties, setSelectedSpecialties] = useState<string[]>(initialData?.specialties || []);
   const [selectedState, setSelectedState] = useState<string>(initialData?.state || "");
-  const [selectedCity, setSelectedCity] = useState<string>(initialData?.city || "");
+  const [selectedCities, setSelectedCities] = useState<string[]>(initialData?.cities || []);
   const [selectedServiceType, setSelectedServiceType] = useState<string>(initialData?.serviceType || "");
   const [notes, setNotes] = useState<string>(initialData?.notes || "");
 
@@ -132,25 +131,22 @@ const TimeSlotFormDialog: React.FC<{ onFormSubmitted: () => void; initialData?: 
   const [availableCities, setAvailableCities] = useState<string[]>([]);
 
   useEffect(() => { if (initialData?.state) { setAvailableCities(citiesByState[initialData.state] || []); } }, [initialData?.state]);
-  const resetFormFields = useCallback(() => { setDates([]); setStartTime("07:00"); setEndTime("19:00"); setDesiredRateInput(""); setSelectedSpecialties([]); setSelectedState(""); setSelectedCity(""); setSelectedServiceType(""); setNotes(""); setTimeError(null); }, []);
+  const resetFormFields = useCallback(() => { setDates([]); setStartTime("07:00"); setEndTime("19:00"); setDesiredRateInput(""); setSelectedSpecialties([]); setSelectedState(""); setSelectedCities([]); setSelectedServiceType(""); setNotes(""); setTimeError(null); }, []);
   const validateTimes = useCallback((start: string, end: string) => { if (start && end && start === end) { setTimeError("Horário de início não pode ser igual ao de término."); } else { setTimeError(null); } }, []);
   useEffect(() => { validateTimes(startTime, endTime); }, [startTime, endTime, validateTimes]);
   
-  useEffect(() => {
+useEffect(() => {
     if (selectedState) {
-      if (!initialData || selectedState !== initialData.state) {
         setAvailableCities(citiesByState[selectedState] || []);
-        setSelectedCity("");
-      } else if (initialData && selectedState === initialData.state && !selectedCity) {
-        if (citiesByState[selectedState]?.includes(initialData.city)) {
-          setSelectedCity(initialData.city);
+        // Se o estado for alterado e não for o estado inicial, limpa a seleção de cidades
+        if (!initialData || selectedState !== initialData.state) {
+            setSelectedCities([]);
         }
-      }
     } else {
-      setAvailableCities([]);
-      setSelectedCity("");
+        setAvailableCities([]);
+        setSelectedCities([]);
     }
-  }, [selectedState, initialData]);
+}, [selectedState, initialData]);
 
   const handleSelectSpecialty = (specialty: string) => { if (!selectedSpecialties.includes(specialty)) setSelectedSpecialties(prev => [...prev, specialty]); setSpecialtySearchValue(""); setSpecialtyPopoverOpen(false); };
   const handleRemoveSpecialty = (specialtyToRemove: string) => { setSelectedSpecialties(prev => prev.filter(s => s !== specialtyToRemove)); };
@@ -163,7 +159,7 @@ const TimeSlotFormDialog: React.FC<{ onFormSubmitted: () => void; initialData?: 
     if (timeError) { toast({ title: "Horário Inválido", variant: "destructive" }); return; }
     if (!selectedServiceType) { toast({ title: "Tipo de Atendimento Obrigatório", variant: "destructive" }); return; }
     if (isNaN(desiredHourlyRate) || desiredHourlyRate <= 0) { toast({ title: "Valor Hora Inválido", variant: "destructive" }); return; }
-    if (!selectedState || !selectedCity) { toast({ title: "Localização Obrigatória", variant: "destructive" }); return; }
+    if (!selectedState || selectedCities.length === 0) { toast({ title: "Localização Obrigatória", description: "Selecione o estado e pelo menos uma cidade.", variant: "destructive" }); return; }
     if (selectedSpecialties.length === 0) { toast({ title: "Especialidade Obrigatória", description: "Selecione ao menos uma especialidade.", variant: "destructive" }); return; }
 
     setIsLoadingSubmit(true);
@@ -177,7 +173,7 @@ const TimeSlotFormDialog: React.FC<{ onFormSubmitted: () => void; initialData?: 
       if (isEditing && initialData?.id) {
         const payload: TimeSlotUpdatePayload = {
           startTime, endTime, isOvernight,
-          state: selectedState, city: selectedCity,
+          state: selectedState, cities: selectedCities,
           serviceType: selectedServiceType, specialties: selectedSpecialties,
           desiredHourlyRate,
           ...(finalNotes && { notes: finalNotes }),
@@ -189,7 +185,7 @@ const TimeSlotFormDialog: React.FC<{ onFormSubmitted: () => void; initialData?: 
           const slotTimestamp = Timestamp.fromDate(singleDate);
           const payload: TimeSlotFormPayload = {
             date: slotTimestamp, startTime, endTime, isOvernight,
-            state: selectedState, city: selectedCity,
+            state: selectedState, cities: selectedCities,
             serviceType: selectedServiceType, specialties: selectedSpecialties,
             desiredHourlyRate,
             ...(finalNotes && { notes: finalNotes }),
@@ -235,7 +231,42 @@ const TimeSlotFormDialog: React.FC<{ onFormSubmitted: () => void; initialData?: 
               <div className="flex flex-wrap gap-2 mb-3"><Button variant="outline" size="sm" onClick={() => applyQuickTime("07:00", "19:00")} className="text-xs">Diurno (07-19h)</Button><Button variant="outline" size="sm" onClick={() => applyQuickTime("19:00", "07:00")} className="text-xs">Noturno (19-07h)</Button><Button variant="outline" size="sm" onClick={() => applyQuickTime("08:00", "12:00")} className="text-xs">Manhã (08-12h)</Button><Button variant="outline" size="sm" onClick={() => applyQuickTime("13:00", "18:00")} className="text-xs">Tarde (13-18h)</Button></div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4"><div className="space-y-1.5"><Label htmlFor="doc-start-time">Horário de Início*</Label><Select value={startTime} onValueChange={setStartTime}><SelectTrigger id="doc-start-time" className={cn("h-9", timeError && "border-red-500 ring-1 ring-red-500")}><SelectValue/></SelectTrigger><SelectContent>{timeOptions.map(t=><SelectItem key={"dst"+t} value={t}>{t}</SelectItem>)}</SelectContent></Select></div><div className="space-y-1.5"><Label htmlFor="doc-end-time">Horário de Término*</Label><Select value={endTime} onValueChange={setEndTime}><SelectTrigger id="doc-end-time" className={cn("h-9", timeError && "border-red-500 ring-1 ring-red-500")}><SelectValue/></SelectTrigger><SelectContent>{timeOptions.map(t=><SelectItem key={"det"+t} value={t}>{t}</SelectItem>)}</SelectContent></Select></div>{timeError && <p className="text-red-600 text-xs col-span-1 sm:col-span-2">{timeError}</p>}</div>
           </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4"><div className="space-y-1.5"><Label htmlFor="doc-state" className="font-semibold text-gray-800 flex items-center"><MapPin className="h-4 w-4 mr-2 text-blue-600"/>Estado de Atuação*</Label><Select value={selectedState} onValueChange={setSelectedState}><SelectTrigger id="doc-state" className="h-9"><SelectValue placeholder="Selecione o UF..."/></SelectTrigger><SelectContent>{brazilianStates.map(s=><SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent></Select></div><div className="space-y-1.5"><Label htmlFor="doc-city" className="font-semibold text-gray-800">Cidade de Atuação*</Label><Select value={selectedCity} onValueChange={setSelectedCity} disabled={!selectedState||availableCities.length === 0}><SelectTrigger id="doc-city" className="h-9"><SelectValue placeholder={!selectedState?"Primeiro escolha o UF":(!availableCities.length?"Nenhuma cidade":"Selecione...")}/></SelectTrigger><SelectContent>{availableCities.map(c=><SelectItem key={c} value={c}>{c}</SelectItem>)} {selectedState && availableCities.length === 0 && <p className="p-2 text-xs text-gray-500">Nenhuma cidade.</p>}</SelectContent></Select></div></div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4"><div className="space-y-1.5"><Label htmlFor="doc-state" className="font-semibold text-gray-800 flex items-center"><MapPin className="h-4 w-4 mr-2 text-blue-600"/>Estado de Atuação*</Label><Select value={selectedState} onValueChange={setSelectedState}><SelectTrigger id="doc-state" className="h-9"><SelectValue placeholder="Selecione o UF..."/></SelectTrigger><SelectContent>{brazilianStates.map(s=><SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent></Select></div><div className="space-y-1.5">
+    <Label className="font-semibold text-gray-800">Cidades de Atuação*</Label>
+    <Popover>
+        <PopoverTrigger asChild>
+            <Button variant="outline" role="combobox" className="w-full justify-between font-normal h-9" disabled={!selectedState || availableCities.length === 0}>
+                {selectedCities.length > 0 ? `${selectedCities.length} cidade(s) selecionada(s)` : "Selecione as cidades..."}
+                <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+            </Button>
+        </PopoverTrigger>
+        <PopoverContent className="w-[--radix-popover-trigger-width] p-0">
+            <Command>
+                <CommandInput placeholder="Buscar cidade..." />
+                <CommandList>
+                    <CommandEmpty>Nenhuma cidade encontrada.</CommandEmpty>
+                    <CommandGroup>
+                        {availableCities.map((city) => (
+                            <CommandItem
+                                key={city}
+                                value={city}
+                                onSelect={() => {
+                                    const newSelection = selectedCities.includes(city)
+                                        ? selectedCities.filter(c => c !== city)
+                                        : [...selectedCities, city];
+                                    setSelectedCities(newSelection);
+                                }}>
+                                <Check className={cn("mr-2 h-4 w-4", selectedCities.includes(city) ? "opacity-100" : "opacity-0")}/>
+                                {city}
+                            </CommandItem>
+                        ))}
+                    </CommandGroup>
+                </CommandList>
+            </Command>
+        </PopoverContent>
+    </Popover>
+</div>
+</div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4"><div className="space-y-1.5"><Label htmlFor="doc-service-type" className="font-semibold text-gray-800 flex items-center"><Briefcase className="h-4 w-4 mr-2 text-blue-600"/>Tipo de Atendimento*</Label><Select value={selectedServiceType} onValueChange={setSelectedServiceType}><SelectTrigger id="doc-service-type" className="h-9"><SelectValue placeholder="Selecione..."/></SelectTrigger><SelectContent>{serviceTypesOptions.map(o=><SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}</SelectContent></Select></div><div className="space-y-1.5"><Label htmlFor="doc-desired-rate" className="font-semibold text-gray-800 flex items-center"><DollarSign className="h-4 w-4 mr-2 text-green-600"/>Valor Hora Pretendido (R$)*</Label><Input id="doc-desired-rate" type="number" min="0.01" step="0.01" placeholder="Ex: 100.00" value={desiredRateInput} onChange={(e)=>setDesiredRateInput(e.target.value)} className="h-9"/></div></div>
           <div className="space-y-2"><Label className="font-semibold text-gray-800 flex items-center"><ClipboardList className="h-4 w-4 mr-2 text-blue-600"/>Especialidades Atendidas* <span className="text-xs text-gray-500 ml-1 font-normal">(Selecione ao menos uma)</span></Label><Popover open={specialtyPopoverOpen} onOpenChange={setSpecialtyPopoverOpen}><PopoverTrigger asChild><Button variant="outline" className="w-full justify-start font-normal text-muted-foreground h-9 border-dashed hover:border-solid">{selectedSpecialties.length > 0 ? `Selecionadas: ${selectedSpecialties.length}` : "Clique para selecionar especialidades..."}</Button></PopoverTrigger><PopoverContent className="w-[--radix-popover-trigger-width] p-0"><Command filter={(value, search) => medicalSpecialties.find(s => s.toLowerCase() === value.toLowerCase())?.toLowerCase().includes(search.toLowerCase()) ? 1 : 0}><CommandInput placeholder="Buscar especialidade..." value={specialtySearchValue} onValueChange={setSpecialtySearchValue}/><CommandList><CommandEmpty>Nenhuma.</CommandEmpty><CommandGroup heading={`${filteredSpecialties.length} encontradas`}>{filteredSpecialties.map((s) => (<CommandItem key={s} value={s} onSelect={() => handleSelectSpecialty(s)} className="cursor-pointer hover:bg-accent">{s}</CommandItem>))}</CommandGroup></CommandList></Command></PopoverContent></Popover>{selectedSpecialties.length > 0 && ( <div className="flex flex-wrap gap-1.5 mt-2 pt-2 border-t border-dashed"> {selectedSpecialties.map((s) => ( <Badge key={s} variant="secondary" className="bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100 font-normal"> {s} <button type="button" onClick={()=>handleRemoveSpecialty(s)} className="ml-1.5 p-0.5 rounded-full outline-none focus:ring-1 focus:ring-blue-500 hover:bg-blue-200"> <X className="h-3 w-3 text-blue-600 hover:text-blue-800" /> </button> </Badge> ))} </div> )}</div>
           <div className="space-y-1.5"><Label htmlFor="doc-notes" className="font-semibold text-gray-800 flex items-center"><Info className="h-4 w-4 mr-2 text-blue-600"/>Notas Adicionais <span className="text-xs text-gray-500 ml-1 font-normal">(Opcional)</span></Label><Textarea id="doc-notes" placeholder="Ex: Preferência por plantões mais tranquilos, etc." value={notes} onChange={(e) => setNotes(e.target.value)} className="min-h-[80px]"/></div>

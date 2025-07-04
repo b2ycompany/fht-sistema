@@ -30,7 +30,7 @@ export interface ShiftRequirement {
   endTime: string;
   isOvernight: boolean;
   state: string;
-  city: string;
+  cities: string[];
   serviceType: string;
   specialtiesRequired: string[];
   offeredRate: number;

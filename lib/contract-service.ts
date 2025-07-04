@@ -33,14 +33,18 @@ export interface Contract {
   status: 'PENDING_DOCTOR_SIGNATURE' | 'PENDING_HOSPITAL_SIGNATURE' | 'ACTIVE_SIGNED' | 'CANCELLED' | 'COMPLETED' | 'REJECTED';
   doctorSignature?: { signedAt: Timestamp; ipAddress?: string; };
   hospitalSignature?: { signedAt: Timestamp; signedByUID: string; };
-  cancellationReason?: string; // Adicionado para rastreabilidade
+  cancellationReason?: string;
   createdAt: Timestamp;
   updatedAt: Timestamp;
 }
 
+// =======================================================================
+// FUNÇÃO ATUALIZADA COM A REGIÃO CORRETA
+// =======================================================================
 export const generateContractAndGetUrl = async (contractId: string): Promise<string> => {
-    const app = getApp();
-    const functions = getFunctions(app, 'southamerica-east1');
+    // CORREÇÃO: Forçando a instância da função a usar a região correta
+    const app = getApp(); 
+    const functions = getFunctions(app, 'us-central1'); // <<< AQUI ESTÁ A CORREÇÃO
     const generatePdf = httpsCallable(functions, 'generateContractPdf');
     
     try {
@@ -141,16 +145,11 @@ export const signContractByHospital = async (contractId: string): Promise<void> 
     });
 };
 
-// =======================================================================
-// NOVA FUNÇÃO ADICIONADA
-// =======================================================================
 export const cancelContractByAdmin = async (contractId: string, reason: string): Promise<void> => {
     if (!contractId || !reason) {
         throw new Error("ID do contrato e motivo são obrigatórios para o cancelamento.");
     }
-    
     const contractRef = doc(db, "contracts", contractId);
-
     try {
         await updateDoc(contractRef, {
             status: 'CANCELLED',
@@ -158,8 +157,6 @@ export const cancelContractByAdmin = async (contractId: string, reason: string):
             cancelledAt: serverTimestamp(),
             updatedAt: serverTimestamp()
         });
-        // Opcional: Adicionar lógica para reabrir a vaga (timeslot) do médico
-        // e a demanda (shiftRequirement) do hospital.
     } catch (error) {
         console.error("Erro ao cancelar contrato:", error);
         throw new Error("Não foi possível atualizar o status do contrato no banco de dados.");

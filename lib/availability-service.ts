@@ -60,7 +60,8 @@ export interface TimeSlot {
   endTime: string;
   isOvernight: boolean;
   state: string;
-  city: string;
+  // MUDANÇA: 'city' agora é 'cities' e é um array de strings.
+  cities: string[];
   serviceType: string;
   specialties: string[];
   desiredHourlyRate: number;
@@ -70,7 +71,9 @@ export interface TimeSlot {
   updatedAt: Timestamp;
 }
 
+// O TimeSlotFormPayload herda a mudança automaticamente.
 export type TimeSlotFormPayload = Omit<TimeSlot, "id" | "doctorId" | "doctorName" | "status" | "createdAt" | "updatedAt">;
+// O TimeSlotUpdatePayload também herda a mudança, permitindo atualizar a lista de cidades.
 export type TimeSlotUpdatePayload = Partial<Omit<TimeSlot, "id" | "doctorId" | "doctorName" | "date" | "status" | "createdAt">>;
 
 export const addTimeSlot = async (payload: TimeSlotFormPayload): Promise<string> => {
@@ -82,6 +85,7 @@ export const addTimeSlot = async (payload: TimeSlotFormPayload): Promise<string>
     const userProfileSnap = await getDoc(userProfileRef);
     const doctorName = (userProfileSnap.data() as DoctorProfile)?.displayName || 'Nome não informado';
 
+    // A lógica aqui não precisa mudar, pois o 'payload' já virá com o campo 'cities' do frontend.
     const docRef = await addDoc(collection(db, "doctorTimeSlots"), {
       ...payload,
       doctorId: currentUser.uid,
@@ -102,6 +106,7 @@ export const getTimeSlots = async (): Promise<TimeSlot[]> => {
   const currentUser = auth.currentUser;
   if (!currentUser) return [];
   try {
+    // A query para buscar todos os slots não precisa mudar.
     const q = query(collection(db, "doctorTimeSlots"), where("doctorId", "==", currentUser.uid), orderBy("date", "asc"));
     const querySnapshot = await getDocs(q);
     return querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as TimeSlot));
@@ -114,6 +119,7 @@ export const getTimeSlots = async (): Promise<TimeSlot[]> => {
 export const updateTimeSlot = async (slotId: string, payload: TimeSlotUpdatePayload): Promise<void> => {
   const slotRef = doc(db, "doctorTimeSlots", slotId);
   try {
+    // A lógica de update também não precisa mudar, ela aceitará o campo 'cities' no payload.
     await updateDoc(slotRef, {
       ...payload,
       updatedAt: serverTimestamp()
