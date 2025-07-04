@@ -92,7 +92,15 @@ const TimeSlotListItem: React.FC<{ slot: TimeSlot; onEdit: () => void; onDelete:
           </Badge>
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1 text-xs text-gray-600 mt-1 pl-1">
-          <div className="flex items-center gap-1.5 truncate"><MapPin className="h-3.5 w-3.5 shrink-0 text-purple-500" /><span>{slot.cities.join(', ')}, {slot.state}</span></div>
+          <div className="flex items-center gap-1.5 truncate">
+  <MapPin className="h-3.5 w-3.5 shrink-0 text-purple-500" />
+  <span>
+  {Array.isArray(slot.cities) && slot.cities.length > 0
+    ? slot.cities.join(', ')
+    : 'Cidades não informadas'}
+  , {slot.state}
+</span>
+</div>
           <div className="flex items-center gap-1.5 truncate"><Briefcase className="h-3.5 w-3.5 shrink-0 text-cyan-500" /><span>{serviceTypeLabel}</span></div>
           <div className="flex items-center gap-1.5 text-green-600 font-medium sm:col-span-2"><DollarSign className="h-3.5 w-3.5 shrink-0" /><span>{formatCurrency(slot.desiredHourlyRate)}/hora (pretendido)</span></div>
         </div>
