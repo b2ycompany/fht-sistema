@@ -17,6 +17,8 @@ import { useToast } from "@/hooks/use-toast";
 import { Badge, type BadgeProps } from "@/components/ui/badge";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { PopoverClose } from "@radix-ui/react-popover";
 
 import { cn, formatCurrency, formatPercentage, formatHours } from "@/lib/utils";
 import { auth } from "@/lib/firebase";
@@ -175,35 +177,36 @@ const AddShiftDialog: React.FC<AddShiftDialogProps> = ({ onShiftSubmitted, initi
     </div>
     <div>
         <Label htmlFor="city-m" className="font-semibold text-gray-800">Cidades*</Label>
-        <Popover>
-            <PopoverTrigger asChild>
-                <Button variant="outline" role="combobox" className="w-full justify-between font-normal h-9" disabled={!selectedState||!availableCities.length}>
-                    {selectedCities.length > 0 ? `${selectedCities.length} cidade(s) selecionada(s)` : "Selecione..."}
-                    <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                </Button>
-            </PopoverTrigger>
-            <PopoverContent className="w-[--radix-popover-trigger-width] p-0">
-                <Command>
-                    <CommandInput placeholder="Buscar cidade..." />
-                    <CommandList>
-                        <CommandEmpty>Nenhuma cidade encontrada.</CommandEmpty>
-                        <CommandGroup>
-                            {availableCities.map((city) => (
-                                <CommandItem
-                                    key={city} value={city}
-                                    onSelect={() => {
-                                        const newSelection = selectedCities.includes(city) ? selectedCities.filter(c => c !== city) : [...selectedCities, city];
-                                        setSelectedCities(newSelection);
-                                    }}>
-                                    <Check className={cn("mr-2 h-4 w-4", selectedCities.includes(city) ? "opacity-100" : "opacity-0")}/>
-                                    {city}
-                                </CommandItem>
-                            ))}
-                        </CommandGroup>
-                    </CommandList>
-                </Command>
-            </PopoverContent>
-        </Popover>
+<PopoverContent className="w-[--radix-popover-trigger-width] p-0">
+    <Command>
+        <CommandInput placeholder="Buscar cidade..." />
+        <CommandEmpty>Nenhuma cidade encontrada.</CommandEmpty>
+        <CommandList>
+            {/* Adicionado o ScrollArea para melhorar a rolagem */}
+            <ScrollArea className="h-48">
+                <CommandGroup>
+                    {availableCities.map((city) => (
+                        <CommandItem
+                            key={city} value={city}
+                            onSelect={() => {
+                                const newSelection = selectedCities.includes(city) ? selectedCities.filter(c => c !== city) : [...selectedCities, city];
+                                setSelectedCities(newSelection);
+                            }}>
+                            <Check className={cn("mr-2 h-4 w-4", selectedCities.includes(city) ? "opacity-100" : "opacity-0")}/>
+                            {city}
+                        </CommandItem>
+                    ))}
+                </CommandGroup>
+            </ScrollArea>
+        </CommandList>
+    </Command>
+    {/* Adicionado o rodapé com o botão de confirmação */}
+    <div className="p-2 border-t flex justify-end">
+        <PopoverClose asChild>
+            <Button size="sm">Confirmar</Button>
+        </PopoverClose>
+    </div>
+</PopoverContent>
     </div>
 </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4"> <div><Label htmlFor="serv-type-m" className="font-semibold text-gray-800 flex items-center"><Briefcase/>Tipo*</Label><Select value={selectedServiceType} onValueChange={setSelectedServiceType}><SelectTrigger id="serv-type-m"><SelectValue placeholder="Selecione..."/></SelectTrigger><SelectContent>{serviceTypesOptions.map(o=><SelectItem key={o.value} value={o.value}>{o.label} <span className="text-xs text-gray-500">({formatCurrency(o.rateExample)}/h)</span></SelectItem>)}</SelectContent></Select></div> <div><Label htmlFor="rate-m" className="font-semibold text-gray-800 flex items-center"><DollarSign/>Valor/Hora (R$)*</Label><Input id="rate-m" type="number" min="1" step="any" placeholder="150.00" value={offeredRateInput} onChange={e=>setOfferedRateInput(e.target.value)}/></div> <div><Label htmlFor="vac-m" className="font-semibold text-gray-800 flex items-center"><Users/>Profissionais*</Label><Input id="vac-m" type="number" min="1" step="1" placeholder="1" value={numberOfVacancies} onChange={e=>setNumberOfVacancies(e.target.value)}/></div> </div> 

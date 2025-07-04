@@ -11,14 +11,18 @@ import {
   orderBy,
   writeBatch,
   getDoc,
-  // IMPORTAÇÕES ATUALIZADAS
   runTransaction,
-  type Transaction
+  type Transaction,
+  // ADICIONADO: Importações para o chat
+  addDoc,
+  onSnapshot,
+  type Unsubscribe
 } from "firebase/firestore";
 import { db, auth } from "./firebase";
 import { type Contract } from "./contract-service"; 
-// IMPORTAÇÃO ADICIONADA
 import { sendContractReadyForDoctorEmail } from './notification-service';
+// ADICIONADO: Importação para buscar dados do perfil do utilizador logado
+import { getCurrentUserData } from "./auth-service";
 
 // A interface PotentialMatch continua igual.
 export interface PotentialMatch {
@@ -53,9 +57,10 @@ export interface PotentialMatch {
   contractId?: string;
   createdAt: Timestamp;
   updatedAt: Timestamp;
-  shiftCity?: string;
+  shiftCity?: string; // Será substituído por shiftCities
   shiftState?: string;
   doctorTimeSlotNotes?: string;
+  shiftCities?: string[]; // Suporte para multi-cidade
 }
 
 export const getMatchesForBackofficeReview = async (): Promise<PotentialMatch[]> => {
@@ -73,9 +78,6 @@ export const getMatchesForBackofficeReview = async (): Promise<PotentialMatch[]>
   }
 };
 
-// =======================================================================
-// FUNÇÃO ATUALIZADA E CORRIGIDA
-// =======================================================================
 export const approveMatchAndCreateContract = async (
   matchId: string,
   negotiatedRate: number, 
@@ -92,7 +94,6 @@ export const approveMatchAndCreateContract = async (
 
   try {
     await runTransaction(db, async (transaction: Transaction) => {
-        // PASSO 1: FAZER TODAS AS LEITURAS PRIMEIRO
         const matchDocSnap = await transaction.get(matchDocRef);
         if (!matchDocSnap.exists()) {
           throw new Error("Match não encontrado. Pode já ter sido processado.");
@@ -108,7 +109,6 @@ export const approveMatchAndCreateContract = async (
             hospitalName: matchData.hospitalName || 'N/A',
         };
 
-        // PASSO 2: PREPARAR E EXECUTAR TODAS AS ESCRITAS
         const hospitalRate = matchData.offeredRateByHospital;
         const doctorRate = negotiatedRate;
         const platformMarginRate = hospitalRate - doctorRate;
@@ -133,7 +133,7 @@ export const approveMatchAndCreateContract = async (
             isOvernight: matchData.shiftRequirementIsOvernight,
             serviceType: matchData.shiftRequirementServiceType,
             specialties: matchData.shiftRequirementSpecialties,
-            locationCity: matchData.shiftCity || 'N/A',
+            locationCity: matchData.shiftCities?.[0] || matchData.shiftCity || 'N/A', // Usando a primeira cidade da lista
             locationState: matchData.shiftState || 'N/A',
             hospitalRate, doctorRate, platformMarginRate, platformMarginPercentage,
             status: 'PENDING_DOCTOR_SIGNATURE',
@@ -196,4 +196,67 @@ export const rejectMatchByBackoffice = async (
     console.error(`Falha ao rejeitar match ${matchId}:`, error);
     throw new Error(`Falha ao rejeitar match: ${(error as Error).message}`);
   }
+};
+
+// =======================================================================
+// NOVO CÓDIGO PARA O CHAT DE NEGOCIAÇÃO
+// =======================================================================
+
+// Interface para uma mensagem de chat
+export interface ChatMessage {
+    id?: string;
+    text: string;
+    senderId: string;
+    senderName: string;
+    senderRole: 'admin' | 'doctor' | 'hospital';
+    createdAt: Timestamp;
+}
+
+/**
+ * Envia uma nova mensagem para o chat de um match específico.
+ */
+export const sendMessageInMatchChat = async (matchId: string, text: string): Promise<void> => {
+    const currentUser = auth.currentUser;
+    const userProfile = await getCurrentUserData(); 
+    
+    if (!currentUser || !userProfile) {
+        throw new Error("Utilizador não autenticado ou perfil não encontrado.");
+    }
+    if (!text.trim()) {
+        throw new Error("A mensagem não pode estar vazia.");
+    }
+
+    const chatCollectionRef = collection(db, "potentialMatches", matchId, "chat");
+
+    const messageData = {
+        text: text.trim(),
+        senderId: currentUser.uid,
+        senderName: userProfile.displayName || "Admin",
+        senderRole: userProfile.role,
+        createdAt: serverTimestamp()
+    };
+
+    await addDoc(chatCollectionRef, messageData);
+};
+
+/**
+ * Escuta em tempo real as mensagens de um chat de um match.
+ * @returns Uma função para cancelar a subscrição (unsubscribe).
+ */
+export const getMatchChatMessages = (
+    matchId: string, 
+    callback: (messages: ChatMessage[]) => void
+): Unsubscribe => {
+    const chatCollectionRef = collection(db, "potentialMatches", matchId, "chat");
+    const q = query(chatCollectionRef, orderBy("createdAt", "asc"));
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+        const messages = snapshot.docs.map(doc => ({
+            id: doc.id,
+            ...doc.data()
+        } as ChatMessage));
+        callback(messages);
+    });
+
+    return unsubscribe;
 };
