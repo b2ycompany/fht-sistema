@@ -3,27 +3,18 @@
 
 import * as React from "react";
 import { Button } from "@/components/ui/button";
-import {
-  Command,
-  CommandEmpty,
-  CommandGroup,
-  CommandInput,
-  CommandItem,
-  CommandList,
-} from "@/components/ui/command";
+import { Command, CommandInput } from "@/components/ui/command";
 import { Drawer, DrawerContent, DrawerTrigger, DrawerFooter, DrawerClose } from "@/components/ui/drawer";
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import { Check, ChevronsUpDown, X } from "lucide-react";
+import { Check, ChevronsUpDown } from "lucide-react";
 
 import { useMediaQuery } from "@/lib/hooks/use-media-query";
 import { cn } from "@/lib/utils";
 
-// Props foram atualizadas: recebemos a lista final ('selectedCities')
-// e uma função 'onConfirm' para enviar a nova lista.
 interface CitySelectorProps {
   selectedState: string;
   availableCities: string[];
@@ -39,72 +30,71 @@ export function CitySelector({
 }: CitySelectorProps) {
   const [isOpen, setIsOpen] = React.useState(false);
   const isDesktop = useMediaQuery("(min-width: 768px)");
-
-  // ESTADO INTERNO: A chave para resolver o problema do "salto".
-  // Gerencia a seleção temporariamente dentro do componente.
   const [internalSelection, setInternalSelection] = React.useState<string[]>(selectedCities);
+  const [searchTerm, setSearchTerm] = React.useState("");
 
-  // Sincroniza o estado interno com o externo sempre que o popover/drawer abrir.
   React.useEffect(() => {
     if (isOpen) {
       setInternalSelection(selectedCities);
     }
   }, [isOpen, selectedCities]);
 
-  // Atualiza a seleção interna a cada clique.
   const handleSelectCity = (city: string) => {
     setInternalSelection(prev => 
       prev.includes(city) ? prev.filter(c => c !== city) : [...prev, city]
     );
   };
-
-  // Botões de Ação para UX melhorada
-  const ActionButtons = () => (
-    <div className="p-2 border-t flex items-center justify-end gap-2">
-      <Button
-        variant="outline"
-        size="sm"
-        onClick={() => setInternalSelection([])}
-      >
-        Limpar
-      </Button>
-      <Button
-        size="sm"
-        onClick={() => {
-          onConfirm(internalSelection);
-          setIsOpen(false);
-        }}
-      >
-        Confirmar
-      </Button>
-    </div>
+  
+  const filteredCities = React.useMemo(() =>
+    availableCities.filter(city =>
+      city.toLowerCase().includes(searchTerm.toLowerCase())
+    ), [availableCities, searchTerm]
   );
 
-  // A lista de cidades pesquisável
   const CityListContent = () => (
-    <Command>
-      <CommandInput placeholder="Buscar cidade..." />
-      <CommandList className="max-h-[250px] overflow-y-auto">
-        <CommandEmpty>Nenhuma cidade encontrada.</CommandEmpty>
-        <CommandGroup>
-          {availableCities.map((city) => (
-            <CommandItem
+    <div className="p-2">
+      <Command>
+        <CommandInput 
+          value={searchTerm}
+          onValueChange={setSearchTerm}
+          placeholder="Buscar cidade..." 
+        />
+      </Command>
+      <div className="mt-2 flex justify-end h-6">
+        {internalSelection.length > 0 && (
+          <Button variant="link" size="sm" className="h-auto p-0 text-xs" onClick={() => setInternalSelection([])}>
+            Limpar seleção
+          </Button>
+        )}
+      </div>
+      {/* Esta é a mudança principal: uma div com rolagem em vez de CommandList */}
+      <div className="max-h-[240px] overflow-y-auto pr-1">
+        {filteredCities.length > 0 ? (
+          filteredCities.map(city => (
+            <button
               key={city}
-              value={city}
-              onSelect={() => handleSelectCity(city)}
+              onClick={() => handleSelectCity(city)}
+              className={cn(
+                "w-full text-left p-2 text-sm rounded-md flex items-center hover:bg-accent",
+                "focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+              )}
             >
               <Check
                 className={cn(
-                  "mr-2 h-4 w-4",
+                  "mr-2 h-4 w-4 shrink-0",
                   internalSelection.includes(city) ? "opacity-100" : "opacity-0"
                 )}
               />
-              {city}
-            </CommandItem>
-          ))}
-        </CommandGroup>
-      </CommandList>
-    </Command>
+              <span>{city}</span>
+            </button>
+          ))
+        ) : (
+          <div className="text-center text-sm text-muted-foreground py-8">
+            Nenhuma cidade encontrada.
+          </div>
+        )}
+      </div>
+    </div>
   );
 
   const triggerButtonText =
@@ -116,20 +106,24 @@ export function CitySelector({
     return (
       <Popover open={isOpen} onOpenChange={setIsOpen}>
         <PopoverTrigger asChild>
-          <Button
-            variant="outline"
-            role="combobox"
-            aria-expanded={isOpen}
-            className="w-full justify-between font-normal h-9"
-            disabled={!selectedState || availableCities.length === 0}
-          >
+          <Button variant="outline" role="combobox" aria-expanded={isOpen} className="w-full justify-between font-normal h-9">
             {triggerButtonText}
             <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
           </Button>
         </PopoverTrigger>
         <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
           <CityListContent />
-          <ActionButtons />
+          <div className="p-2 border-t flex justify-end">
+            <Button
+              size="sm"
+              onClick={() => {
+                onConfirm(internalSelection);
+                setIsOpen(false);
+              }}
+            >
+              Confirmar
+            </Button>
+          </div>
         </PopoverContent>
       </Popover>
     );
@@ -138,35 +132,28 @@ export function CitySelector({
   return (
     <Drawer open={isOpen} onOpenChange={setIsOpen}>
       <DrawerTrigger asChild>
-        <Button
-          variant="outline"
-          role="combobox"
-          aria-expanded={isOpen}
-          className="w-full justify-between font-normal h-9"
-          disabled={!selectedState || availableCities.length === 0}
-        >
-          {triggerButtonText}
-          <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+        <Button variant="outline" role="combobox" aria-expanded={isOpen} className="w-full justify-between font-normal h-9">
+            {triggerButtonText}
+            <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
         </Button>
       </DrawerTrigger>
       <DrawerContent>
-        <div className="mt-4">
+        <div className="mt-4 border-t">
           <CityListContent />
         </div>
-        <DrawerFooter className="pt-2">
-           <div className="flex w-full items-center justify-end gap-2">
-              <DrawerClose asChild>
-                <Button variant="outline">Cancelar</Button>
-              </DrawerClose>
-              <Button
-                onClick={() => {
-                  onConfirm(internalSelection);
-                  setIsOpen(false);
-                }}
-              >
-                Confirmar
-              </Button>
-           </div>
+        {/* Rodapé com UX melhorada para mobile */}
+        <DrawerFooter className="pt-2 flex-col-reverse">
+          <DrawerClose asChild>
+            <Button variant="outline">Cancelar</Button>
+          </DrawerClose>
+          <Button
+            onClick={() => {
+              onConfirm(internalSelection);
+              setIsOpen(false);
+            }}
+          >
+            Confirmar ({internalSelection.length})
+          </Button>
         </DrawerFooter>
       </DrawerContent>
     </Drawer>
