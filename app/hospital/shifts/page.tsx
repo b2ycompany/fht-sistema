@@ -185,25 +185,29 @@ const AddShiftDialog: React.FC<AddShiftDialogProps> = ({ onShiftSubmitted, initi
                                 <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
                             </Button>
                         </PopoverTrigger>
-                        <PopoverContent className="w-[--radix-popover-trigger-width] p-0">
-                            <Command>
-                                <CommandInput placeholder="Buscar cidade..." />
-                                <CommandList>
-                                    <ScrollArea className="h-48">
-                                        <CommandGroup>
-                                            {availableCities.map((city) => (
-                                                <CommandItem key={city} value={city} onSelect={() => { const newSelection = selectedCities.includes(city) ? selectedCities.filter(c => c !== city) : [...selectedCities, city]; setSelectedCities(newSelection); }}>
-                                                    <Check className={cn("mr-2 h-4 w-4", selectedCities.includes(city) ? "opacity-100" : "opacity-0")}/>{city}
-                                                </CommandItem>
-                                            ))}
-                                        </CommandGroup>
-                                    </ScrollArea>
-                                </CommandList>
-                            </Command>
-                            <div className="p-2 border-t flex justify-end">
-                                <Button size="sm" type="button" onClick={() => setCityPopoverOpen(false)}>Confirmar</Button>
-                            </div>
-                        </PopoverContent>
+<PopoverContent className="w-[--radix-popover-trigger-width] p-0">
+    <Command>
+        <CommandInput placeholder="Buscar cidade..." />
+        {/*
+          A mágica acontece aqui!
+          - Removemos o componente <ScrollArea>.
+          - Adicionamos 'max-h-[200px]' para limitar a altura da lista.
+          - Adicionamos 'overflow-y-auto' para que a barra de rolagem apareça quando necessário.
+        */}
+        <CommandList className="max-h-[200px] overflow-y-auto">
+            <CommandGroup>
+                {availableCities.map((city) => (
+                    <CommandItem key={city} value={city} onSelect={() => { const newSelection = selectedCities.includes(city) ? selectedCities.filter(c => c !== city) : [...selectedCities, city]; setSelectedCities(newSelection); }}>
+                        <Check className={cn("mr-2 h-4 w-4", selectedCities.includes(city) ? "opacity-100" : "opacity-0")}/>{city}
+                    </CommandItem>
+                ))}
+            </CommandGroup>
+        </CommandList>
+    </Command>
+    <div className="p-2 border-t flex justify-end">
+        <Button size="sm" type="button" onClick={() => setCityPopoverOpen(false)}>Confirmar</Button>
+    </div>
+</PopoverContent>
                     </Popover>
                 </div>
             </div> 
