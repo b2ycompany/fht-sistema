@@ -17,7 +17,7 @@ import { useToast } from "@/hooks/use-toast";
 import { Badge, type BadgeProps } from "@/components/ui/badge";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
-
+import { ScrollArea } from "@/components/ui/scroll-area";
 
 import { cn, formatCurrency, formatPercentage, formatHours } from "@/lib/utils";
 import { auth } from "@/lib/firebase";
@@ -45,6 +45,7 @@ import {
   Plus, Loader2, Users, DollarSign, Briefcase, ClipboardList, Info, Trash2, CheckCircle, History, X, CalendarDays, TrendingUp, WalletCards, MapPin, Target, Clock, Hourglass, RotateCcw, FilePenLine,
   AlertCircle, Eye, XCircle, Check, ChevronsUpDown
 } from "lucide-react";
+import { KPICard } from "@/components/hospital/KPICard";
 
 type ButtonVariant = VariantProps<typeof Button>["variant"];
 const timeOptions = Array.from({ length: 48 }, (_, i) => { const h = Math.floor(i/2); const m = i%2 === 0 ? "00" : "30"; return `${h.toString().padStart(2,"0")}:${m}`; });
@@ -177,7 +178,7 @@ const AddShiftDialog: React.FC<AddShiftDialogProps> = ({ onShiftSubmitted, initi
                 </div>
                 <div>
                     <Label htmlFor="city-m" className="font-semibold text-gray-800">Cidades*</Label>
-                    <Popover open={cityPopoverOpen} onOpenChange={setCityPopoverOpen}>
+                    <Popover open={cityPopoverOpen} onOpenChange={setCityPopoverOpen} modal={false}>
                         <PopoverTrigger asChild>
                             <Button variant="outline" role="combobox" className="w-full justify-between font-normal h-9" disabled={!selectedState||!availableCities.length}>
                                 {selectedCities.length > 0 ? `${selectedCities.length} cidade(s) selecionada(s)` : "Selecione..."}
@@ -187,25 +188,27 @@ const AddShiftDialog: React.FC<AddShiftDialogProps> = ({ onShiftSubmitted, initi
                         <PopoverContent className="w-[--radix-popover-trigger-width] p-0">
                             <Command>
                                 <CommandInput placeholder="Buscar cidade..." />
-   <CommandList>
-                                <CommandGroup className="max-h-48 overflow-y-auto">
-                                    {availableCities.map((city) => (
-                                        <CommandItem key={city} value={city} onSelect={() => { const newSelection = selectedCities.includes(city) ? selectedCities.filter(c => c !== city) : [...selectedCities, city]; setSelectedCities(newSelection); }}>
-                                            <Check className={cn("mr-2 h-4 w-4", selectedCities.includes(city) ? "opacity-100" : "opacity-0")}/>{city}
-                                        </CommandItem>
-                                    ))}
-                                </CommandGroup>
-                            </CommandList>
+                                <CommandList>
+                                    <ScrollArea className="h-48">
+                                        <CommandGroup>
+                                            {availableCities.map((city) => (
+                                                <CommandItem key={city} value={city} onSelect={() => { const newSelection = selectedCities.includes(city) ? selectedCities.filter(c => c !== city) : [...selectedCities, city]; setSelectedCities(newSelection); }}>
+                                                    <Check className={cn("mr-2 h-4 w-4", selectedCities.includes(city) ? "opacity-100" : "opacity-0")}/>{city}
+                                                </CommandItem>
+                                            ))}
+                                        </CommandGroup>
+                                    </ScrollArea>
+                                </CommandList>
                             </Command>
                             <div className="p-2 border-t flex justify-end">
-                                <Button size="sm" onClick={() => setCityPopoverOpen(false)}>Confirmar</Button>
+                                <Button size="sm" type="button" onClick={() => setCityPopoverOpen(false)}>Confirmar</Button>
                             </div>
                         </PopoverContent>
                     </Popover>
                 </div>
             </div> 
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4"> <div><Label htmlFor="serv-type-m" className="font-semibold text-gray-800 flex items-center"><Briefcase/>Tipo*</Label><Select value={selectedServiceType} onValueChange={setSelectedServiceType}><SelectTrigger id="serv-type-m"><SelectValue placeholder="Selecione..."/></SelectTrigger><SelectContent>{serviceTypesOptions.map(o=><SelectItem key={o.value} value={o.value}>{o.label} <span className="text-xs text-gray-500">({formatCurrency(o.rateExample)}/h)</span></SelectItem>)}</SelectContent></Select></div> <div><Label htmlFor="rate-m" className="font-semibold text-gray-800 flex items-center"><DollarSign/>Valor/Hora (R$)*</Label><Input id="rate-m" type="number" min="1" step="any" placeholder="150.00" value={offeredRateInput} onChange={e=>setOfferedRateInput(e.target.value)}/></div> <div><Label htmlFor="vac-m" className="font-semibold text-gray-800 flex items-center"><Users/>Profissionais*</Label><Input id="vac-m" type="number" min="1" step="1" placeholder="1" value={numberOfVacancies} onChange={e=>setNumberOfVacancies(e.target.value)}/></div> </div> 
-            <div className="space-y-2"> <Label className="font-semibold text-gray-800 flex items-center"><ClipboardList/>Especialidades (Opcional)</Label> <Popover open={specialtyPopoverOpen} onOpenChange={setSpecialtyPopoverOpen}><PopoverTrigger asChild><Button variant="outline" className="w-full justify-start font-normal h-9">{requiredSpecialties.length?requiredSpecialties.join(', '):"Selecione..."}</Button></PopoverTrigger><PopoverContent className="w-[--radix-popover-trigger-width)] p-0"><Command><CommandInput value={specialtySearchValue} onValueChange={setSpecialtySearchValue}/><CommandList><CommandEmpty>Nenhuma.</CommandEmpty><CommandGroup>{filteredSpecialties.map(s=>(<CommandItem key={s} value={s} onSelect={()=>handleSelectRequiredSpecialty(s)}>{s}</CommandItem>))}</CommandGroup></CommandList></Command></PopoverContent></Popover> {requiredSpecialties.length > 0 && ( <div className="flex flex-wrap gap-1.5 mt-2 pt-2 border-t"> {requiredSpecialties.map((s: string)=>(<Badge key={s} variant="secondary">{s}<button type="button" onClick={()=>handleRemoveRequiredSpecialty(s)} className="ml-1.5"><X className="h-3 w-3"/></button></Badge>))} </div> )} </div> 
+            <div className="space-y-2"> <Label className="font-semibold text-gray-800 flex items-center"><ClipboardList/>Especialidades (Opcional)</Label> <Popover open={specialtyPopoverOpen} onOpenChange={setSpecialtyPopoverOpen}><PopoverTrigger asChild><Button variant="outline" className="w-full justify-start font-normal h-9">{requiredSpecialties.length?requiredSpecialties.join(', '):"Selecione..."}</Button></PopoverTrigger><PopoverContent className="w-[--radix-popover-trigger-width] p-0"><Command><CommandInput value={specialtySearchValue} onValueChange={setSpecialtySearchValue}/><CommandList><CommandEmpty>Nenhuma.</CommandEmpty><CommandGroup>{filteredSpecialties.map(s=>(<CommandItem key={s} value={s} onSelect={()=>handleSelectRequiredSpecialty(s)}>{s}</CommandItem>))}</CommandGroup></CommandList></Command></PopoverContent></Popover> {requiredSpecialties.length > 0 && ( <div className="flex flex-wrap gap-1.5 mt-2 pt-2 border-t"> {requiredSpecialties.map((s: string)=>(<Badge key={s} variant="secondary">{s}<button type="button" onClick={()=>handleRemoveRequiredSpecialty(s)} className="ml-1.5"><X className="h-3 w-3"/></button></Badge>))} </div> )} </div> 
             <div className="space-y-1.5"> <Label htmlFor="notes-m" className="font-semibold text-gray-800 flex items-center"><Info/>Notas (Opcional)</Label> <Textarea id="notes-m" placeholder="Detalhes adicionais..." value={notes} onChange={e=>setNotes(e.target.value)}/></div> 
         </div> 
         <DialogFooter className="mt-2 pt-4 border-t bg-slate-50 -m-6 px-6 pb-4 rounded-b-lg"> 
@@ -216,12 +219,6 @@ const AddShiftDialog: React.FC<AddShiftDialogProps> = ({ onShiftSubmitted, initi
   );
 };
 AddShiftDialog.displayName = 'AddShiftDialog';
-
-interface KPICardProps { title: string; value: string | number; description?: string; icon: React.ElementType; isLoading: boolean; }
-const KPICard: React.FC<KPICardProps> = React.memo(({ title, value, description, icon: Icon, isLoading }) => {
-    return ( <Card className="shadow-sm hover:shadow-lg transition-shadow duration-300 ease-in-out min-w-0 bg-white rounded-xl border border-slate-200"> <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-1.5 pt-4 px-4"> <CardTitle className="text-[13px] font-semibold text-slate-600 truncate pr-2">{title}</CardTitle> <Icon className="h-4 w-4 text-slate-400 shrink-0" /> </CardHeader> <CardContent className="pt-0 pb-3 px-4 overflow-hidden"> {isLoading ? ( <div className="h-9 flex items-center mt-1"><Loader2 className="h-5 w-5 animate-spin text-slate-400" /></div> ) : ( <div className={cn("font-bold text-slate-800", "text-2xl lg:text-3xl", "leading-none mt-1")} title={String(value)} > {value} </div> )} {description && !isLoading && <p className="text-[11px] text-slate-500 pt-1.5 truncate">{description}</p>} </CardContent> </Card> );
-});
-KPICard.displayName = 'KPICard';
 
 interface ShiftListItemProps { shift: ShiftRequirement; actions?: { label: string; icon: React.ElementType; onClick: () => void; variant?: ButtonVariant; className?: string; disabled?: boolean }[]; }
 const ShiftListItem: React.FC<ShiftListItemProps> = React.memo(({ shift, actions }) => {

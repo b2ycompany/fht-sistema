@@ -20,6 +20,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { Badge } from "@/components/ui/badge";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { PopoverClose } from "@radix-ui/react-popover";
@@ -132,7 +133,7 @@ const TimeSlotFormDialog: React.FC<{ onFormSubmitted: () => void; initialData?: 
   const [selectedCities, setSelectedCities] = useState<string[]>(initialData?.cities || []);
   const [selectedServiceType, setSelectedServiceType] = useState<string>(initialData?.serviceType || "");
   const [notes, setNotes] = useState<string>(initialData?.notes || "");
-
+  const [cityPopoverOpen, setCityPopoverOpen] = useState(false);  
   const [isLoadingSubmit, setIsLoadingSubmit] = useState(false);
   const [specialtyPopoverOpen, setSpecialtyPopoverOpen] = useState(false);
   const [specialtySearchValue, setSpecialtySearchValue] = useState("");
@@ -242,34 +243,33 @@ useEffect(() => {
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4"><div className="space-y-1.5"><Label htmlFor="doc-state" className="font-semibold text-gray-800 flex items-center"><MapPin className="h-4 w-4 mr-2 text-blue-600"/>Estado de Atuação*</Label><Select value={selectedState} onValueChange={setSelectedState}><SelectTrigger id="doc-state" className="h-9"><SelectValue placeholder="Selecione o UF..."/></SelectTrigger><SelectContent>{brazilianStates.map(s=><SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent></Select></div><div className="space-y-1.5">
     <Label className="font-semibold text-gray-800">Cidades de Atuação*</Label>
-    <Popover>
-        <PopoverTrigger asChild>
-            <Button variant="outline" role="combobox" className="w-full justify-between font-normal h-9" disabled={!selectedState || availableCities.length === 0}>
-                {selectedCities.length > 0 ? `${selectedCities.length} cidade(s) selecionada(s)` : "Selecione as cidades..."}
-                <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-            </Button>
-        </PopoverTrigger>
- <PopoverContent className="w-[--radix-popover-trigger-width] p-0">
-    <Command>
-        <CommandInput placeholder="Buscar cidade..." />
-   <CommandList>
-                                <CommandGroup className="max-h-48 overflow-y-auto">
-                                    {availableCities.map((city) => (
-                                        <CommandItem key={city} value={city} onSelect={() => { const newSelection = selectedCities.includes(city) ? selectedCities.filter(c => c !== city) : [...selectedCities, city]; setSelectedCities(newSelection); }}>
-                                            <Check className={cn("mr-2 h-4 w-4", selectedCities.includes(city) ? "opacity-100" : "opacity-0")}/>{city}
-                                        </CommandItem>
-                                    ))}
-                                </CommandGroup>
-                            </CommandList>
-    </Command>
-    {/* Adicionado o rodapé com o botão de confirmação */}
-    <div className="p-2 border-t flex justify-end">
-        <PopoverClose asChild>
-            <Button size="sm">Confirmar</Button>
-        </PopoverClose>
-    </div>
-</PopoverContent>
-    </Popover>
+<Popover open={cityPopoverOpen} onOpenChange={setCityPopoverOpen} modal={false}>
+    <PopoverTrigger asChild>
+        <Button variant="outline" role="combobox" className="w-full justify-between font-normal h-9" disabled={!selectedState || availableCities.length === 0}>
+            {selectedCities.length > 0 ? `${selectedCities.length} cidade(s) selecionada(s)` : "Selecione as cidades..."}
+            <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+        </Button>
+    </PopoverTrigger>
+    <PopoverContent className="w-[--radix-popover-trigger-width] p-0">
+        <Command>
+            <CommandInput placeholder="Buscar cidade..." />
+            <CommandList>
+                <ScrollArea className="h-48">
+                    <CommandGroup>
+                        {availableCities.map((city) => (
+                            <CommandItem key={city} value={city} onSelect={() => { const newSelection = selectedCities.includes(city) ? selectedCities.filter(c => c !== city) : [...selectedCities, city]; setSelectedCities(newSelection); }}>
+                                <Check className={cn("mr-2 h-4 w-4", selectedCities.includes(city) ? "opacity-100" : "opacity-0")}/>{city}
+                            </CommandItem>
+                        ))}
+                    </CommandGroup>
+                </ScrollArea>
+            </CommandList>
+        </Command>
+        <div className="p-2 border-t flex justify-end">
+            <Button size="sm" type="button" onClick={() => setCityPopoverOpen(false)}>Confirmar</Button>
+        </div>
+    </PopoverContent>
+</Popover>
 </div>
 </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4"><div className="space-y-1.5"><Label htmlFor="doc-service-type" className="font-semibold text-gray-800 flex items-center"><Briefcase className="h-4 w-4 mr-2 text-blue-600"/>Tipo de Atendimento*</Label><Select value={selectedServiceType} onValueChange={setSelectedServiceType}><SelectTrigger id="doc-service-type" className="h-9"><SelectValue placeholder="Selecione..."/></SelectTrigger><SelectContent>{serviceTypesOptions.map(o=><SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}</SelectContent></Select></div><div className="space-y-1.5"><Label htmlFor="doc-desired-rate" className="font-semibold text-gray-800 flex items-center"><DollarSign className="h-4 w-4 mr-2 text-green-600"/>Valor Hora Pretendido (R$)*</Label><Input id="doc-desired-rate" type="number" min="0.01" step="0.01" placeholder="Ex: 100.00" value={desiredRateInput} onChange={(e)=>setDesiredRateInput(e.target.value)} className="h-9"/></div></div>
