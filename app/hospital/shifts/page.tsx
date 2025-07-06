@@ -18,6 +18,7 @@ import { Badge, type BadgeProps } from "@/components/ui/badge";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { CitySelector } from "@/components/ui/city-selector"; // <-- ADICIONADO IMPORT
 
 import { cn, formatCurrency, formatPercentage, formatHours } from "@/lib/utils";
 import { auth } from "@/lib/firebase";
@@ -83,7 +84,6 @@ const AddShiftDialog: React.FC<AddShiftDialogProps> = ({ onShiftSubmitted, initi
   const [specialtySearchValue, setSpecialtySearchValue] = useState("");
   const [timeError, setTimeError] = useState<string | null>(null);
   const [availableCities, setAvailableCities] = useState<string[]>([]);
-  const [cityPopoverOpen, setCityPopoverOpen] = useState(false);
   
   const applyQuickTime = (start: string, end: string) => { setStartTime(start); setEndTime(end); };
 
@@ -178,37 +178,13 @@ const AddShiftDialog: React.FC<AddShiftDialogProps> = ({ onShiftSubmitted, initi
                 </div>
                 <div>
                     <Label htmlFor="city-m" className="font-semibold text-gray-800">Cidades*</Label>
-                    <Popover open={cityPopoverOpen} onOpenChange={setCityPopoverOpen} modal={false}>
-                        <PopoverTrigger asChild>
-                            <Button variant="outline" role="combobox" className="w-full justify-between font-normal h-9" disabled={!selectedState||!availableCities.length}>
-                                {selectedCities.length > 0 ? `${selectedCities.length} cidade(s) selecionada(s)` : "Selecione..."}
-                                <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                            </Button>
-                        </PopoverTrigger>
-<PopoverContent className="w-[--radix-popover-trigger-width] p-0">
-    <Command>
-        <CommandInput placeholder="Buscar cidade..." />
-        {/*
-          A mágica acontece aqui!
-          - Removemos o componente <ScrollArea>.
-          - Adicionamos 'max-h-[200px]' para limitar a altura da lista.
-          - Adicionamos 'overflow-y-auto' para que a barra de rolagem apareça quando necessário.
-        */}
-        <CommandList className="max-h-[200px] overflow-y-auto">
-            <CommandGroup>
-                {availableCities.map((city) => (
-                    <CommandItem key={city} value={city} onSelect={() => { const newSelection = selectedCities.includes(city) ? selectedCities.filter(c => c !== city) : [...selectedCities, city]; setSelectedCities(newSelection); }}>
-                        <Check className={cn("mr-2 h-4 w-4", selectedCities.includes(city) ? "opacity-100" : "opacity-0")}/>{city}
-                    </CommandItem>
-                ))}
-            </CommandGroup>
-        </CommandList>
-    </Command>
-    <div className="p-2 border-t flex justify-end">
-        <Button size="sm" type="button" onClick={() => setCityPopoverOpen(false)}>Confirmar</Button>
-    </div>
-</PopoverContent>
-                    </Popover>
+                    {/* CÓDIGO ANTIGO REMOVIDO E SUBSTITUÍDO */}
+                    <CitySelector
+                      selectedState={selectedState}
+                      availableCities={availableCities}
+                      selectedCities={selectedCities}
+                      setSelectedCities={setSelectedCities}
+                    />
                 </div>
             </div> 
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4"> <div><Label htmlFor="serv-type-m" className="font-semibold text-gray-800 flex items-center"><Briefcase/>Tipo*</Label><Select value={selectedServiceType} onValueChange={setSelectedServiceType}><SelectTrigger id="serv-type-m"><SelectValue placeholder="Selecione..."/></SelectTrigger><SelectContent>{serviceTypesOptions.map(o=><SelectItem key={o.value} value={o.value}>{o.label} <span className="text-xs text-gray-500">({formatCurrency(o.rateExample)}/h)</span></SelectItem>)}</SelectContent></Select></div> <div><Label htmlFor="rate-m" className="font-semibold text-gray-800 flex items-center"><DollarSign/>Valor/Hora (R$)*</Label><Input id="rate-m" type="number" min="1" step="any" placeholder="150.00" value={offeredRateInput} onChange={e=>setOfferedRateInput(e.target.value)}/></div> <div><Label htmlFor="vac-m" className="font-semibold text-gray-800 flex items-center"><Users/>Profissionais*</Label><Input id="vac-m" type="number" min="1" step="1" placeholder="1" value={numberOfVacancies} onChange={e=>setNumberOfVacancies(e.target.value)}/></div> </div> 

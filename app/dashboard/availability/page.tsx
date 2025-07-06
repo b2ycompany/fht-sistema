@@ -34,6 +34,7 @@ import {
     DialogTitle,
     DialogTrigger
 } from "@/components/ui/dialog";
+import { CitySelector } from "@/components/ui/city-selector"; // <-- ADICIONADO IMPORT
 
 import { cn, formatCurrency } from "@/lib/utils";
 import { Timestamp } from "firebase/firestore";
@@ -133,7 +134,6 @@ const TimeSlotFormDialog: React.FC<{ onFormSubmitted: () => void; initialData?: 
   const [selectedCities, setSelectedCities] = useState<string[]>(initialData?.cities || []);
   const [selectedServiceType, setSelectedServiceType] = useState<string>(initialData?.serviceType || "");
   const [notes, setNotes] = useState<string>(initialData?.notes || "");
-  const [cityPopoverOpen, setCityPopoverOpen] = useState(false);  
   const [isLoadingSubmit, setIsLoadingSubmit] = useState(false);
   const [specialtyPopoverOpen, setSpecialtyPopoverOpen] = useState(false);
   const [specialtySearchValue, setSpecialtySearchValue] = useState("");
@@ -145,18 +145,17 @@ const TimeSlotFormDialog: React.FC<{ onFormSubmitted: () => void; initialData?: 
   const validateTimes = useCallback((start: string, end: string) => { if (start && end && start === end) { setTimeError("Horário de início não pode ser igual ao de término."); } else { setTimeError(null); } }, []);
   useEffect(() => { validateTimes(startTime, endTime); }, [startTime, endTime, validateTimes]);
   
-useEffect(() => {
-    if (selectedState) {
-        setAvailableCities(citiesByState[selectedState] || []);
-        // Se o estado for alterado e não for o estado inicial, limpa a seleção de cidades
-        if (!initialData || selectedState !== initialData.state) {
-            setSelectedCities([]);
-        }
-    } else {
-        setAvailableCities([]);
-        setSelectedCities([]);
-    }
-}, [selectedState, initialData]);
+  useEffect(() => {
+      if (selectedState) {
+          setAvailableCities(citiesByState[selectedState] || []);
+          if (!initialData || selectedState !== initialData.state) {
+              setSelectedCities([]);
+          }
+      } else {
+          setAvailableCities([]);
+          setSelectedCities([]);
+      }
+  }, [selectedState, initialData]);
 
   const handleSelectSpecialty = (specialty: string) => { if (!selectedSpecialties.includes(specialty)) setSelectedSpecialties(prev => [...prev, specialty]); setSpecialtySearchValue(""); setSpecialtyPopoverOpen(false); };
   const handleRemoveSpecialty = (specialtyToRemove: string) => { setSelectedSpecialties(prev => prev.filter(s => s !== specialtyToRemove)); };
@@ -241,38 +240,22 @@ useEffect(() => {
               <div className="flex flex-wrap gap-2 mb-3"><Button variant="outline" size="sm" onClick={() => applyQuickTime("07:00", "19:00")} className="text-xs">Diurno (07-19h)</Button><Button variant="outline" size="sm" onClick={() => applyQuickTime("19:00", "07:00")} className="text-xs">Noturno (19-07h)</Button><Button variant="outline" size="sm" onClick={() => applyQuickTime("08:00", "12:00")} className="text-xs">Manhã (08-12h)</Button><Button variant="outline" size="sm" onClick={() => applyQuickTime("13:00", "18:00")} className="text-xs">Tarde (13-18h)</Button></div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4"><div className="space-y-1.5"><Label htmlFor="doc-start-time">Horário de Início*</Label><Select value={startTime} onValueChange={setStartTime}><SelectTrigger id="doc-start-time" className={cn("h-9", timeError && "border-red-500 ring-1 ring-red-500")}><SelectValue/></SelectTrigger><SelectContent>{timeOptions.map(t=><SelectItem key={"dst"+t} value={t}>{t}</SelectItem>)}</SelectContent></Select></div><div className="space-y-1.5"><Label htmlFor="doc-end-time">Horário de Término*</Label><Select value={endTime} onValueChange={setEndTime}><SelectTrigger id="doc-end-time" className={cn("h-9", timeError && "border-red-500 ring-1 ring-red-500")}><SelectValue/></SelectTrigger><SelectContent>{timeOptions.map(t=><SelectItem key={"det"+t} value={t}>{t}</SelectItem>)}</SelectContent></Select></div>{timeError && <p className="text-red-600 text-xs col-span-1 sm:col-span-2">{timeError}</p>}</div>
           </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4"><div className="space-y-1.5"><Label htmlFor="doc-state" className="font-semibold text-gray-800 flex items-center"><MapPin className="h-4 w-4 mr-2 text-blue-600"/>Estado de Atuação*</Label><Select value={selectedState} onValueChange={setSelectedState}><SelectTrigger id="doc-state" className="h-9"><SelectValue placeholder="Selecione o UF..."/></SelectTrigger><SelectContent>{brazilianStates.map(s=><SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent></Select></div><div className="space-y-1.5">
-    <Label className="font-semibold text-gray-800">Cidades de Atuação*</Label>
-<Popover open={cityPopoverOpen} onOpenChange={setCityPopoverOpen} modal={false}>
-    <PopoverTrigger asChild>
-        <Button variant="outline" role="combobox" className="w-full justify-between font-normal h-9" disabled={!selectedState || availableCities.length === 0}>
-            {selectedCities.length > 0 ? `${selectedCities.length} cidade(s) selecionada(s)` : "Selecione as cidades..."}
-            <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-        </Button>
-    </PopoverTrigger>
-<PopoverContent className="w-[--radix-popover-trigger-width] p-0">
-    <Command>
-        <CommandInput placeholder="Buscar cidade..." />
-        {/*
-          Aplicamos a mesma correção aqui.
-        */}
-        <CommandList className="max-h-[200px] overflow-y-auto">
-            <CommandGroup>
-                {availableCities.map((city) => (
-                    <CommandItem key={city} value={city} onSelect={() => { const newSelection = selectedCities.includes(city) ? selectedCities.filter(c => c !== city) : [...selectedCities, city]; setSelectedCities(newSelection); }}>
-                        <Check className={cn("mr-2 h-4 w-4", selectedCities.includes(city) ? "opacity-100" : "opacity-0")}/>{city}
-                    </CommandItem>
-                ))}
-            </CommandGroup>
-        </CommandList>
-    </Command>
-    <div className="p-2 border-t flex justify-end">
-        <Button size="sm" type="button" onClick={() => setCityPopoverOpen(false)}>Confirmar</Button>
-    </div>
-</PopoverContent>
-</Popover>
-</div>
-</div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                  <Label htmlFor="doc-state" className="font-semibold text-gray-800 flex items-center"><MapPin className="h-4 w-4 mr-2 text-blue-600"/>Estado de Atuação*</Label>
+                  <Select value={selectedState} onValueChange={setSelectedState}><SelectTrigger id="doc-state" className="h-9"><SelectValue placeholder="Selecione o UF..."/></SelectTrigger><SelectContent>{brazilianStates.map(s=><SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent></Select>
+              </div>
+              <div className="space-y-1.5">
+                  <Label className="font-semibold text-gray-800">Cidades de Atuação*</Label>
+                  {/* CÓDIGO ANTIGO REMOVIDO E SUBSTITUÍDO */}
+                  <CitySelector
+                    selectedState={selectedState}
+                    availableCities={availableCities}
+                    selectedCities={selectedCities}
+                    setSelectedCities={setSelectedCities}
+                  />
+              </div>
+          </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4"><div className="space-y-1.5"><Label htmlFor="doc-service-type" className="font-semibold text-gray-800 flex items-center"><Briefcase className="h-4 w-4 mr-2 text-blue-600"/>Tipo de Atendimento*</Label><Select value={selectedServiceType} onValueChange={setSelectedServiceType}><SelectTrigger id="doc-service-type" className="h-9"><SelectValue placeholder="Selecione..."/></SelectTrigger><SelectContent>{serviceTypesOptions.map(o=><SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}</SelectContent></Select></div><div className="space-y-1.5"><Label htmlFor="doc-desired-rate" className="font-semibold text-gray-800 flex items-center"><DollarSign className="h-4 w-4 mr-2 text-green-600"/>Valor Hora Pretendido (R$)*</Label><Input id="doc-desired-rate" type="number" min="0.01" step="0.01" placeholder="Ex: 100.00" value={desiredRateInput} onChange={(e)=>setDesiredRateInput(e.target.value)} className="h-9"/></div></div>
           <div className="space-y-2"><Label className="font-semibold text-gray-800 flex items-center"><ClipboardList className="h-4 w-4 mr-2 text-blue-600"/>Especialidades Atendidas* <span className="text-xs text-gray-500 ml-1 font-normal">(Selecione ao menos uma)</span></Label><Popover open={specialtyPopoverOpen} onOpenChange={setSpecialtyPopoverOpen}><PopoverTrigger asChild><Button variant="outline" className="w-full justify-start font-normal text-muted-foreground h-9 border-dashed hover:border-solid">{selectedSpecialties.length > 0 ? `Selecionadas: ${selectedSpecialties.length}` : "Clique para selecionar especialidades..."}</Button></PopoverTrigger><PopoverContent className="w-[--radix-popover-trigger-width] p-0"><Command filter={(value, search) => medicalSpecialties.find(s => s.toLowerCase() === value.toLowerCase())?.toLowerCase().includes(search.toLowerCase()) ? 1 : 0}><CommandInput placeholder="Buscar especialidade..." value={specialtySearchValue} onValueChange={setSpecialtySearchValue}/><CommandList><CommandEmpty>Nenhuma.</CommandEmpty><CommandGroup heading={`${filteredSpecialties.length} encontradas`}>{filteredSpecialties.map((s) => (<CommandItem key={s} value={s} onSelect={() => handleSelectSpecialty(s)} className="cursor-pointer hover:bg-accent">{s}</CommandItem>))}</CommandGroup></CommandList></Command></PopoverContent></Popover>{selectedSpecialties.length > 0 && ( <div className="flex flex-wrap gap-1.5 mt-2 pt-2 border-t border-dashed"> {selectedSpecialties.map((s) => ( <Badge key={s} variant="secondary" className="bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100 font-normal"> {s} <button type="button" onClick={()=>handleRemoveSpecialty(s)} className="ml-1.5 p-0.5 rounded-full outline-none focus:ring-1 focus:ring-blue-500 hover:bg-blue-200"> <X className="h-3 w-3 text-blue-600 hover:text-blue-800" /> </button> </Badge> ))} </div> )}</div>
           <div className="space-y-1.5"><Label htmlFor="doc-notes" className="font-semibold text-gray-800 flex items-center"><Info className="h-4 w-4 mr-2 text-blue-600"/>Notas Adicionais <span className="text-xs text-gray-500 ml-1 font-normal">(Opcional)</span></Label><Textarea id="doc-notes" placeholder="Ex: Preferência por plantões mais tranquilos, etc." value={notes} onChange={(e) => setNotes(e.target.value)} className="min-h-[80px]"/></div>
