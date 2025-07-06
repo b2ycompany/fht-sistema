@@ -59,7 +59,13 @@ export function CitySelector({
             <CommandItem
               key={city}
               value={city}
-              onSelect={() => handleSelectCity(city)}
+              // AQUI ESTÁ A CORREÇÃO:
+              // Trocamos onSelect por onClick. O onSelect ainda é necessário (mesmo vazio)
+              // para que a busca por texto funcione corretamente, mas a lógica principal
+              // de seleção passa para o onClick para evitar o salto de rolagem.
+              onSelect={() => {}}
+              onClick={() => handleSelectCity(city)}
+              className="cursor-pointer" // Adicionamos um cursor para indicar que é clicável
             >
               <Check
                 className={cn(

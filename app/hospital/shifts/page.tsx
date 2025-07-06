@@ -18,7 +18,7 @@ import { Badge, type BadgeProps } from "@/components/ui/badge";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { CitySelector } from "@/components/ui/city-selector"; // <-- ADICIONADO IMPORT
+import { CitySelector } from "@/components/ui/city-selector";
 
 import { cn, formatCurrency, formatPercentage, formatHours } from "@/lib/utils";
 import { auth } from "@/lib/firebase";
@@ -166,7 +166,8 @@ const AddShiftDialog: React.FC<AddShiftDialogProps> = ({ onShiftSubmitted, initi
                 <Label className="font-semibold text-gray-800 flex items-center"><CalendarDays/>Data(s)*</Label> 
                 <p className="text-xs text-gray-500">{isEditing ? "Original (não editável)." : "Selecione."}</p> 
                 <div className="flex flex-col sm:flex-row gap-2 items-start"> 
-                    {isEditing ? ( <Calendar mode="single" selected={dates[0]} disabled footer={ dates[0] ? <p>{dates[0]?.toLocaleDateString('pt-BR')}</p> : null} modifiersClassNames={{ selected: 'bg-blue-600 text-white rounded-md', today: 'bg-blue-100 text-blue-800 rounded-md font-bold' }} /> ) : ( <Calendar mode="multiple" selected={dates} onSelect={setDates as SelectMultipleEventHandler} disabled={{ before: new Date(new Date().setHours(0,0,0,0))}} footer={ dates.length > 0 ? <p>{dates.length} dia(s)</p> : <p>Nenhum dia</p>} modifiersClassNames={{ selected: 'bg-blue-600 text-white hover:bg-blue-700 focus:bg-blue-700 rounded-md', today: 'bg-blue-100 text-blue-800 rounded-md font-bold' }} /> )} 
+                    {/* AQUI ESTÁ A CORREÇÃO: A propriedade 'modifiersClassNames' foi removida. */}
+                    {isEditing ? ( <Calendar mode="single" selected={dates[0]} disabled footer={ dates[0] ? <p>{dates[0]?.toLocaleDateString('pt-BR')}</p> : null} /> ) : ( <Calendar mode="multiple" selected={dates} onSelect={setDates as SelectMultipleEventHandler} disabled={{ before: new Date(new Date().setHours(0,0,0,0))}} footer={ dates.length > 0 ? <p>{dates.length} dia(s)</p> : <p>Nenhum dia</p>} /> )} 
                     {dates.length > 0 && !isEditing && <Button variant="outline" size="sm" onClick={() => setDates([])}><X/> Limpar</Button>} 
                 </div> 
             </div> 
@@ -178,7 +179,6 @@ const AddShiftDialog: React.FC<AddShiftDialogProps> = ({ onShiftSubmitted, initi
                 </div>
                 <div>
                     <Label htmlFor="city-m" className="font-semibold text-gray-800">Cidades*</Label>
-                    {/* CÓDIGO ANTIGO REMOVIDO E SUBSTITUÍDO */}
                     <CitySelector
                       selectedState={selectedState}
                       availableCities={availableCities}

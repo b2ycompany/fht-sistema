@@ -34,7 +34,7 @@ import {
     DialogTitle,
     DialogTrigger
 } from "@/components/ui/dialog";
-import { CitySelector } from "@/components/ui/city-selector"; // <-- ADICIONADO IMPORT
+import { CitySelector } from "@/components/ui/city-selector";
 
 import { cn, formatCurrency } from "@/lib/utils";
 import { Timestamp } from "firebase/firestore";
@@ -210,9 +210,6 @@ const TimeSlotFormDialog: React.FC<{ onFormSubmitted: () => void; initialData?: 
     finally { setIsLoadingSubmit(false); }
   };
   
-  const modifiers = { selected: dates, };
-  const modifiersClassNames = { selected: 'day-selected-override' };
-
   return (
     <DialogContent className="sm:max-w-2xl md:max-w-3xl">
       <DialogHeader>
@@ -222,15 +219,16 @@ const TimeSlotFormDialog: React.FC<{ onFormSubmitted: () => void; initialData?: 
         </DialogDescription>
       </DialogHeader>
       <div className="grid gap-5 py-4 max-h-[70vh] overflow-y-auto px-1 pr-3 md:pr-4 custom-scrollbar">
-          <style>{`.day-selected-override { background-color: #2563eb !important; color: white !important; }`}</style>
+          {/* AQUI ESTÁ A CORREÇÃO: A tag <style> foi removida. */}
           <div className="space-y-2">
             <Label className="font-semibold text-gray-800 flex items-center"><CalendarDays className="h-4 w-4 mr-2 text-blue-600"/>Data(s) da Disponibilidade*</Label>
             <p className="text-xs text-gray-500">{isEditing ? "Data original (não pode ser alterada)." : "Selecione um ou mais dias no calendário."}</p>
             <div className="flex flex-col sm:flex-row gap-2 items-start">
+              {/* E AQUI: as props 'modifiers' e 'modifiersClassNames' foram removidas. */}
               {isEditing ? (
                   <Calendar mode="single" selected={dates[0]} disabled footer={<p className="text-xs text-gray-700 font-medium p-2 border-t">Data: {dates[0]?.toLocaleDateString('pt-BR')}</p>}/>
               ) : (
-                  <Calendar mode="multiple" selected={dates} onSelect={setDates as SelectMultipleEventHandler} disabled={{ before: new Date(new Date().setHours(0, 0, 0, 0)) }} footer={ dates.length > 0 ? <p className="text-xs text-blue-700 font-medium p-2 border-t">{dates.length} dia(s) selecionado(s).</p> : <p className="text-xs text-gray-500 p-2 border-t">Nenhum dia selecionado.</p>} modifiers={modifiers} modifiersClassNames={modifiersClassNames}/>
+                  <Calendar mode="multiple" selected={dates} onSelect={setDates as SelectMultipleEventHandler} disabled={{ before: new Date(new Date().setHours(0, 0, 0, 0)) }} footer={ dates.length > 0 ? <p className="text-xs text-blue-700 font-medium p-2 border-t">{dates.length} dia(s) selecionado(s).</p> : <p className="text-xs text-gray-500 p-2 border-t">Nenhum dia selecionado.</p>}/>
               )}
               {dates.length > 0 && !isEditing && <Button variant="outline" size="sm" onClick={() => setDates([])} className="text-xs self-start sm:self-end w-full sm:w-auto"><X className="h-3 w-3 mr-1"/> Limpar Datas</Button>}
             </div>
@@ -247,7 +245,6 @@ const TimeSlotFormDialog: React.FC<{ onFormSubmitted: () => void; initialData?: 
               </div>
               <div className="space-y-1.5">
                   <Label className="font-semibold text-gray-800">Cidades de Atuação*</Label>
-                  {/* CÓDIGO ANTIGO REMOVIDO E SUBSTITUÍDO */}
                   <CitySelector
                     selectedState={selectedState}
                     availableCities={availableCities}
