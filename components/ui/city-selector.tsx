@@ -22,7 +22,6 @@ import { Check, ChevronsUpDown } from "lucide-react";
 import { useMediaQuery } from "@/lib/hooks/use-media-query";
 import { cn } from "@/lib/utils";
 
-// Definindo os tipos para as propriedades do nosso componente
 interface CitySelectorProps {
   selectedState: string;
   availableCities: string[];
@@ -39,7 +38,6 @@ export function CitySelector({
   const [open, setOpen] = React.useState(false);
   const isDesktop = useMediaQuery("(min-width: 768px)");
 
-  // Função para lidar com a seleção/desseleção de uma cidade
   const handleSelectCity = (city: string) => {
     const newSelection = selectedCities.includes(city)
       ? selectedCities.filter((c) => c !== city)
@@ -47,8 +45,6 @@ export function CitySelector({
     setSelectedCities(newSelection);
   };
 
-  // Componente que renderiza a lista de cidades
-  // Ele é reutilizado tanto no Popover quanto no Drawer
   const CityListContent = () => (
     <Command>
       <CommandInput placeholder="Buscar cidade..." />
@@ -60,12 +56,9 @@ export function CitySelector({
               key={city}
               value={city}
               // AQUI ESTÁ A CORREÇÃO:
-              // Trocamos onSelect por onClick. O onSelect ainda é necessário (mesmo vazio)
-              // para que a busca por texto funcione corretamente, mas a lógica principal
-              // de seleção passa para o onClick para evitar o salto de rolagem.
-              onSelect={() => {}}
-              onClick={() => handleSelectCity(city)}
-              className="cursor-pointer" // Adicionamos um cursor para indicar que é clicável
+              // Voltamos a usar onSelect com a lógica correta.
+              // Isso garante que a seleção funcione com mouse e teclado.
+              onSelect={() => handleSelectCity(city)}
             >
               <Check
                 className={cn(

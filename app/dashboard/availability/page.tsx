@@ -218,13 +218,12 @@ const TimeSlotFormDialog: React.FC<{ onFormSubmitted: () => void; initialData?: 
           {isEditing ? "Altere os detalhes da sua disponibilidade. A data original não pode ser alterada." : "Selecione as datas e preencha os detalhes. Uma entrada de disponibilidade será criada para cada data selecionada."}
         </DialogDescription>
       </DialogHeader>
-      <div className="grid gap-5 py-4 max-h-[70vh] overflow-y-auto px-1 pr-3 md:pr-4 custom-scrollbar">
-          {/* AQUI ESTÁ A CORREÇÃO: A tag <style> foi removida. */}
+      {/* AQUI ESTÁ A CORREÇÃO: A classe 'custom-scrollbar' foi removida. */}
+      <div className="grid gap-5 py-4 max-h-[70vh] overflow-y-auto px-1 pr-3 md:pr-4">
           <div className="space-y-2">
             <Label className="font-semibold text-gray-800 flex items-center"><CalendarDays className="h-4 w-4 mr-2 text-blue-600"/>Data(s) da Disponibilidade*</Label>
             <p className="text-xs text-gray-500">{isEditing ? "Data original (não pode ser alterada)." : "Selecione um ou mais dias no calendário."}</p>
             <div className="flex flex-col sm:flex-row gap-2 items-start">
-              {/* E AQUI: as props 'modifiers' e 'modifiersClassNames' foram removidas. */}
               {isEditing ? (
                   <Calendar mode="single" selected={dates[0]} disabled footer={<p className="text-xs text-gray-700 font-medium p-2 border-t">Data: {dates[0]?.toLocaleDateString('pt-BR')}</p>}/>
               ) : (

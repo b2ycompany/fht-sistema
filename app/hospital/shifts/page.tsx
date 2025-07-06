@@ -18,7 +18,7 @@ import { Badge, type BadgeProps } from "@/components/ui/badge";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { CitySelector } from "@/components/ui/city-selector";
+import { CitySelector } from "@/components/ui/city-selector"; 
 
 import { cn, formatCurrency, formatPercentage, formatHours } from "@/lib/utils";
 import { auth } from "@/lib/firebase";
@@ -161,12 +161,12 @@ const AddShiftDialog: React.FC<AddShiftDialogProps> = ({ onShiftSubmitted, initi
             <DialogTitle className="text-xl">{isEditing ? "Editar Demanda" : "Publicar Nova Demanda"}</DialogTitle> 
             <DialogDescription>{isEditing ? "Altere os detalhes. Datas não são editáveis." : "Defina os critérios. Uma demanda será criada para cada data selecionada."}</DialogDescription> 
         </DialogHeader> 
-        <div className="grid gap-5 py-4 max-h-[70vh] overflow-y-auto px-1 pr-3 md:pr-4 custom-scrollbar"> 
+        {/* AQUI ESTÁ A CORREÇÃO: A classe 'custom-scrollbar' foi removida. */}
+        <div className="grid gap-5 py-4 max-h-[70vh] overflow-y-auto px-1 pr-3 md:pr-4"> 
             <div className="space-y-2"> 
                 <Label className="font-semibold text-gray-800 flex items-center"><CalendarDays/>Data(s)*</Label> 
                 <p className="text-xs text-gray-500">{isEditing ? "Original (não editável)." : "Selecione."}</p> 
                 <div className="flex flex-col sm:flex-row gap-2 items-start"> 
-                    {/* AQUI ESTÁ A CORREÇÃO: A propriedade 'modifiersClassNames' foi removida. */}
                     {isEditing ? ( <Calendar mode="single" selected={dates[0]} disabled footer={ dates[0] ? <p>{dates[0]?.toLocaleDateString('pt-BR')}</p> : null} /> ) : ( <Calendar mode="multiple" selected={dates} onSelect={setDates as SelectMultipleEventHandler} disabled={{ before: new Date(new Date().setHours(0,0,0,0))}} footer={ dates.length > 0 ? <p>{dates.length} dia(s)</p> : <p>Nenhum dia</p>} /> )} 
                     {dates.length > 0 && !isEditing && <Button variant="outline" size="sm" onClick={() => setDates([])}><X/> Limpar</Button>} 
                 </div> 
