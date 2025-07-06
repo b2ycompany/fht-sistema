@@ -218,16 +218,31 @@ const TimeSlotFormDialog: React.FC<{ onFormSubmitted: () => void; initialData?: 
           {isEditing ? "Altere os detalhes da sua disponibilidade. A data original não pode ser alterada." : "Selecione as datas e preencha os detalhes. Uma entrada de disponibilidade será criada para cada data selecionada."}
         </DialogDescription>
       </DialogHeader>
-      {/* AQUI ESTÁ A CORREÇÃO: A classe 'custom-scrollbar' foi removida. */}
       <div className="grid gap-5 py-4 max-h-[70vh] overflow-y-auto px-1 pr-3 md:pr-4">
           <div className="space-y-2">
             <Label className="font-semibold text-gray-800 flex items-center"><CalendarDays className="h-4 w-4 mr-2 text-blue-600"/>Data(s) da Disponibilidade*</Label>
             <p className="text-xs text-gray-500">{isEditing ? "Data original (não pode ser alterada)." : "Selecione um ou mais dias no calendário."}</p>
             <div className="flex flex-col sm:flex-row gap-2 items-start">
               {isEditing ? (
-                  <Calendar mode="single" selected={dates[0]} disabled footer={<p className="text-xs text-gray-700 font-medium p-2 border-t">Data: {dates[0]?.toLocaleDateString('pt-BR')}</p>}/>
+                  <Calendar 
+                    mode="single" 
+                    selected={dates[0]} 
+                    disabled 
+                    footer={<p className="text-xs text-gray-700 font-medium p-2 border-t">Data: {dates[0]?.toLocaleDateString('pt-BR')}</p>}
+                  />
               ) : (
-                  <Calendar mode="multiple" selected={dates} onSelect={setDates as SelectMultipleEventHandler} disabled={{ before: new Date(new Date().setHours(0, 0, 0, 0)) }} footer={ dates.length > 0 ? <p className="text-xs text-blue-700 font-medium p-2 border-t">{dates.length} dia(s) selecionado(s).</p> : <p className="text-xs text-gray-500 p-2 border-t">Nenhum dia selecionado.</p>}/>
+                  <Calendar 
+                    mode="multiple" 
+                    selected={dates} 
+                    onSelect={setDates as SelectMultipleEventHandler} 
+                    disabled={{ before: new Date(new Date().setHours(0, 0, 0, 0)) }} 
+                    footer={ dates.length > 0 ? <p className="text-xs text-blue-700 font-medium p-2 border-t">{dates.length} dia(s) selecionado(s).</p> : <p className="text-xs text-gray-500 p-2 border-t">Nenhum dia selecionado.</p>}
+                    // AQUI ESTÁ A CORREÇÃO:
+                    classNames={{
+                      day_selected: 'bg-blue-600 text-primary-foreground hover:bg-blue-600/90 focus:bg-blue-600 focus:text-primary-foreground',
+                      day_today: 'bg-accent text-accent-foreground',
+                    }}
+                  />
               )}
               {dates.length > 0 && !isEditing && <Button variant="outline" size="sm" onClick={() => setDates([])} className="text-xs self-start sm:self-end w-full sm:w-auto"><X className="h-3 w-3 mr-1"/> Limpar Datas</Button>}
             </div>

@@ -161,13 +161,32 @@ const AddShiftDialog: React.FC<AddShiftDialogProps> = ({ onShiftSubmitted, initi
             <DialogTitle className="text-xl">{isEditing ? "Editar Demanda" : "Publicar Nova Demanda"}</DialogTitle> 
             <DialogDescription>{isEditing ? "Altere os detalhes. Datas não são editáveis." : "Defina os critérios. Uma demanda será criada para cada data selecionada."}</DialogDescription> 
         </DialogHeader> 
-        {/* AQUI ESTÁ A CORREÇÃO: A classe 'custom-scrollbar' foi removida. */}
         <div className="grid gap-5 py-4 max-h-[70vh] overflow-y-auto px-1 pr-3 md:pr-4"> 
             <div className="space-y-2"> 
                 <Label className="font-semibold text-gray-800 flex items-center"><CalendarDays/>Data(s)*</Label> 
                 <p className="text-xs text-gray-500">{isEditing ? "Original (não editável)." : "Selecione."}</p> 
                 <div className="flex flex-col sm:flex-row gap-2 items-start"> 
-                    {isEditing ? ( <Calendar mode="single" selected={dates[0]} disabled footer={ dates[0] ? <p>{dates[0]?.toLocaleDateString('pt-BR')}</p> : null} /> ) : ( <Calendar mode="multiple" selected={dates} onSelect={setDates as SelectMultipleEventHandler} disabled={{ before: new Date(new Date().setHours(0,0,0,0))}} footer={ dates.length > 0 ? <p>{dates.length} dia(s)</p> : <p>Nenhum dia</p>} /> )} 
+                    {isEditing ? ( 
+                        <Calendar 
+                          mode="single" 
+                          selected={dates[0]} 
+                          disabled 
+                          footer={ dates[0] ? <p>{dates[0]?.toLocaleDateString('pt-BR')}</p> : null} 
+                        /> 
+                      ) : ( 
+                        <Calendar 
+                          mode="multiple" 
+                          selected={dates} 
+                          onSelect={setDates as SelectMultipleEventHandler} 
+                          disabled={{ before: new Date(new Date().setHours(0,0,0,0))}} 
+                          footer={ dates.length > 0 ? <p>{dates.length} dia(s)</p> : <p>Nenhum dia</p>} 
+                          // AQUI ESTÁ A CORREÇÃO:
+                          classNames={{
+                            day_selected: 'bg-blue-600 text-primary-foreground hover:bg-blue-600/90 focus:bg-blue-600 focus:text-primary-foreground',
+                            day_today: 'bg-accent text-accent-foreground',
+                          }}
+                        /> 
+                      )} 
                     {dates.length > 0 && !isEditing && <Button variant="outline" size="sm" onClick={() => setDates([])}><X/> Limpar</Button>} 
                 </div> 
             </div> 
