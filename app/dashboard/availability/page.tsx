@@ -140,6 +140,18 @@ const TimeSlotFormDialog: React.FC<{ onFormSubmitted: () => void; initialData?: 
   const [timeError, setTimeError] = useState<string | null>(null);
   const [availableCities, setAvailableCities] = useState<string[]>([]);
 
+  // AQUI ESTÁ A LÓGICA DA CORREÇÃO
+  const modifiers = {
+    selected: dates,
+  };
+  const modifiersStyles = {
+    selected: {
+      backgroundColor: '#2563eb', // Equivalente a 'bg-blue-600'
+      color: 'white',
+      borderRadius: '0.375rem', // Equivalente a 'rounded-md'
+    },
+  };
+
   useEffect(() => { if (initialData?.state) { setAvailableCities(citiesByState[initialData.state] || []); } }, [initialData?.state]);
   const resetFormFields = useCallback(() => { setDates([]); setStartTime("07:00"); setEndTime("19:00"); setDesiredRateInput(""); setSelectedSpecialties([]); setSelectedState(""); setSelectedCities([]); setSelectedServiceType(""); setNotes(""); setTimeError(null); }, []);
   const validateTimes = useCallback((start: string, end: string) => { if (start && end && start === end) { setTimeError("Horário de início não pode ser igual ao de término."); } else { setTimeError(null); } }, []);
@@ -237,11 +249,9 @@ const TimeSlotFormDialog: React.FC<{ onFormSubmitted: () => void; initialData?: 
                     onSelect={setDates as SelectMultipleEventHandler} 
                     disabled={{ before: new Date(new Date().setHours(0, 0, 0, 0)) }} 
                     footer={ dates.length > 0 ? <p className="text-xs text-blue-700 font-medium p-2 border-t">{dates.length} dia(s) selecionado(s).</p> : <p className="text-xs text-gray-500 p-2 border-t">Nenhum dia selecionado.</p>}
-                    // AQUI ESTÁ A CORREÇÃO:
-                    classNames={{
-                      day_selected: 'bg-blue-600 text-primary-foreground hover:bg-blue-600/90 focus:bg-blue-600 focus:text-primary-foreground',
-                      day_today: 'bg-accent text-accent-foreground',
-                    }}
+                    // APLICANDO A CORREÇÃO FINAL
+                    modifiers={modifiers}
+                    modifiersStyles={modifiersStyles}
                   />
               )}
               {dates.length > 0 && !isEditing && <Button variant="outline" size="sm" onClick={() => setDates([])} className="text-xs self-start sm:self-end w-full sm:w-auto"><X className="h-3 w-3 mr-1"/> Limpar Datas</Button>}

@@ -85,6 +85,18 @@ const AddShiftDialog: React.FC<AddShiftDialogProps> = ({ onShiftSubmitted, initi
   const [timeError, setTimeError] = useState<string | null>(null);
   const [availableCities, setAvailableCities] = useState<string[]>([]);
   
+  // AQUI ESTÁ A LÓGICA DA CORREÇÃO
+  const modifiers = {
+    selected: dates,
+  };
+  const modifiersStyles = {
+    selected: {
+      backgroundColor: '#2563eb', // Equivalente a 'bg-blue-600'
+      color: 'white',
+      borderRadius: '0.375rem', // Equivalente a 'rounded-md'
+    },
+  };
+  
   const applyQuickTime = (start: string, end: string) => { setStartTime(start); setEndTime(end); };
 
   const resetFormFields = useCallback(() => { setDates([]); setStartTime("07:00"); setEndTime("19:00"); setNumberOfVacancies("1"); setRequiredSpecialties([]); setSpecialtySearchValue(""); setTimeError(null); setSelectedState(""); setSelectedCities([]); setAvailableCities([]); setSelectedServiceType(""); setOfferedRateInput(""); setNotes(""); }, []);
@@ -180,11 +192,9 @@ const AddShiftDialog: React.FC<AddShiftDialogProps> = ({ onShiftSubmitted, initi
                           onSelect={setDates as SelectMultipleEventHandler} 
                           disabled={{ before: new Date(new Date().setHours(0,0,0,0))}} 
                           footer={ dates.length > 0 ? <p>{dates.length} dia(s)</p> : <p>Nenhum dia</p>} 
-                          // AQUI ESTÁ A CORREÇÃO:
-                          classNames={{
-                            day_selected: 'bg-blue-600 text-primary-foreground hover:bg-blue-600/90 focus:bg-blue-600 focus:text-primary-foreground',
-                            day_today: 'bg-accent text-accent-foreground',
-                          }}
+                          // APLICANDO A CORREÇÃO FINAL
+                          modifiers={modifiers}
+                          modifiersStyles={modifiersStyles}
                         /> 
                       )} 
                     {dates.length > 0 && !isEditing && <Button variant="outline" size="sm" onClick={() => setDates([])}><X/> Limpar</Button>} 
