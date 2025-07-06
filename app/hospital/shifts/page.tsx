@@ -85,20 +85,16 @@ const AddShiftDialog: React.FC<AddShiftDialogProps> = ({ onShiftSubmitted, initi
   const [timeError, setTimeError] = useState<string | null>(null);
   const [availableCities, setAvailableCities] = useState<string[]>([]);
   
-  // AQUI ESTÁ A LÓGICA DA CORREÇÃO
-  const modifiers = {
-    selected: dates,
-  };
+  const modifiers = { selected: dates };
   const modifiersStyles = {
     selected: {
-      backgroundColor: '#2563eb', // Equivalente a 'bg-blue-600'
+      backgroundColor: '#2563eb',
       color: 'white',
-      borderRadius: '0.375rem', // Equivalente a 'rounded-md'
+      borderRadius: '0.375rem',
     },
   };
   
   const applyQuickTime = (start: string, end: string) => { setStartTime(start); setEndTime(end); };
-
   const resetFormFields = useCallback(() => { setDates([]); setStartTime("07:00"); setEndTime("19:00"); setNumberOfVacancies("1"); setRequiredSpecialties([]); setSpecialtySearchValue(""); setTimeError(null); setSelectedState(""); setSelectedCities([]); setAvailableCities([]); setSelectedServiceType(""); setOfferedRateInput(""); setNotes(""); }, []);
   const validateTimes = useCallback((start: string, end: string) => { if (start && end && start === end ) { setTimeError("Início não pode ser igual ao término."); } else { setTimeError(null); } }, []);
   
@@ -172,31 +168,20 @@ const AddShiftDialog: React.FC<AddShiftDialogProps> = ({ onShiftSubmitted, initi
         <DialogHeader> 
             <DialogTitle className="text-xl">{isEditing ? "Editar Demanda" : "Publicar Nova Demanda"}</DialogTitle> 
             <DialogDescription>{isEditing ? "Altere os detalhes. Datas não são editáveis." : "Defina os critérios. Uma demanda será criada para cada data selecionada."}</DialogDescription> 
-        </DialogHeader> 
+        </DialogHeader>
+        {/* BOTÃO DE FECHAR PARA MOBILE E DESKTOP */}
+        <DialogClose asChild>
+            <Button variant="ghost" size="icon" className="absolute top-4 right-4">
+              <X className="h-4 w-4" />
+              <span className="sr-only">Fechar</span>
+            </Button>
+        </DialogClose>
         <div className="grid gap-5 py-4 max-h-[70vh] overflow-y-auto px-1 pr-3 md:pr-4"> 
             <div className="space-y-2"> 
                 <Label className="font-semibold text-gray-800 flex items-center"><CalendarDays/>Data(s)*</Label> 
                 <p className="text-xs text-gray-500">{isEditing ? "Original (não editável)." : "Selecione."}</p> 
                 <div className="flex flex-col sm:flex-row gap-2 items-start"> 
-                    {isEditing ? ( 
-                        <Calendar 
-                          mode="single" 
-                          selected={dates[0]} 
-                          disabled 
-                          footer={ dates[0] ? <p>{dates[0]?.toLocaleDateString('pt-BR')}</p> : null} 
-                        /> 
-                      ) : ( 
-                        <Calendar 
-                          mode="multiple" 
-                          selected={dates} 
-                          onSelect={setDates as SelectMultipleEventHandler} 
-                          disabled={{ before: new Date(new Date().setHours(0,0,0,0))}} 
-                          footer={ dates.length > 0 ? <p>{dates.length} dia(s)</p> : <p>Nenhum dia</p>} 
-                          // APLICANDO A CORREÇÃO FINAL
-                          modifiers={modifiers}
-                          modifiersStyles={modifiersStyles}
-                        /> 
-                      )} 
+                    {isEditing ? ( <Calendar mode="single" selected={dates[0]} disabled footer={ dates[0] ? <p>{dates[0]?.toLocaleDateString('pt-BR')}</p> : null} /> ) : ( <Calendar mode="multiple" selected={dates} onSelect={setDates as SelectMultipleEventHandler} disabled={{ before: new Date(new Date().setHours(0,0,0,0))}} footer={ dates.length > 0 ? <p>{dates.length} dia(s)</p> : <p>Nenhum dia</p>} modifiers={modifiers} modifiersStyles={modifiersStyles}/> )} 
                     {dates.length > 0 && !isEditing && <Button variant="outline" size="sm" onClick={() => setDates([])}><X/> Limpar</Button>} 
                 </div> 
             </div> 
@@ -212,7 +197,7 @@ const AddShiftDialog: React.FC<AddShiftDialogProps> = ({ onShiftSubmitted, initi
                       selectedState={selectedState}
                       availableCities={availableCities}
                       selectedCities={selectedCities}
-                      setSelectedCities={setSelectedCities}
+                      onConfirm={setSelectedCities}
                     />
                 </div>
             </div> 
