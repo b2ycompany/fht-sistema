@@ -55,10 +55,15 @@ export function CitySelector({
             <CommandItem
               key={city}
               value={city}
-              // AQUI ESTÁ A CORREÇÃO:
-              // Voltamos a usar onSelect com a lógica correta.
-              // Isso garante que a seleção funcione com mouse e teclado.
-              onSelect={() => handleSelectCity(city)}
+              onSelect={() => {
+                handleSelectCity(city);
+              }}
+              // AQUI ESTÁ A CORREÇÃO FINAL E DEFINITIVA:
+              // Esta linha impede o comportamento padrão do clique (que causa o salto),
+              // mas ainda permite que o onSelect seja executado normalmente.
+              onPointerDown={(e) => {
+                e.preventDefault();
+              }}
             >
               <Check
                 className={cn(
