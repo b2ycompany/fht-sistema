@@ -3,7 +3,7 @@
 
 import * as React from "react";
 import { Button } from "@/components/ui/button";
-import { Command, CommandInput } from "@/components/ui/command";
+import { Input } from "@/components/ui/input";
 import { Drawer, DrawerContent, DrawerTrigger, DrawerFooter, DrawerClose } from "@/components/ui/drawer";
 import {
   Popover,
@@ -30,12 +30,16 @@ export function CitySelector({
 }: CitySelectorProps) {
   const [isOpen, setIsOpen] = React.useState(false);
   const isDesktop = useMediaQuery("(min-width: 768px)");
+  
+  // Estado interno para seleção temporária e busca
   const [internalSelection, setInternalSelection] = React.useState<string[]>(selectedCities);
   const [searchTerm, setSearchTerm] = React.useState("");
 
+  // Sincroniza o estado interno ao abrir o seletor
   React.useEffect(() => {
     if (isOpen) {
       setInternalSelection(selectedCities);
+      setSearchTerm(""); // Limpa a busca ao abrir
     }
   }, [isOpen, selectedCities]);
 
@@ -52,22 +56,14 @@ export function CitySelector({
   );
 
   const CityListContent = () => (
-    <div className="p-2">
-      <Command>
-        <CommandInput 
-          value={searchTerm}
-          onValueChange={setSearchTerm}
-          placeholder="Buscar cidade..." 
-        />
-      </Command>
-      <div className="mt-2 flex justify-end h-6">
-        {internalSelection.length > 0 && (
-          <Button variant="link" size="sm" className="h-auto p-0 text-xs" onClick={() => setInternalSelection([])}>
-            Limpar seleção
-          </Button>
-        )}
-      </div>
-      {/* Esta é a mudança principal: uma div com rolagem em vez de CommandList */}
+    <div className="p-2 space-y-2">
+      <Input
+        placeholder="Buscar cidade..."
+        value={searchTerm}
+        onChange={(e) => setSearchTerm(e.target.value)}
+        className="h-9"
+      />
+      {/* Container da lista com rolagem simples e robusta */}
       <div className="max-h-[240px] overflow-y-auto pr-1">
         {filteredCities.length > 0 ? (
           filteredCities.map(city => (
@@ -76,7 +72,7 @@ export function CitySelector({
               onClick={() => handleSelectCity(city)}
               className={cn(
                 "w-full text-left p-2 text-sm rounded-md flex items-center hover:bg-accent",
-                "focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+                "focus:outline-none focus:ring-1 focus:ring-ring"
               )}
             >
               <Check
@@ -101,6 +97,11 @@ export function CitySelector({
     selectedCities.length > 0
       ? `${selectedCities.length} cidade(s) selecionada(s)`
       : "Selecione as cidades...";
+      
+  const handleConfirm = () => {
+    onConfirm(internalSelection);
+    setIsOpen(false);
+  };
 
   if (isDesktop) {
     return (
@@ -113,16 +114,10 @@ export function CitySelector({
         </PopoverTrigger>
         <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
           <CityListContent />
-          <div className="p-2 border-t flex justify-end">
-            <Button
-              size="sm"
-              onClick={() => {
-                onConfirm(internalSelection);
-                setIsOpen(false);
-              }}
-            >
-              Confirmar
-            </Button>
+          {/* Rodapé com botões de ação claros */}
+          <div className="p-2 border-t flex items-center justify-end gap-2">
+            <Button variant="ghost" size="sm" onClick={() => setInternalSelection([])}>Limpar</Button>
+            <Button size="sm" onClick={handleConfirm}>Confirmar</Button>
           </div>
         </PopoverContent>
       </Popover>
@@ -146,12 +141,7 @@ export function CitySelector({
           <DrawerClose asChild>
             <Button variant="outline">Cancelar</Button>
           </DrawerClose>
-          <Button
-            onClick={() => {
-              onConfirm(internalSelection);
-              setIsOpen(false);
-            }}
-          >
+          <Button onClick={handleConfirm}>
             Confirmar ({internalSelection.length})
           </Button>
         </DrawerFooter>
