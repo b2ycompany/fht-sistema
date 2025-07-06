@@ -13,7 +13,6 @@ import {
   getDoc,
   runTransaction,
   type Transaction,
-  // ADICIONADO: Importações para o chat
   addDoc,
   onSnapshot,
   type Unsubscribe
@@ -21,7 +20,6 @@ import {
 import { db, auth } from "./firebase";
 import { type Contract } from "./contract-service"; 
 import { sendContractReadyForDoctorEmail } from './notification-service';
-// ADICIONADO: Importação para buscar dados do perfil do utilizador logado
 import { getCurrentUserData } from "./auth-service";
 
 // A interface PotentialMatch continua igual.
@@ -57,10 +55,10 @@ export interface PotentialMatch {
   contractId?: string;
   createdAt: Timestamp;
   updatedAt: Timestamp;
-  shiftCity?: string; // Será substituído por shiftCities
+  shiftCity?: string;
   shiftState?: string;
   doctorTimeSlotNotes?: string;
-  shiftCities?: string[]; // Suporte para multi-cidade
+  shiftCities?: string[];
 }
 
 export const getMatchesForBackofficeReview = async (): Promise<PotentialMatch[]> => {
@@ -133,7 +131,7 @@ export const approveMatchAndCreateContract = async (
             isOvernight: matchData.shiftRequirementIsOvernight,
             serviceType: matchData.shiftRequirementServiceType,
             specialties: matchData.shiftRequirementSpecialties,
-            locationCity: matchData.shiftCities?.[0] || matchData.shiftCity || 'N/A', // Usando a primeira cidade da lista
+            locationCity: matchData.shiftCities?.[0] || matchData.shiftCity || 'N/A',
             locationState: matchData.shiftState || 'N/A',
             hospitalRate, doctorRate, platformMarginRate, platformMarginPercentage,
             status: 'PENDING_DOCTOR_SIGNATURE',
@@ -199,10 +197,10 @@ export const rejectMatchByBackoffice = async (
 };
 
 // =======================================================================
-// NOVO CÓDIGO PARA O CHAT DE NEGOCIAÇÃO
+// CHAT DE NEGOCIAÇÃO ATUALIZADO (SUPORTA DOIS CANAIS)
 // =======================================================================
+export type ChatTarget = 'doctor' | 'hospital';
 
-// Interface para uma mensagem de chat
 export interface ChatMessage {
     id?: string;
     text: string;
@@ -213,9 +211,9 @@ export interface ChatMessage {
 }
 
 /**
- * Envia uma nova mensagem para o chat de um match específico.
+ * Envia uma nova mensagem para um canal de chat específico (médico ou hospital).
  */
-export const sendMessageInMatchChat = async (matchId: string, text: string): Promise<void> => {
+export const sendMessageInMatchChat = async (matchId: string, text: string, target: ChatTarget): Promise<void> => {
     const currentUser = auth.currentUser;
     const userProfile = await getCurrentUserData(); 
     
@@ -226,7 +224,9 @@ export const sendMessageInMatchChat = async (matchId: string, text: string): Pro
         throw new Error("A mensagem não pode estar vazia.");
     }
 
-    const chatCollectionRef = collection(db, "potentialMatches", matchId, "chat");
+    // Define para qual subcoleção a mensagem vai: 'chatWithDoctor' ou 'chatWithHospital'
+    const chatCollectionName = target === 'doctor' ? 'chatWithDoctor' : 'chatWithHospital';
+    const chatCollectionRef = collection(db, "potentialMatches", matchId, chatCollectionName);
 
     const messageData = {
         text: text.trim(),
@@ -240,14 +240,15 @@ export const sendMessageInMatchChat = async (matchId: string, text: string): Pro
 };
 
 /**
- * Escuta em tempo real as mensagens de um chat de um match.
- * @returns Uma função para cancelar a subscrição (unsubscribe).
+ * Escuta em tempo real as mensagens de um canal de chat específico.
  */
 export const getMatchChatMessages = (
     matchId: string, 
+    target: ChatTarget,
     callback: (messages: ChatMessage[]) => void
 ): Unsubscribe => {
-    const chatCollectionRef = collection(db, "potentialMatches", matchId, "chat");
+    const chatCollectionName = target === 'doctor' ? 'chatWithDoctor' : 'chatWithHospital';
+    const chatCollectionRef = collection(db, "potentialMatches", matchId, chatCollectionName);
     const q = query(chatCollectionRef, orderBy("createdAt", "asc"));
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
