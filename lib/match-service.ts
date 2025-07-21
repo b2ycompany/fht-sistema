@@ -76,6 +76,12 @@ export const getMatchesForBackofficeReview = async (): Promise<PotentialMatch[]>
   }
 };
 
+// =======================================================================
+// NOVAS FUNÇÕES ADICIONADAS
+// =======================================================================
+/**
+ * Busca os matches que estão em negociação para o médico logado.
+ */
 export const getMatchesForDoctorInNegotiation = async (): Promise<PotentialMatch[]> => {
     const currentUser = auth.currentUser;
     if (!currentUser) { return []; }
@@ -94,9 +100,6 @@ export const getMatchesForDoctorInNegotiation = async (): Promise<PotentialMatch
     }
 };
 
-// =======================================================================
-// NOVA FUNÇÃO ADICIONADA
-// =======================================================================
 /**
  * Busca os matches que estão em negociação para o hospital logado.
  */
