@@ -42,56 +42,73 @@ interface CameraModalProps {
   onCapture: (dataUrl: string) => void;
 }
 
-// --- COMPONENTE DO MODAL DA CÂMERA ---
+// --- COMPONENTE DO MODAL DA CÂMERA (LÓGICA REFINADA) ---
 const CameraModal: React.FC<CameraModalProps> = ({ isOpen, onClose, onCapture }) => {
     const videoRef = useRef<HTMLVideoElement>(null);
     const canvasRef = useRef<HTMLCanvasElement>(null);
-    const [stream, setStream] = useState<MediaStream | null>(null);
+    const [isCameraReady, setIsCameraReady] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
-    const startCamera = useCallback(async () => {
-        setError(null);
-        try {
-            if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
-                const mediaStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" } });
-                setStream(mediaStream);
-                if (videoRef.current) {
-                    videoRef.current.srcObject = mediaStream;
-                }
-            } else {
-                setError("O seu navegador não suporta acesso à câmera.");
-            }
-        } catch (err) {
-            console.error("Erro ao aceder à câmera:", err);
-            setError("Não foi possível aceder à câmera. Verifique as permissões do seu navegador.");
-        }
-    }, []);
-
-    const stopCamera = useCallback(() => {
-        if (stream) {
-            stream.getTracks().forEach(track => track.stop());
-            setStream(null);
-        }
-    }, [stream]);
-
     useEffect(() => {
-        if (isOpen) {
-            startCamera();
-        } else {
-            stopCamera();
+        // Se o modal não estiver aberto, não faz nada
+        if (!isOpen) {
+            return;
         }
-        return () => stopCamera();
-    }, [isOpen, startCamera, stopCamera]);
-    
+
+        // Reseta o estado ao abrir
+        setError(null);
+        setIsCameraReady(false);
+        let stream: MediaStream | null = null;
+
+        const startCamera = async () => {
+            try {
+                if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                    throw new Error("O seu navegador não suporta acesso à câmera.");
+                }
+                // Pede acesso à câmera
+                stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" } });
+                
+                // Atribui o stream ao elemento de vídeo
+                if (videoRef.current) {
+                    videoRef.current.srcObject = stream;
+                    // Evento para garantir que o vídeo começou a tocar
+                    videoRef.current.onloadedmetadata = () => {
+                        setIsCameraReady(true);
+                    };
+                }
+            } catch (err) {
+                console.error("Erro ao aceder à câmera:", err);
+                if (err instanceof DOMException && err.name === "NotAllowedError") {
+                    setError("Permissão para aceder à câmera foi negada. Por favor, habilite-a nas configurações do seu navegador.");
+                } else {
+                    setError("Não foi possível aceder à câmera. Verifique as permissões e se ela não está a ser usada por outro aplicativo.");
+                }
+            }
+        };
+
+        startCamera();
+
+        // Função de limpeza: será chamada quando o modal fechar
+        return () => {
+            if (stream) {
+                stream.getTracks().forEach(track => track.stop());
+            }
+            if (videoRef.current) {
+                videoRef.current.srcObject = null;
+            }
+            setIsCameraReady(false);
+        };
+    }, [isOpen]); // O efeito depende APENAS do estado de abertura do modal
+
     const handleCapture = () => {
-        if (videoRef.current && canvasRef.current) {
+        if (videoRef.current && canvasRef.current && isCameraReady) {
             const video = videoRef.current;
             const canvas = canvasRef.current;
             canvas.width = video.videoWidth;
             canvas.height = video.videoHeight;
             const context = canvas.getContext('2d');
             context?.drawImage(video, 0, 0, video.videoWidth, video.videoHeight);
-            const dataUrl = canvas.toDataURL('image/jpeg');
+            const dataUrl = canvas.toDataURL('image/jpeg', 0.9); // 0.9 de qualidade
             onCapture(dataUrl);
             onClose();
         }
@@ -104,18 +121,25 @@ const CameraModal: React.FC<CameraModalProps> = ({ isOpen, onClose, onCapture })
                     <DialogTitle>Verificação por Foto</DialogTitle>
                     <DialogDescription>Centralize o seu rosto e capture a imagem para o check-in.</DialogDescription>
                 </DialogHeader>
-                <div className="relative">
-                    {error && <div className="text-red-500 text-sm p-4 bg-red-50 rounded-md">{error}</div>}
-                    <video ref={videoRef} autoPlay playsInline className={cn("w-full h-auto rounded-md bg-gray-200", { 'hidden': error })}></video>
+                <div className="relative aspect-video w-full overflow-hidden rounded-md bg-gray-900 flex items-center justify-center">
+                    {error && <div className="p-4 text-center text-sm text-red-100">{error}</div>}
+                    <video 
+                        ref={videoRef} 
+                        autoPlay 
+                        playsInline 
+                        className={cn("h-full w-full object-cover", { 'hidden': error })}
+                    ></video>
+                    {!isCameraReady && !error && <Loader2 className="h-8 w-8 animate-spin text-white absolute" />}
                     <canvas ref={canvasRef} className="hidden"></canvas>
                 </div>
-                <Button onClick={handleCapture} disabled={!stream || !!error}>
+                <Button onClick={handleCapture} disabled={!isCameraReady || !!error}>
                     <Camera className="mr-2 h-4 w-4" /> Capturar Foto
                 </Button>
             </DialogContent>
         </Dialog>
     );
 };
+
 
 // --- COMPONENTE PRINCIPAL DA PÁGINA ---
 export default function DoctorCheckinPage() {
