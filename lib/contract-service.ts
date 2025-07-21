@@ -47,17 +47,20 @@ export interface Contract {
   createdAt: Timestamp;
   updatedAt: Timestamp;
 
-  // CAMPOS ADICIONADOS PARA O CHECK-IN/CHECK-OUT
+  // --- CAMPOS PARA O CHECK-IN/CHECK-OUT ---
   checkinAt?: Timestamp;
   checkinLocation?: { latitude: number; longitude: number; };
+  checkinPhotoUrl?: string;
+  
   checkoutAt?: Timestamp;
   checkoutLocation?: { latitude: number; longitude: number; };
+  checkoutPhotoUrl?: string;
+
   cancellationReason?: string;
 }
 
 export const generateContractAndGetUrl = async (contractId: string): Promise<string> => {
     const app = getApp();
-    // Garante que a chamada da Cloud Function aponta para a região correta do seu projeto.
     const functions = getFunctions(app, 'us-central1'); 
     const generatePdf = httpsCallable(functions, 'generateContractPdf');
     

@@ -10,7 +10,6 @@ import {
   updateDoc,
   serverTimestamp,
   Timestamp,
-  orderBy
 } from "firebase/firestore";
 import { db, auth } from "./firebase";
 import { type Contract } from "./contract-service";
@@ -32,8 +31,6 @@ export const getActiveShiftsForCheckin = async (): Promise<CheckinRecord[]> => {
   const currentUser = auth.currentUser;
   if (!currentUser) throw new Error("Utilizador não autenticado.");
 
-  console.log(`[getActiveShiftsForCheckin] Buscando plantões para médico: ${currentUser.uid}`);
-
   const contractsRef = collection(db, "contracts");
   const q = query(
     contractsRef,
@@ -43,7 +40,6 @@ export const getActiveShiftsForCheckin = async (): Promise<CheckinRecord[]> => {
 
   const snapshot = await getDocs(q);
   if (snapshot.empty) {
-    console.log("[getActiveShiftsForCheckin] Nenhum contrato ativo encontrado.");
     return [];
   }
 
@@ -53,10 +49,6 @@ export const getActiveShiftsForCheckin = async (): Promise<CheckinRecord[]> => {
     let currentStatus: CheckinRecord['status'] = 'SCHEDULED';
     if (contract.status === 'IN_PROGRESS') {
         currentStatus = 'CHECKED_IN';
-    } else if (contract.status === 'COMPLETED') {
-        currentStatus = 'CHECKED_OUT';
-    } else if (contract.status === 'CANCELLED') {
-        currentStatus = 'CANCELLED';
     }
 
     return {
@@ -76,17 +68,30 @@ export const getActiveShiftsForCheckin = async (): Promise<CheckinRecord[]> => {
   return records.sort((a, b) => a.shiftDate.toMillis() - b.shiftDate.toMillis());
 };
 
-export const performCheckin = async (contractId: string, latitude: number, longitude: number): Promise<void> => {
+export const performCheckin = async (
+  contractId: string, 
+  latitude: number, 
+  longitude: number,
+  photoUrl: string
+): Promise<void> => {
+    if (!photoUrl) {
+      throw new Error("A foto de verificação é obrigatória para o check-in.");
+    }
     const contractRef = doc(db, "contracts", contractId);
     await updateDoc(contractRef, {
         checkinAt: serverTimestamp(),
         checkinLocation: { latitude, longitude },
+        checkinPhotoUrl: photoUrl,
         status: 'IN_PROGRESS',
         updatedAt: serverTimestamp()
     });
 };
 
-export const performCheckout = async (contractId: string, latitude: number, longitude: number): Promise<void> => {
+export const performCheckout = async (
+  contractId: string, 
+  latitude: number, 
+  longitude: number,
+): Promise<void> => {
     const contractRef = doc(db, "contracts", contractId);
     await updateDoc(contractRef, {
         checkoutAt: serverTimestamp(),
