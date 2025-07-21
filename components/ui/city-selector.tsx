@@ -10,10 +10,18 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command"; // <<< 1. IMPORTAR COMPONENTES DO COMMAND
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Check, ChevronsUpDown } from "lucide-react";
 
-import { useMobile } from "@/hooks/use-mobile"; // <<< 1. ALTERADO PARA USAR O SEU HOOK
+import { useMobile } from "@/hooks/use-mobile";
 import { cn } from "@/lib/utils";
 
 interface CitySelectorProps {
@@ -32,15 +40,13 @@ export function CitySelector({
   className,
 }: CitySelectorProps) {
   const [isOpen, setIsOpen] = React.useState(false);
-  const isMobile = useMobile(); // <<< 2. CHAMADA AO SEU HOOK
-  const isDesktop = !isMobile;  // Invertemos a lógica para ter a variável isDesktop
+  const isMobile = useMobile();
+  const isDesktop = !isMobile;
 
   const [internalSelection, setInternalSelection] = React.useState<string[]>(selectedCities);
-  const [searchTerm, setSearchTerm] = React.useState("");
   
   React.useEffect(() => {
     setInternalSelection([]);
-    setSearchTerm("");
   }, [selectedState]);
 
   React.useEffect(() => {
@@ -54,12 +60,6 @@ export function CitySelector({
       prev.includes(city) ? prev.filter(c => c !== city) : [...prev, city]
     );
   };
-  
-  const filteredCities = React.useMemo(() =>
-    availableCities.filter(city =>
-      city.toLowerCase().includes(searchTerm.toLowerCase())
-    ), [availableCities, searchTerm]
-  );
   
   const handleConfirm = () => {
     onConfirm(internalSelection);
@@ -80,46 +80,40 @@ export function CitySelector({
       ? `${selectedCities.length} cidade(s) selecionada(s)`
       : isDisabled ? "Selecione um estado" : "Selecione as cidades...";
 
+  // Conteúdo da lista, agora usando a estrutura correta do Command
   const CityListContent = () => (
-    <div className="p-2 space-y-2">
-      <Input
-        placeholder="Buscar cidade..."
-        value={searchTerm}
-        onChange={(e) => setSearchTerm(e.target.value)}
-        className="h-9"
-        aria-label="Buscar cidade"
-      />
-      <ScrollArea className="h-[240px]">
-        <div className="pr-3">
-            {filteredCities.length > 0 ? (
-            filteredCities.map(city => (
-                <button
+    // 2. Usar o Command como container principal
+    <Command>
+      <CommandInput placeholder="Buscar cidade..." />
+      {/* CommandList gere a virtualização e navegação */}
+      <CommandList>
+        <CommandEmpty>Nenhuma cidade encontrada.</CommandEmpty>
+        <CommandGroup>
+          <ScrollArea className="h-[240px]">
+            {availableCities.map(city => (
+              // 3. Usar CommandItem em vez de button
+              <CommandItem
                 key={city}
-                onClick={() => handleSelectCity(city)}
-                className={cn(
-                    "w-full text-left p-2 text-sm rounded-md flex items-center hover:bg-accent",
-                    "focus:outline-none focus:ring-1 focus:ring-ring"
-                )}
-                >
+                value={city} // value é importante para a busca do Command
+                onSelect={() => handleSelectCity(city)}
+                className="cursor-pointer"
+              >
                 <Check
-                    className={cn(
-                    "mr-2 h-4 w-4 shrink-0",
+                  className={cn(
+                    "mr-2 h-4 w-4",
                     internalSelection.includes(city) ? "opacity-100" : "opacity-0"
-                    )}
+                  )}
                 />
                 <span>{city}</span>
-                </button>
-            ))
-            ) : (
-            <div className="text-center text-sm text-muted-foreground py-8">
-                Nenhuma cidade encontrada.
-            </div>
-            )}
-        </div>
-      </ScrollArea>
-    </div>
+              </CommandItem>
+            ))}
+          </ScrollArea>
+        </CommandGroup>
+      </CommandList>
+    </Command>
   );
 
+  // A renderização para Desktop (Popover) e Mobile (Drawer) permanece a mesma
   if (isDesktop) {
     return (
       <Popover open={isOpen} onOpenChange={handleOpenChange}>
