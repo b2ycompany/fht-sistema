@@ -76,6 +76,49 @@ export const getMatchesForBackofficeReview = async (): Promise<PotentialMatch[]>
   }
 };
 
+export const getMatchesForDoctorInNegotiation = async (): Promise<PotentialMatch[]> => {
+    const currentUser = auth.currentUser;
+    if (!currentUser) { return []; }
+    try {
+        const q = query(
+            collection(db, "potentialMatches"),
+            where("doctorId", "==", currentUser.uid),
+            where("status", "==", "PENDING_BACKOFFICE_REVIEW"),
+            orderBy("createdAt", "desc")
+        );
+        const querySnapshot = await getDocs(q);
+        return querySnapshot.docs.map(docSnap => ({ id: docSnap.id, ...docSnap.data() } as PotentialMatch));
+    } catch (error) {
+        console.error("[getMatchesForDoctorInNegotiation] Erro:", error);
+        throw new Error("Falha ao carregar as propostas em negociação.");
+    }
+};
+
+// =======================================================================
+// NOVA FUNÇÃO ADICIONADA
+// =======================================================================
+/**
+ * Busca os matches que estão em negociação para o hospital logado.
+ */
+export const getMatchesForHospitalInNegotiation = async (): Promise<PotentialMatch[]> => {
+    const currentUser = auth.currentUser;
+    if (!currentUser) { return []; }
+    try {
+        const q = query(
+            collection(db, "potentialMatches"),
+            where("hospitalId", "==", currentUser.uid),
+            where("status", "==", "PENDING_BACKOFFICE_REVIEW"),
+            orderBy("createdAt", "desc")
+        );
+        const querySnapshot = await getDocs(q);
+        return querySnapshot.docs.map(docSnap => ({ id: docSnap.id, ...docSnap.data() } as PotentialMatch));
+    } catch (error) {
+        console.error("[getMatchesForHospitalInNegotiation] Erro:", error);
+        throw new Error("Falha ao carregar as propostas em negociação.");
+    }
+};
+
+
 export const approveMatchAndCreateContract = async (
   matchId: string,
   negotiatedRate: number, 
@@ -196,9 +239,6 @@ export const rejectMatchByBackoffice = async (
   }
 };
 
-// =======================================================================
-// CHAT DE NEGOCIAÇÃO ATUALIZADO (SUPORTA DOIS CANAIS)
-// =======================================================================
 export type ChatTarget = 'doctor' | 'hospital';
 
 export interface ChatMessage {
@@ -210,9 +250,6 @@ export interface ChatMessage {
     createdAt: Timestamp;
 }
 
-/**
- * Envia uma nova mensagem para um canal de chat específico (médico ou hospital).
- */
 export const sendMessageInMatchChat = async (matchId: string, text: string, target: ChatTarget): Promise<void> => {
     const currentUser = auth.currentUser;
     const userProfile = await getCurrentUserData(); 
@@ -224,7 +261,6 @@ export const sendMessageInMatchChat = async (matchId: string, text: string, targ
         throw new Error("A mensagem não pode estar vazia.");
     }
 
-    // Define para qual subcoleção a mensagem vai: 'chatWithDoctor' ou 'chatWithHospital'
     const chatCollectionName = target === 'doctor' ? 'chatWithDoctor' : 'chatWithHospital';
     const chatCollectionRef = collection(db, "potentialMatches", matchId, chatCollectionName);
 
@@ -239,9 +275,6 @@ export const sendMessageInMatchChat = async (matchId: string, text: string, targ
     await addDoc(chatCollectionRef, messageData);
 };
 
-/**
- * Escuta em tempo real as mensagens de um canal de chat específico.
- */
 export const getMatchChatMessages = (
     matchId: string, 
     target: ChatTarget,
