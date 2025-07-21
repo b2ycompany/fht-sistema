@@ -9,7 +9,7 @@ import { useToast } from "@/hooks/use-toast";
 import { Timestamp } from "firebase/firestore";
 import {
     MapPinIcon, LogIn, LogOut, CalendarDays, ClockIcon, AlertTriangle, Loader2,
-    ClipboardList, RotateCcw, Camera
+    ClipboardList, RotateCcw, Camera, Target
 } from "lucide-react";
 import { getActiveShiftsForCheckin, performCheckin, performCheckout, type CheckinRecord } from "@/lib/checkin-service";
 import { uploadFileToStorage } from "@/lib/storage-service";
@@ -42,7 +42,7 @@ interface CameraModalProps {
   onCapture: (dataUrl: string) => void;
 }
 
-// --- COMPONENTE DO MODAL DA CÂMERA (LÓGICA REFINADA) ---
+// --- COMPONENTE DO MODAL DA CÂMERA ---
 const CameraModal: React.FC<CameraModalProps> = ({ isOpen, onClose, onCapture }) => {
     const videoRef = useRef<HTMLVideoElement>(null);
     const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -50,55 +50,34 @@ const CameraModal: React.FC<CameraModalProps> = ({ isOpen, onClose, onCapture })
     const [error, setError] = useState<string | null>(null);
 
     useEffect(() => {
-        // Se o modal não estiver aberto, não faz nada
-        if (!isOpen) {
-            return;
-        }
-
-        // Reseta o estado ao abrir
+        if (!isOpen) return;
         setError(null);
         setIsCameraReady(false);
         let stream: MediaStream | null = null;
-
         const startCamera = async () => {
             try {
-                if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-                    throw new Error("O seu navegador não suporta acesso à câmera.");
-                }
-                // Pede acesso à câmera
+                if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) throw new Error("O seu navegador não suporta acesso à câmera.");
                 stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" } });
-                
-                // Atribui o stream ao elemento de vídeo
                 if (videoRef.current) {
                     videoRef.current.srcObject = stream;
-                    // Evento para garantir que o vídeo começou a tocar
-                    videoRef.current.onloadedmetadata = () => {
-                        setIsCameraReady(true);
-                    };
+                    videoRef.current.onloadedmetadata = () => { setIsCameraReady(true); };
                 }
             } catch (err) {
                 console.error("Erro ao aceder à câmera:", err);
                 if (err instanceof DOMException && err.name === "NotAllowedError") {
                     setError("Permissão para aceder à câmera foi negada. Por favor, habilite-a nas configurações do seu navegador.");
                 } else {
-                    setError("Não foi possível aceder à câmera. Verifique as permissões e se ela não está a ser usada por outro aplicativo.");
+                    setError("Não foi possível aceder à câmera.");
                 }
             }
         };
-
         startCamera();
-
-        // Função de limpeza: será chamada quando o modal fechar
         return () => {
-            if (stream) {
-                stream.getTracks().forEach(track => track.stop());
-            }
-            if (videoRef.current) {
-                videoRef.current.srcObject = null;
-            }
+            if (stream) stream.getTracks().forEach(track => track.stop());
+            if (videoRef.current) videoRef.current.srcObject = null;
             setIsCameraReady(false);
         };
-    }, [isOpen]); // O efeito depende APENAS do estado de abertura do modal
+    }, [isOpen]);
 
     const handleCapture = () => {
         if (videoRef.current && canvasRef.current && isCameraReady) {
@@ -106,40 +85,56 @@ const CameraModal: React.FC<CameraModalProps> = ({ isOpen, onClose, onCapture })
             const canvas = canvasRef.current;
             canvas.width = video.videoWidth;
             canvas.height = video.videoHeight;
-            const context = canvas.getContext('2d');
-            context?.drawImage(video, 0, 0, video.videoWidth, video.videoHeight);
-            const dataUrl = canvas.toDataURL('image/jpeg', 0.9); // 0.9 de qualidade
+            canvas.getContext('2d')?.drawImage(video, 0, 0, video.videoWidth, video.videoHeight);
+            const dataUrl = canvas.toDataURL('image/jpeg', 0.9);
             onCapture(dataUrl);
             onClose();
         }
     };
 
     return (
-        <Dialog open={isOpen} onOpenChange={onClose}>
-            <DialogContent>
-                <DialogHeader>
-                    <DialogTitle>Verificação por Foto</DialogTitle>
-                    <DialogDescription>Centralize o seu rosto e capture a imagem para o check-in.</DialogDescription>
-                </DialogHeader>
-                <div className="relative aspect-video w-full overflow-hidden rounded-md bg-gray-900 flex items-center justify-center">
-                    {error && <div className="p-4 text-center text-sm text-red-100">{error}</div>}
-                    <video 
-                        ref={videoRef} 
-                        autoPlay 
-                        playsInline 
-                        className={cn("h-full w-full object-cover", { 'hidden': error })}
-                    ></video>
-                    {!isCameraReady && !error && <Loader2 className="h-8 w-8 animate-spin text-white absolute" />}
-                    <canvas ref={canvasRef} className="hidden"></canvas>
-                </div>
-                <Button onClick={handleCapture} disabled={!isCameraReady || !!error}>
-                    <Camera className="mr-2 h-4 w-4" /> Capturar Foto
-                </Button>
-            </DialogContent>
-        </Dialog>
+        <Dialog open={isOpen} onOpenChange={onClose}><DialogContent><DialogHeader><DialogTitle>Verificação por Foto</DialogTitle><DialogDescription>Centralize o seu rosto e capture a imagem para o check-in.</DialogDescription></DialogHeader><div className="relative aspect-video w-full overflow-hidden rounded-md bg-gray-900 flex items-center justify-center">{error && <div className="p-4 text-center text-sm text-red-100">{error}</div>}<video ref={videoRef} autoPlay playsInline className={cn("h-full w-full object-cover", { 'hidden': error })}></video>{!isCameraReady && !error && <Loader2 className="h-8 w-8 animate-spin text-white absolute" />}<canvas ref={canvasRef} className="hidden"></canvas></div><Button onClick={handleCapture} disabled={!isCameraReady || !!error}><Camera className="mr-2 h-4 w-4" /> Capturar Foto</Button></DialogContent></Dialog>
     );
 };
 
+// --- NOVO COMPONENTE: REVERSE GEOCODING ---
+const ReverseGeocodedLocation: React.FC<{ location: { latitude: number; longitude: number; } }> = ({ location }) => {
+    const [address, setAddress] = useState<string | null>("A obter nome do local...");
+
+    useEffect(() => {
+        if (!location) return;
+
+        const fetchAddress = async () => {
+            try {
+                const { latitude, longitude } = location;
+                const response = await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${latitude}&lon=${longitude}`);
+                if (!response.ok) throw new Error("Falha na resposta da API de geolocalização");
+                
+                const data = await response.json();
+                const city = data.address?.city || data.address?.town || data.address?.village;
+                const state = data.address?.state;
+
+                if (city && state) {
+                    setAddress(`${city}, ${state}`);
+                } else {
+                    setAddress("Nome do local não encontrado");
+                }
+            } catch (error) {
+                console.error("Erro no reverse geocoding:", error);
+                setAddress("Não foi possível obter o nome do local");
+            }
+        };
+
+        fetchAddress();
+    }, [location]);
+
+    return (
+        <div className="text-xs text-gray-500 flex items-center">
+            <Target size={13} className="mr-1.5" />
+            Local registado: {address}
+        </div>
+    );
+};
 
 // --- COMPONENTE PRINCIPAL DA PÁGINA ---
 export default function DoctorCheckinPage() {
@@ -148,7 +143,6 @@ export default function DoctorCheckinPage() {
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
-    
     const [isCameraOpen, setIsCameraOpen] = useState(false);
     const [selectedRecordId, setSelectedRecordId] = useState<string | null>(null);
 
@@ -170,27 +164,20 @@ export default function DoctorCheckinPage() {
 
     const handlePhotoCaptured = (photoDataUrl: string) => {
         if (!selectedRecordId || !auth.currentUser) return;
-        
         const recordId = selectedRecordId;
         const userId = auth.currentUser.uid;
-        
         setActionLoadingId(recordId);
         
         toast({ title: "A obter a sua localização..." });
         navigator.geolocation.getCurrentPosition(
             async (position) => {
                 const { latitude, longitude } = position.coords;
-                
                 try {
-                    // 1. Converter dataURL para File
-                    const photoFile = dataURLtoFile(photoDataUrl, `${recordId}.jpg`);
-
-                    // 2. Fazer upload da foto usando o novo serviço
                     toast({ title: "A enviar a sua foto..." });
+                    const photoFile = dataURLtoFile(photoDataUrl, `${recordId}.jpg`);
                     const storagePath = `checkin_photos/${userId}/${recordId}.jpg`;
                     const photoUrl = await uploadFileToStorage(photoFile, storagePath);
                     
-                    // 3. Realizar o check-in
                     toast({ title: "A registar o seu check-in..." });
                     await performCheckin(recordId, latitude, longitude, photoUrl);
                     
@@ -198,22 +185,17 @@ export default function DoctorCheckinPage() {
                     fetchActiveShifts();
                 } catch (err: any) {
                     toast({ title: `Erro no Processo de Check-in`, description: err.message, variant: "destructive" });
-                } finally {
-                    setActionLoadingId(null);
-                }
+                } finally { setActionLoadingId(null); }
             },
             (geoError) => {
                 let message = "Não foi possível obter a sua localização. ";
                 switch(geoError.code) {
                     case geoError.PERMISSION_DENIED: message += "Por favor, ative a permissão de localização no seu navegador."; break;
-                    case geoError.POSITION_UNAVAILABLE: message += "Informação de localização indisponível no momento."; break;
-                    case geoError.TIMEOUT: message += "Tempo esgotado ao buscar localização."; break;
                     default: message += "Ocorreu um erro desconhecido."; break;
                 }
                 toast({ title: "Falha na Geolocalização", description: message, variant: "destructive" });
                 setActionLoadingId(null);
-            },
-            { timeout: 15000, enableHighAccuracy: true }
+            }, { timeout: 15000, enableHighAccuracy: true }
         );
     };
 
@@ -225,15 +207,12 @@ export default function DoctorCheckinPage() {
                     await performCheckout(recordId, position.coords.latitude, position.coords.longitude);
                     toast({ title: "Check-out Realizado!", description: "O seu fim de plantão foi registado.", variant: "success" });
                     fetchActiveShifts();
-                } catch (err: any)                    {
+                } catch (err: any) {
                     toast({ title: "Erro ao fazer Check-out", description: err.message, variant: "destructive" });
-                } finally {
-                    setActionLoadingId(null);
-                }
+                } finally { setActionLoadingId(null); }
             },
              (geoError) => {
-                let message = "Não foi possível obter sua localização para o checkout.";
-                toast({ title: "Falha na Geolocalização", description: message, variant: "destructive" });
+                toast({ title: "Falha na Geolocalização", description: "Não foi possível obter sua localização para o checkout.", variant: "destructive" });
                 setActionLoadingId(null);
              }
         );
@@ -246,11 +225,7 @@ export default function DoctorCheckinPage() {
 
     return (
         <div className="space-y-6">
-            <CameraModal 
-                isOpen={isCameraOpen} 
-                onClose={() => setIsCameraOpen(false)}
-                onCapture={handlePhotoCaptured}
-            />
+            <CameraModal isOpen={isCameraOpen} onClose={() => setIsCameraOpen(false)} onCapture={handlePhotoCaptured} />
             <h1 className="text-2xl md:text-3xl font-bold">Check-in / Check-out de Plantões</h1>
             <Card>
                 <CardHeader>
@@ -264,13 +239,7 @@ export default function DoctorCheckinPage() {
                     {!isLoading && !error && activeShifts.length > 0 && (
                         <div className="space-y-4">
                             {activeShifts.map(record => (
-                                <ShiftCheckinItem
-                                    key={record.id}
-                                    record={record}
-                                    onCheckinClick={() => openCameraForCheckin(record.id)}
-                                    onCheckoutClick={handleCheckout}
-                                    isActionLoading={actionLoadingId}
-                                />
+                                <ShiftCheckinItem key={record.id} record={record} onCheckinClick={() => openCameraForCheckin(record.id)} onCheckoutClick={handleCheckout} isActionLoading={actionLoadingId} />
                             ))}
                         </div>
                     )}
@@ -279,10 +248,7 @@ export default function DoctorCheckinPage() {
             <div className="mt-6 p-4 border rounded-lg bg-amber-50 text-amber-800">
                 <div className="flex items-start">
                     <AlertTriangle className="h-5 w-5 mr-3 mt-0.5 text-amber-600" />
-                    <div>
-                        <h3 className="font-semibold">Importante sobre Geolocalização e Câmera</h3>
-                        <p className="text-xs mt-1">Para realizar o check-in, o seu navegador solicitará permissão para aceder à sua localização e câmera. Isto é necessário para validar a sua presença e identidade no local do plantão.</p>
-                    </div>
+                    <div><h3 className="font-semibold">Importante sobre Geolocalização e Câmera</h3><p className="text-xs mt-1">Para realizar o check-in, o seu navegador solicitará permissão para aceder à sua localização e câmera. Isto é necessário para validar a sua presença e identidade no local do plantão.</p></div>
                 </div>
             </div>
         </div>
@@ -297,7 +263,7 @@ interface ShiftCheckinItemProps {
   isActionLoading: string | null;
 }
 
-// -- Componente do Item do Plantão (Tipado) ---
+// -- Componente do Item do Plantão (Atualizado) ---
 const ShiftCheckinItem: React.FC<ShiftCheckinItemProps> = ({ record, onCheckinClick, onCheckoutClick, isActionLoading }) => {
     const shiftDate = record.shiftDate.toDate();
     const isCurrentlyLoading = isActionLoading === record.id;
@@ -324,28 +290,29 @@ const ShiftCheckinItem: React.FC<ShiftCheckinItemProps> = ({ record, onCheckinCl
                 </div>
                 <CardDescription className="text-xs">
                     <MapPinIcon className="inline h-3 w-3 mr-1 text-gray-500" />
-                    {record.locationCity}, {record.locationState}
+                    Local do Plantão: {record.locationCity}, {record.locationState}
                 </CardDescription>
             </CardHeader>
-            <CardContent className="text-sm space-y-1">
+            <CardContent className="text-sm space-y-2 pt-4">
                 <div className="flex items-center"><CalendarDays size={14} className="mr-2 text-gray-500"/><strong>Data:</strong><span className="ml-1">{shiftDate.toLocaleDateString('pt-BR')}</span></div>
                 <div className="flex items-center"><ClockIcon size={14} className="mr-2 text-gray-500"/><strong>Horário Esperado:</strong><span className="ml-1">{record.expectedStartTime} - {record.expectedEndTime}</span></div>
-                {record.checkinAt && <div className="text-xs text-green-700 flex items-center pt-2"><LogIn size={13} className="mr-1.5"/>Check-in realizado às {record.checkinAt.toDate().toLocaleTimeString('pt-BR', {hour: '2-digit', minute: '2-digit'})}</div>}
-                {record.checkoutAt && <div className="text-xs text-red-700 flex items-center"><LogOut size={13} className="mr-1.5"/>Check-out realizado às {record.checkoutAt.toDate().toLocaleTimeString('pt-BR', {hour: '2-digit', minute: '2-digit'})}</div>}
+                
+                {record.checkinAt && (
+                    <div className="pt-2 space-y-1">
+                        <div className="text-xs text-green-700 flex items-center"><LogIn size={13} className="mr-1.5"/>Check-in realizado às {record.checkinAt.toDate().toLocaleTimeString('pt-BR', {hour: '2-digit', minute: '2-digit'})}</div>
+                        {record.checkinLocation && <ReverseGeocodedLocation location={record.checkinLocation} />}
+                    </div>
+                )}
+                {record.checkoutAt && (
+                     <div className="pt-2 space-y-1">
+                        <div className="text-xs text-red-700 flex items-center"><LogOut size={13} className="mr-1.5"/>Check-out realizado às {record.checkoutAt.toDate().toLocaleTimeString('pt-BR', {hour: '2-digit', minute: '2-digit'})}</div>
+                        {record.checkoutLocation && <ReverseGeocodedLocation location={record.checkoutLocation} />}
+                    </div>
+                )}
             </CardContent>
             <CardFooter className="flex justify-end gap-2 border-t pt-4">
-                {canCheckin && (
-                    <Button onClick={onCheckinClick} size="sm" className="bg-blue-600 hover:bg-blue-700" disabled={isCurrentlyLoading}>
-                        {isCurrentlyLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                        <LogIn className="mr-2 h-4 w-4" /> Fazer Check-in
-                    </Button>
-                )}
-                {canCheckout && (
-                    <Button onClick={() => onCheckoutClick(record.id)} size="sm" variant="outline" disabled={isCurrentlyLoading}>
-                        {isCurrentlyLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                        <LogOut className="mr-2 h-4 w-4" /> Fazer Check-out
-                    </Button>
-                )}
+                {canCheckin && <Button onClick={onCheckinClick} size="sm" className="bg-blue-600 hover:bg-blue-700" disabled={isCurrentlyLoading}>{isCurrentlyLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}<LogIn className="mr-2 h-4 w-4" /> Fazer Check-in</Button>}
+                {canCheckout && <Button onClick={() => onCheckoutClick(record.id)} size="sm" variant="outline" disabled={isCurrentlyLoading}>{isCurrentlyLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}<LogOut className="mr-2 h-4 w-4" /> Fazer Check-out</Button>}
                 {record.status === 'CHECKED_OUT' && <Badge variant="default" className="bg-green-100 text-green-800">Plantão Finalizado</Badge>}
             </CardFooter>
         </Card>

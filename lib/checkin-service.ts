@@ -25,6 +25,9 @@ export interface CheckinRecord {
   status: 'SCHEDULED' | 'CHECKED_IN' | 'CHECKED_OUT' | 'MISSED' | 'CANCELLED';
   checkinAt?: Timestamp;
   checkoutAt?: Timestamp;
+  // --- CAMPOS ADICIONADOS ---
+  checkinLocation?: { latitude: number; longitude: number; };
+  checkoutLocation?: { latitude: number; longitude: number; };
 }
 
 export const getActiveShiftsForCheckin = async (): Promise<CheckinRecord[]> => {
@@ -62,6 +65,9 @@ export const getActiveShiftsForCheckin = async (): Promise<CheckinRecord[]> => {
       status: currentStatus,
       checkinAt: contract.checkinAt,
       checkoutAt: contract.checkoutAt,
+      // --- MAPEAMENTO ADICIONADO ---
+      checkinLocation: contract.checkinLocation,
+      checkoutLocation: contract.checkoutLocation,
     };
   });
   
