@@ -22,7 +22,6 @@ import { type Contract } from "./contract-service";
 import { sendContractReadyForDoctorEmail } from './notification-service';
 import { getCurrentUserData } from "./auth-service";
 
-// A interface PotentialMatch continua igual.
 export interface PotentialMatch {
   id: string;
   shiftRequirementId: string;
@@ -52,6 +51,7 @@ export interface PotentialMatch {
   backofficeReviewedAt?: Timestamp;
   backofficeNotes?: string;
   negotiatedRateForDoctor?: number; 
+  negotiatedRateForHospital?: number;
   contractId?: string;
   createdAt: Timestamp;
   updatedAt: Timestamp;
@@ -76,12 +76,6 @@ export const getMatchesForBackofficeReview = async (): Promise<PotentialMatch[]>
   }
 };
 
-// =======================================================================
-// NOVAS FUNÇÕES ADICIONADAS
-// =======================================================================
-/**
- * Busca os matches que estão em negociação para o médico logado.
- */
 export const getMatchesForDoctorInNegotiation = async (): Promise<PotentialMatch[]> => {
     const currentUser = auth.currentUser;
     if (!currentUser) { return []; }
@@ -100,9 +94,6 @@ export const getMatchesForDoctorInNegotiation = async (): Promise<PotentialMatch
     }
 };
 
-/**
- * Busca os matches que estão em negociação para o hospital logado.
- */
 export const getMatchesForHospitalInNegotiation = async (): Promise<PotentialMatch[]> => {
     const currentUser = auth.currentUser;
     if (!currentUser) { return []; }
@@ -121,10 +112,10 @@ export const getMatchesForHospitalInNegotiation = async (): Promise<PotentialMat
     }
 };
 
-
 export const approveMatchAndCreateContract = async (
   matchId: string,
-  negotiatedRate: number, 
+  negotiatedDoctorRate: number, 
+  negotiatedHospitalRate: number,
   platformMarginPercentage: number,
   backofficeNotes?: string
 ): Promise<void> => {
@@ -139,9 +130,7 @@ export const approveMatchAndCreateContract = async (
   try {
     await runTransaction(db, async (transaction: Transaction) => {
         const matchDocSnap = await transaction.get(matchDocRef);
-        if (!matchDocSnap.exists()) {
-          throw new Error("Match não encontrado. Pode já ter sido processado.");
-        }
+        if (!matchDocSnap.exists()) { throw new Error("Match não encontrado."); }
         const matchData = matchDocSnap.data() as PotentialMatch;
         
         const doctorDocRef = doc(db, "users", matchData.doctorId);
@@ -153,13 +142,11 @@ export const approveMatchAndCreateContract = async (
             hospitalName: matchData.hospitalName || 'N/A',
         };
 
-        const hospitalRate = matchData.offeredRateByHospital;
-        const doctorRate = negotiatedRate;
+        const hospitalRate = negotiatedHospitalRate;
+        const doctorRate = negotiatedDoctorRate;
         const platformMarginRate = hospitalRate - doctorRate;
 
-        if (platformMarginRate < 0) {
-            throw new Error("O valor proposto ao médico não pode ser maior que o valor pago pelo hospital.");
-        }
+        if (platformMarginRate < 0) { throw new Error("O valor final do médico não pode ser maior que o valor final do hospital."); }
 
         const contractRef = doc(collection(db, "contracts"));
         newContractId = contractRef.id; 
@@ -189,6 +176,7 @@ export const approveMatchAndCreateContract = async (
         transaction.update(matchDocRef, {
             status: "BACKOFFICE_APPROVED_CONTRACT_CREATED",
             negotiatedRateForDoctor: doctorRate,
+            negotiatedRateForHospital: hospitalRate,
             backofficeReviewerId: currentUser.uid,
             backofficeReviewedAt: serverTimestamp(),
             backofficeNotes: backofficeNotes || "",
@@ -201,6 +189,7 @@ export const approveMatchAndCreateContract = async (
     
     if (emailData.doctorEmail && newContractId) {
         console.log(`[MatchService] A acionar notificação por email para ${emailData.doctorEmail}`);
+        // CORREÇÃO: Passando o quarto argumento 'newContractId'
         sendContractReadyForDoctorEmail(
             emailData.doctorEmail,
             emailData.doctorName,
@@ -257,25 +246,19 @@ export const sendMessageInMatchChat = async (matchId: string, text: string, targ
     const currentUser = auth.currentUser;
     const userProfile = await getCurrentUserData(); 
     
-    if (!currentUser || !userProfile) {
-        throw new Error("Utilizador não autenticado ou perfil não encontrado.");
-    }
-    if (!text.trim()) {
-        throw new Error("A mensagem não pode estar vazia.");
-    }
+    if (!currentUser || !userProfile) { throw new Error("Utilizador não autenticado."); }
+    if (!text.trim()) { throw new Error("A mensagem não pode estar vazia."); }
 
     const chatCollectionName = target === 'doctor' ? 'chatWithDoctor' : 'chatWithHospital';
     const chatCollectionRef = collection(db, "potentialMatches", matchId, chatCollectionName);
 
-    const messageData = {
+    await addDoc(chatCollectionRef, {
         text: text.trim(),
         senderId: currentUser.uid,
-        senderName: userProfile.displayName || "Admin",
+        senderName: userProfile.displayName || "Utilizador",
         senderRole: userProfile.role,
         createdAt: serverTimestamp()
-    };
-
-    await addDoc(chatCollectionRef, messageData);
+    });
 };
 
 export const getMatchChatMessages = (
@@ -287,13 +270,8 @@ export const getMatchChatMessages = (
     const chatCollectionRef = collection(db, "potentialMatches", matchId, chatCollectionName);
     const q = query(chatCollectionRef, orderBy("createdAt", "asc"));
 
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-        const messages = snapshot.docs.map(doc => ({
-            id: doc.id,
-            ...doc.data()
-        } as ChatMessage));
+    return onSnapshot(q, (snapshot) => {
+        const messages = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as ChatMessage));
         callback(messages);
     });
-
-    return unsubscribe;
 };

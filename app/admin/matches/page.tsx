@@ -21,7 +21,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
-import { Table } from "@/components/ui/table";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 
 // Serviços e Tipos
@@ -55,17 +55,15 @@ const UserVerificationCard: React.FC<{ user: UserProfile; onAction: (userId: str
     );
 };
 
-// ATUALIZADO: O componente de chat agora aceita um 'target'
 const NegotiationChat: React.FC<{ matchId: string, target: ChatTarget }> = ({ matchId, target }) => {
     const { user } = useAuth();
     const [messages, setMessages] = useState<ChatMessage[]>([]);
     const [newMessage, setNewMessage] = useState("");
     const [isSending, setIsSending] = useState(false);
-    const chatEndRef = React.useRef<HTMLDivElement>(null);
+    const chatEndRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
         if (!matchId) return;
-        // Passa o 'target' para saber de qual chat buscar as mensagens
         const unsubscribe = getMatchChatMessages(matchId, target, setMessages);
         return () => unsubscribe();
     }, [matchId, target]);
@@ -79,7 +77,6 @@ const NegotiationChat: React.FC<{ matchId: string, target: ChatTarget }> = ({ ma
         if (!newMessage.trim() || !user) return;
         setIsSending(true);
         try {
-            // Passa o 'target' para saber em qual chat enviar a mensagem
             await sendMessageInMatchChat(matchId, newMessage, target);
             setNewMessage("");
         } catch (error) {
@@ -96,7 +93,7 @@ const NegotiationChat: React.FC<{ matchId: string, target: ChatTarget }> = ({ ma
                 {messages.map(msg => (
                     <div key={msg.id} className={cn("flex flex-col w-full", msg.senderId === user?.uid ? "items-end" : "items-start")}>
                         <div className={cn( "p-2 rounded-lg max-w-[85%]", msg.senderRole === 'admin' ? "bg-blue-600 text-white" : "bg-gray-200 text-gray-800" )}>
-                            <p className="text-xs font-bold">{msg.senderName}</p>
+                            <p className="text-xs font-bold">{msg.senderName} ({msg.senderRole})</p>
                             <p className="text-sm break-words">{msg.text}</p>
                         </div>
                     </div>
@@ -111,14 +108,24 @@ const NegotiationChat: React.FC<{ matchId: string, target: ChatTarget }> = ({ ma
     );
 };
 
-const MatchReviewCard: React.FC<{ match: PotentialMatch; onApproveMatch: (matchId: string, negotiatedRate: number, platformMargin: number, notes?: string) => Promise<void>; onRejectMatch: (matchId: string, notes: string) => Promise<void>; }> = ({ match, onApproveMatch, onRejectMatch }) => {
+const MatchReviewCard: React.FC<{ match: PotentialMatch; onApproveMatch: (matchId: string, doctorRate: number, hospitalRate: number, margin: number, notes?: string) => Promise<void>; onRejectMatch: (matchId: string, notes: string) => Promise<void>; }> = ({ match, onApproveMatch, onRejectMatch }) => {
     const [notes, setNotes] = useState("");
     const [isProcessing, setIsProcessing] = useState(false);
-    const [negotiatedRate, setNegotiatedRate] = useState(match.doctorDesiredRate);
+    const [negotiatedDoctorRate, setNegotiatedDoctorRate] = useState(match.doctorDesiredRate);
+    const [negotiatedHospitalRate, setNegotiatedHospitalRate] = useState(match.offeredRateByHospital);
     
-    const handleApprove = () => onApproveMatch(match.id, negotiatedRate, 10, notes);
-    const handleReject = () => { if (!notes.trim()) { alert("Para rejeitar, preencha as observações como motivo."); return; } onRejectMatch(match.id, notes); };
+    const handleApprove = async () => {
+        setIsProcessing(true);
+        try {
+            await onApproveMatch(match.id, negotiatedDoctorRate, negotiatedHospitalRate, 10, notes);
+        } finally {
+            setIsProcessing(false);
+        }
+    };
+    const handleReject = async () => { if (!notes.trim()) { alert("Para rejeitar, preencha as observações como motivo."); return; } setIsProcessing(true); try { await onRejectMatch(match.id, notes); } finally { setIsProcessing(false); } };
     
+    const matchDate = match.matchedDate instanceof Timestamp ? match.matchedDate.toDate().toLocaleDateString('pt-BR') : 'Data inválida';
+    const location = `${match.shiftCities?.join(', ') || match.shiftCity || 'Cidade?'}, ${match.shiftState || 'Estado?'}`;
     const needsNegotiation = match.doctorDesiredRate > match.offeredRateByHospital;
 
     return (
@@ -126,14 +133,17 @@ const MatchReviewCard: React.FC<{ match: PotentialMatch; onApproveMatch: (matchI
         <CardHeader>
             <div className="flex justify-between items-start flex-wrap gap-y-2">
               <div>
-                <CardTitle className="text-lg">Match: {match.doctorName} &harr; {match.hospitalName}</CardTitle>
-                <CardDescription>Valor Hospital: {formatCurrency(match.offeredRateByHospital)} | Valor Médico: {formatCurrency(match.doctorDesiredRate)}</CardDescription>
+                <CardTitle className="text-lg">Match: {match.shiftRequirementSpecialties.join(", ")}</CardTitle>
+                <CardDescription>{match.hospitalName} &harr; {match.doctorName}</CardDescription>
               </div>
               {needsNegotiation && (<Badge variant="destructive" className="flex items-center gap-1.5"><AlertTriangle size={14}/>Negociação Recomendada</Badge>)}
             </div>
         </CardHeader>
-        <CardContent>
-            {/* Aqui pode ir um resumo dos detalhes do plantão se desejar */}
+        <CardContent className="space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+                <div className="space-y-2 p-3 bg-gray-50 rounded-md"><h4 className="font-bold">Demanda do Hospital</h4><p>Local: {location}</p><p>Data: {matchDate}</p><p>Oferecido: <strong>{formatCurrency(match.offeredRateByHospital)}/h</strong></p></div>
+                <div className="space-y-2 p-3 bg-gray-50 rounded-md"><h4 className="font-bold">Disponibilidade do Médico</h4><p>Local: {location}</p><p>Data: {matchDate}</p><p>Desejado: <strong>{formatCurrency(match.doctorDesiredRate)}/h</strong></p></div>
+            </div>
         </CardContent>
 
         <Accordion type="single" collapsible className="w-full px-6">
@@ -141,31 +151,31 @@ const MatchReviewCard: React.FC<{ match: PotentialMatch; onApproveMatch: (matchI
                 <AccordionTrigger>Abrir Ferramentas de Gestão e Chat</AccordionTrigger>
                 <AccordionContent className="pt-4 space-y-6">
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div><Label>Valor/Hora a Propor ao Médico (R$)</Label><Input type="number" value={negotiatedRate} onChange={e => setNegotiatedRate(Number(e.target.value))} /></div>
-                        <div><Label>Margem da Plataforma (%)</Label><Input type="number" defaultValue={10} disabled /></div>
+                        <div>
+                            <Label>Valor Final / Hora (Hospital)</Label>
+                            <Input type="number" value={negotiatedHospitalRate} onChange={e => setNegotiatedHospitalRate(Number(e.target.value))} />
+                        </div>
+                        <div>
+                            <Label>Valor Final / Hora (Médico)</Label>
+                            <Input type="number" value={negotiatedDoctorRate} onChange={e => setNegotiatedDoctorRate(Number(e.target.value))} />
+                        </div>
                     </div>
-                    <div><Label>Observações / Motivo da Rejeição</Label><Textarea value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Notas para o médico ou motivo da rejeição..." /></div>
+                    <div><Label>Observações / Motivo da Rejeição</Label><Textarea value={notes} onChange={(e) => setNotes(e.target.value)} /></div>
                     
-                    {/* ATUALIZADO: Sistema de abas para os dois canais de chat */}
                     <div className="border-t mt-4 pt-4">
-                        <h4 className="font-semibold mb-2 text-sm flex items-center gap-2"><MessageSquare size={16} /> Canais de Negociação</h4>
+                        <h4 className="font-semibold mb-2 text-sm">Canais de Negociação</h4>
                         <Tabs defaultValue="doctor">
                             <TabsList className="grid w-full grid-cols-2">
                                 <TabsTrigger value="doctor">Chat com Médico</TabsTrigger>
                                 <TabsTrigger value="hospital">Chat com Hospital</TabsTrigger>
                             </TabsList>
-                            <TabsContent value="doctor" className="mt-2">
-                                <NegotiationChat matchId={match.id} target="doctor" />
-                            </TabsContent>
-                            <TabsContent value="hospital" className="mt-2">
-                                <NegotiationChat matchId={match.id} target="hospital" />
-                            </TabsContent>
+                            <TabsContent value="doctor" className="mt-2"><NegotiationChat matchId={match.id} target="doctor" /></TabsContent>
+                            <TabsContent value="hospital" className="mt-2"><NegotiationChat matchId={match.id} target="hospital" /></TabsContent>
                         </Tabs>
                     </div>
                 </AccordionContent>
             </AccordionItem>
         </Accordion>
-
         <CardFooter className="flex justify-end items-center gap-3 pt-6">
             <Button variant="destructive" onClick={handleReject} disabled={isProcessing}>{isProcessing ? <Loader2 className="animate-spin"/> : <XCircle/>} Rejeitar Match</Button>
             <Button className="bg-green-600 hover:bg-green-700" onClick={handleApprove} disabled={isProcessing}>{isProcessing ? <Loader2 className="animate-spin"/> : <CheckCircle/>} Aprovar Match</Button>
@@ -174,56 +184,63 @@ const MatchReviewCard: React.FC<{ match: PotentialMatch; onApproveMatch: (matchI
     );
 };
 
-// COMPONENTE PRINCIPAL DA PÁGINA
 export default function AdminUnifiedPage() {
     const { toast } = useToast();
     const [activeTab, setActiveTab] = useState("matches");
     const [pendingUsers, setPendingUsers] = useState<UserProfile[]>([]);
     const [matches, setMatches] = useState<PotentialMatch[]>([]);
-    const [contracts, setContracts] = useState<Contract[]>([]); // Mantido para a aba de contratos
-    const [isLoading, setIsLoading] = useState(true);
+    const [contracts, setContracts] = useState<Contract[]>([]);
+    const [isLoadingUsers, setIsLoadingUsers] = useState(true);
+    const [isLoadingMatches, setIsLoadingMatches] = useState(true);
+    const [isLoadingContracts, setIsLoadingContracts] = useState(true);
 
     useEffect(() => {
-        // Múltiplos listeners para manter a página atualizada
-        const unsubUsers = onSnapshot(query(collection(db, "users"), where("documentVerificationStatus", "==", "PENDING_REVIEW")), (snapshot) => setPendingUsers(snapshot.docs.map(doc => ({ uid: doc.id, ...doc.data() } as UserProfile))));
-        const unsubMatches = onSnapshot(query(collection(db, "potentialMatches"), where("status", "==", "PENDING_BACKOFFICE_REVIEW")), (snapshot) => setMatches(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as PotentialMatch))));
-        // ... adicione outros listeners conforme necessário, como para contratos ...
+        const unsubUsers = onSnapshot(query(collection(db, "users"), where("documentVerificationStatus", "==", "PENDING_REVIEW")), (snapshot) => { setPendingUsers(snapshot.docs.map(doc => ({ uid: doc.id, ...doc.data() } as UserProfile))); setIsLoadingUsers(false); });
+        const unsubMatches = onSnapshot(query(collection(db, "potentialMatches"), where("status", "==", "PENDING_BACKOFFICE_REVIEW"), orderBy("createdAt", "desc")), (snapshot) => { setMatches(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as PotentialMatch))); setIsLoadingMatches(false); });
+        const unsubContracts = onSnapshot(query(collection(db, "contracts"), orderBy("createdAt", "desc")), (snapshot) => { setContracts(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Contract))); setIsLoadingContracts(false); });
         
-        const timer = setTimeout(() => setIsLoading(false), 1500); // Simula fim do carregamento geral
-        
-        return () => { unsubUsers(); unsubMatches(); clearTimeout(timer); };
+        return () => { unsubUsers(); unsubMatches(); unsubContracts(); };
     }, []);
 
     const handleUserVerification = async (userId: string, status: ProfileStatus, notes: string, reasons?: Record<string, string>) => { try { await updateUserVerificationStatus(userId, status, notes, reasons); toast({ title: "Cadastro Atualizado!" }); } catch (e: any) { toast({ title: "Erro", description: e.message, variant: "destructive" }); }};
-    const handleApproveMatch = async (matchId: string, negotiatedRate: number, platformMargin: number, notes?: string) => { try { await approveMatchAndCreateContract(matchId, negotiatedRate, platformMargin, notes); toast({ title: "Match Aprovado!", description: "Contrato enviado ao médico." }); } catch (e: any) { toast({ title: "Erro", description: e.message, variant: "destructive" }); }};
+    const handleApproveMatch = async (matchId: string, doctorRate: number, hospitalRate: number, platformMargin: number, notes?: string) => {
+        try {
+            await approveMatchAndCreateContract(matchId, doctorRate, hospitalRate, platformMargin, notes);
+            toast({ title: "Match Aprovado!", description: "Contrato enviado ao médico." });
+        } catch (e: any) {
+            toast({ title: "Erro ao Aprovar Match", description: e.message, variant: "destructive" });
+        }
+    };
     const handleRejectMatch = async (matchId: string, adminNotes: string) => { try { await rejectMatchByBackoffice(matchId, adminNotes); toast({ title: "Match Rejeitado" }); } catch (e: any) { toast({ title: "Erro", description: e.message, variant: "destructive" }); }};
     
+    const isLoadingAnything = isLoadingUsers || isLoadingMatches || isLoadingContracts;
+
     return (
       <div className="space-y-6">
-          <h1 className="text-2xl md:text-3xl font-bold">Painel de Controlo</h1>
+          <div className="flex items-center justify-between"><h1 className="text-2xl md:text-3xl font-bold tracking-tight text-gray-800 flex items-center gap-2"><ShieldCheck size={28}/> Painel de Controlo</h1><Button variant="outline" size="sm" disabled><RotateCcw className={cn("mr-2 h-4 w-4", isLoadingAnything && "animate-spin")}/>Sincronizado</Button></div>
           <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
             <TabsList className="grid w-full grid-cols-3">
-                <TabsTrigger value="verification">Verificações<Badge variant="destructive" className="ml-2">{pendingUsers.length}</Badge></TabsTrigger>
-                <TabsTrigger value="matches">Revisão de Matches<Badge variant="destructive" className="ml-2">{matches.length}</Badge></TabsTrigger>
+                <TabsTrigger value="verification">Verificações<Badge variant="destructive" className="ml-2">{isLoadingUsers ? "..." : pendingUsers.length}</Badge></TabsTrigger>
+                <TabsTrigger value="matches">Revisão de Matches<Badge variant="destructive" className="ml-2">{isLoadingMatches ? "..." : matches.length}</Badge></TabsTrigger>
                 <TabsTrigger value="contracts">Gestão de Contratos</TabsTrigger>
             </TabsList>
             
             <TabsContent value="verification" className="mt-4">
-                <Card><CardHeader><CardTitle>Cadastros Pendentes</CardTitle></CardHeader><CardContent className="pt-4">{isLoading ? <LoadingState /> : pendingUsers.length === 0 ? <EmptyState title="Nenhum cadastro para verificar" message="." /> : <div className="space-y-4">{pendingUsers.map(user => <UserVerificationCard key={user.uid} user={user} onAction={handleUserVerification} />)}</div>}</CardContent></Card>
+                <Card><CardHeader><CardTitle>Cadastros Pendentes</CardTitle><CardDescription>Aprove ou solicite correções.</CardDescription></CardHeader><CardContent className="pt-4">{isLoadingUsers ? <LoadingState /> : pendingUsers.length === 0 ? <EmptyState title="Nenhum cadastro para verificar" message="Todos estão em dia." /> : <div className="space-y-4">{pendingUsers.map(user => <UserVerificationCard key={user.uid} user={user} onAction={handleUserVerification} />)}</div>}</CardContent></Card>
             </TabsContent>
 
             <TabsContent value="matches" className="mt-4">
                 <Card>
                     <CardHeader><CardTitle>Matches Pendentes para Revisão</CardTitle><CardDescription>Aprove, negocie ou rejeite as combinações pendentes.</CardDescription></CardHeader>
                     <CardContent className="pt-4 space-y-4">
-                        {isLoading ? <LoadingState /> : matches.length === 0 ? <EmptyState title="Nenhum match aguardando" message="."/> : 
+                        {isLoadingMatches ? <LoadingState /> : matches.length === 0 ? <EmptyState title="Nenhum match aguardando" message="Novas combinações aparecerão aqui."/> : 
                          matches.map(m => <MatchReviewCard key={m.id} match={m} onApproveMatch={handleApproveMatch} onRejectMatch={handleRejectMatch} />)}
                     </CardContent>
                 </Card>
             </TabsContent>
 
             <TabsContent value="contracts" className="mt-4">
-                <p>A gestão de contratos aparecerá aqui.</p>
+                <p>A gestão de contratos aparecerá aqui. (Ainda a ser implementado)</p>
             </TabsContent>
           </Tabs>
       </div>
