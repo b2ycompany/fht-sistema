@@ -1,9 +1,20 @@
 // lib/contract-service.ts
 "use strict";
 
-import { doc, collection, query, where, getDocs, updateDoc, serverTimestamp, Timestamp, orderBy, runTransaction } from "firebase/firestore";
+import { 
+    doc, 
+    collection, 
+    query, 
+    where, 
+    getDocs, 
+    updateDoc, 
+    serverTimestamp, 
+    Timestamp, 
+    orderBy, 
+    runTransaction 
+} from "firebase/firestore";
 import { getFunctions, httpsCallable } from "firebase/functions";
-import { getApp } from "firebase/app"; 
+import { getApp } from "firebase/app";
 import { db, auth } from "./firebase";
 import { type DoctorProfile } from "./auth-service";
 
@@ -30,21 +41,24 @@ export interface Contract {
   contractDocumentUrl?: string;
   contractTermsPreview?: string;
   contractPdfUrl?: string;
-  status: 'PENDING_DOCTOR_SIGNATURE' | 'PENDING_HOSPITAL_SIGNATURE' | 'ACTIVE_SIGNED' | 'CANCELLED' | 'COMPLETED' | 'REJECTED';
+  status: 'PENDING_DOCTOR_SIGNATURE' | 'PENDING_HOSPITAL_SIGNATURE' | 'ACTIVE_SIGNED' | 'CANCELLED' | 'COMPLETED' | 'REJECTED' | 'IN_PROGRESS';
   doctorSignature?: { signedAt: Timestamp; ipAddress?: string; };
   hospitalSignature?: { signedAt: Timestamp; signedByUID: string; };
-  cancellationReason?: string;
   createdAt: Timestamp;
   updatedAt: Timestamp;
+
+  // CAMPOS ADICIONADOS PARA O CHECK-IN/CHECK-OUT
+  checkinAt?: Timestamp;
+  checkinLocation?: { latitude: number; longitude: number; };
+  checkoutAt?: Timestamp;
+  checkoutLocation?: { latitude: number; longitude: number; };
+  cancellationReason?: string;
 }
 
-// =======================================================================
-// FUNÇÃO ATUALIZADA COM A REGIÃO CORRETA
-// =======================================================================
 export const generateContractAndGetUrl = async (contractId: string): Promise<string> => {
-    // CORREÇÃO: Forçando a instância da função a usar a região correta
-    const app = getApp(); 
-    const functions = getFunctions(app, 'us-central1'); // <<< AQUI ESTÁ A CORREÇÃO
+    const app = getApp();
+    // Garante que a chamada da Cloud Function aponta para a região correta do seu projeto.
+    const functions = getFunctions(app, 'us-central1'); 
     const generatePdf = httpsCallable(functions, 'generateContractPdf');
     
     try {
@@ -143,22 +157,4 @@ export const signContractByHospital = async (contractId: string): Promise<void> 
             }, { merge: true });
         }
     });
-};
-
-export const cancelContractByAdmin = async (contractId: string, reason: string): Promise<void> => {
-    if (!contractId || !reason) {
-        throw new Error("ID do contrato e motivo são obrigatórios para o cancelamento.");
-    }
-    const contractRef = doc(db, "contracts", contractId);
-    try {
-        await updateDoc(contractRef, {
-            status: 'CANCELLED',
-            cancellationReason: reason,
-            cancelledAt: serverTimestamp(),
-            updatedAt: serverTimestamp()
-        });
-    } catch (error) {
-        console.error("Erro ao cancelar contrato:", error);
-        throw new Error("Não foi possível atualizar o status do contrato no banco de dados.");
-    }
 };
