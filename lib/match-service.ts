@@ -76,6 +76,12 @@ export const getMatchesForBackofficeReview = async (): Promise<PotentialMatch[]>
   }
 };
 
+// =======================================================================
+// NOVAS FUNÇÕES ADICIONADAS
+// =======================================================================
+/**
+ * Busca os matches que estão em negociação para o médico logado.
+ */
 export const getMatchesForDoctorInNegotiation = async (): Promise<PotentialMatch[]> => {
     const currentUser = auth.currentUser;
     if (!currentUser) { return []; }
@@ -94,6 +100,9 @@ export const getMatchesForDoctorInNegotiation = async (): Promise<PotentialMatch
     }
 };
 
+/**
+ * Busca os matches que estão em negociação para o hospital logado.
+ */
 export const getMatchesForHospitalInNegotiation = async (): Promise<PotentialMatch[]> => {
     const currentUser = auth.currentUser;
     if (!currentUser) { return []; }
@@ -111,6 +120,7 @@ export const getMatchesForHospitalInNegotiation = async (): Promise<PotentialMat
         throw new Error("Falha ao carregar as propostas em negociação.");
     }
 };
+
 
 export const approveMatchAndCreateContract = async (
   matchId: string,
@@ -185,23 +195,17 @@ export const approveMatchAndCreateContract = async (
         });
     });
     
-    console.log(`[MatchService] Match ${matchId} aprovado. CONTRATO ${newContractId} criado.`);
-    
     if (emailData.doctorEmail && newContractId) {
-        console.log(`[MatchService] A acionar notificação por email para ${emailData.doctorEmail}`);
-        // CORREÇÃO: Passando o quarto argumento 'newContractId'
         sendContractReadyForDoctorEmail(
             emailData.doctorEmail,
             emailData.doctorName,
             emailData.hospitalName,
             newContractId
         );
-    } else {
-        console.warn(`[MatchService] Email do médico não encontrado para o contrato ${newContractId}. Notificação não enviada.`);
     }
 
   } catch (error) {
-    console.error(`Falha ao aprovar match e criar contrato para ${matchId}:`, error);
+    console.error(`Falha ao aprovar match:`, error);
     throw new Error(`Falha ao aprovar match: ${(error as Error).message}`);
   }
 };
@@ -224,7 +228,6 @@ export const rejectMatchByBackoffice = async (
       backofficeNotes: rejectionNotes,
       updatedAt: serverTimestamp(),
     });
-     console.log(`[MatchService] Match ${matchId} foi rejeitado.`);
   } catch (error) {
     console.error(`Falha ao rejeitar match ${matchId}:`, error);
     throw new Error(`Falha ao rejeitar match: ${(error as Error).message}`);

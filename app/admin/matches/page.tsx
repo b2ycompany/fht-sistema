@@ -161,7 +161,6 @@ const MatchReviewCard: React.FC<{ match: PotentialMatch; onApproveMatch: (matchI
                         </div>
                     </div>
                     <div><Label>Observações / Motivo da Rejeição</Label><Textarea value={notes} onChange={(e) => setNotes(e.target.value)} /></div>
-                    
                     <div className="border-t mt-4 pt-4">
                         <h4 className="font-semibold mb-2 text-sm">Canais de Negociação</h4>
                         <Tabs defaultValue="doctor">
@@ -240,7 +239,10 @@ export default function AdminUnifiedPage() {
             </TabsContent>
 
             <TabsContent value="contracts" className="mt-4">
-                <p>A gestão de contratos aparecerá aqui. (Ainda a ser implementado)</p>
+                <Card>
+                    <CardHeader><CardTitle>A ser implementado</CardTitle></CardHeader>
+                    <CardContent><EmptyState title="Gestão de Contratos" message="Esta área mostrará o histórico de todos os contratos gerados." /></CardContent>
+                </Card>
             </TabsContent>
           </Tabs>
       </div>
