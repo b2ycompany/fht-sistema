@@ -1,27 +1,29 @@
-"use client"
+// hooks/use-mobile.tsx
+"use client";
 
-import { useState, useEffect } from "react"
+import { useState, useEffect } from "react";
 
-export function useMobile(p0: number) {
-  const [isMobile, setIsMobile] = useState(false)
+// O parâmetro foi removido pois não era utilizado.
+export function useMobile() {
+  const [isMobile, setIsMobile] = useState(false);
 
   useEffect(() => {
     const checkIfMobile = () => {
-      setIsMobile(window.innerWidth < 768)
-    }
+      // A lógica de verificar a largura da janela está perfeita.
+      setIsMobile(window.innerWidth < 768);
+    };
 
-    // Initial check
-    checkIfMobile()
+    // Verificação inicial
+    checkIfMobile();
 
-    // Add event listener
-    window.addEventListener("resize", checkIfMobile)
+    // Adiciona o listener para redimensionamento
+    window.addEventListener("resize", checkIfMobile);
 
-    // Clean up
+    // Limpa o listener ao desmontar o componente, para evitar leaks de memória
     return () => {
-      window.removeEventListener("resize", checkIfMobile)
-    }
-  }, [])
+      window.removeEventListener("resize", checkIfMobile);
+    };
+  }, []); // O array de dependências vazio garante que isto corre apenas uma vez
 
-  return isMobile
+  return isMobile;
 }
-
