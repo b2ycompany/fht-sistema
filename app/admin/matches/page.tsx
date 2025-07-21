@@ -21,7 +21,6 @@ import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 
 // Serviços e Tipos
@@ -111,13 +110,18 @@ const NegotiationChat: React.FC<{ matchId: string, target: ChatTarget }> = ({ ma
 const MatchReviewCard: React.FC<{ match: PotentialMatch; onApproveMatch: (matchId: string, doctorRate: number, hospitalRate: number, margin: number, notes?: string) => Promise<void>; onRejectMatch: (matchId: string, notes: string) => Promise<void>; }> = ({ match, onApproveMatch, onRejectMatch }) => {
     const [notes, setNotes] = useState("");
     const [isProcessing, setIsProcessing] = useState(false);
-    const [negotiatedDoctorRate, setNegotiatedDoctorRate] = useState(match.doctorDesiredRate);
-    const [negotiatedHospitalRate, setNegotiatedHospitalRate] = useState(match.offeredRateByHospital);
+    
+    // CORREÇÃO: Os estados agora guardam strings para evitar o bug do "0" fixo.
+    const [negotiatedDoctorRate, setNegotiatedDoctorRate] = useState(String(match.doctorDesiredRate));
+    const [negotiatedHospitalRate, setNegotiatedHospitalRate] = useState(String(match.offeredRateByHospital));
     
     const handleApprove = async () => {
         setIsProcessing(true);
         try {
-            await onApproveMatch(match.id, negotiatedDoctorRate, negotiatedHospitalRate, 10, notes);
+            // CORREÇÃO: Convertendo para número apenas no momento de enviar.
+            const finalDoctorRate = parseFloat(negotiatedDoctorRate);
+            const finalHospitalRate = parseFloat(negotiatedHospitalRate);
+            await onApproveMatch(match.id, finalDoctorRate, finalHospitalRate, 10, notes);
         } finally {
             setIsProcessing(false);
         }
@@ -153,11 +157,13 @@ const MatchReviewCard: React.FC<{ match: PotentialMatch; onApproveMatch: (matchI
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div>
                             <Label>Valor Final / Hora (Hospital)</Label>
-                            <Input type="number" value={negotiatedHospitalRate} onChange={e => setNegotiatedHospitalRate(Number(e.target.value))} />
+                            {/* CORREÇÃO: O onChange agora atualiza o estado de string */}
+                            <Input type="number" value={negotiatedHospitalRate} onChange={e => setNegotiatedHospitalRate(e.target.value)} />
                         </div>
                         <div>
                             <Label>Valor Final / Hora (Médico)</Label>
-                            <Input type="number" value={negotiatedDoctorRate} onChange={e => setNegotiatedDoctorRate(Number(e.target.value))} />
+                            {/* CORREÇÃO: O onChange agora atualiza o estado de string */}
+                            <Input type="number" value={negotiatedDoctorRate} onChange={e => setNegotiatedDoctorRate(e.target.value)} />
                         </div>
                     </div>
                     <div><Label>Observações / Motivo da Rejeição</Label><Textarea value={notes} onChange={(e) => setNotes(e.target.value)} /></div>
