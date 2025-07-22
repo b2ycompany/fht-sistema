@@ -45,18 +45,17 @@ export function CitySelector({
   const [internalSelection, setInternalSelection] = React.useState<string[]>(selectedCities);
   const [searchTerm, setSearchTerm] = React.useState("");
   
-  // Sincroniza o estado interno sempre que a seleção confirmada (prop) mudar.
-  // Isto garante que o componente reflete o estado real.
   React.useEffect(() => {
     setInternalSelection(selectedCities);
   }, [selectedCities]);
 
-  // Limpa a seleção interna e a busca quando o estado (UF) é alterado.
   React.useEffect(() => {
-    setInternalSelection([]);
-    setSearchTerm("");
-  }, [selectedState]);
-
+    if (isOpen) {
+      setInternalSelection(selectedCities);
+      setSearchTerm("");
+    }
+  }, [isOpen, selectedCities]);
+  
   const handleSelectCity = (city: string) => {
     setInternalSelection(prev => 
       prev.includes(city) ? prev.filter(c => c !== city) : [...prev, city]
@@ -69,7 +68,6 @@ export function CitySelector({
   };
   
   const handleOpenChange = (open: boolean) => {
-      // Se o popover for fechado sem confirmar, reverte para a seleção original
       if (!open) {
           setInternalSelection(selectedCities);
       }
@@ -78,8 +76,6 @@ export function CitySelector({
 
   const isDisabled = !selectedState || availableCities.length === 0;
 
-  // O texto do botão agora usa `selectedCities` (a seleção confirmada)
-  // para ser consistente em ambas as vistas.
   const triggerButtonText =
     selectedCities.length > 0
       ? `${selectedCities.length} cidade(s) selecionada(s)`
@@ -141,7 +137,10 @@ export function CitySelector({
           <CityListContent />
           <div className="p-2 border-t flex items-center justify-end gap-2">
             <Button variant="ghost" size="sm" onClick={() => setInternalSelection([])}>Limpar</Button>
-            <Button size="sm" onClick={handleConfirm} className="bg-blue-600 hover:bg-blue-700">Confirmar</Button>
+            {/* AQUI ESTÁ A ALTERAÇÃO: Adicionamos o contador ao botão do desktop */}
+            <Button size="sm" onClick={handleConfirm} className="bg-blue-600 hover:bg-blue-700">
+              Confirmar ({internalSelection.length})
+            </Button>
           </div>
         </PopoverContent>
       </Popover>
