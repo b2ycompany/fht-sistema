@@ -72,7 +72,14 @@ const citiesByState: { [key: string]: string[] } = {
   "RJ": ["Rio de Janeiro", "São Gonçalo", "Duque de Caxias", "Nova Iguaçu", "Niterói", "Belford Roxo", "Campos dos Goytacazes", "São João de Meriti", "Petrópolis", "Volta Redonda"],
   "MG": ["Belo Horizonte", "Uberlândia", "Contagem", "Juiz de Fora", "Betim", "Montes Claros", "Ribeirão das Neves", "Uberaba", "Governador Valadares", "Ipatinga"],
 };
-const serviceTypesOptions = Object.entries(ServiceTypeRates).map(([v, r]) => ({ value: v, label: v.split('_').map(w=>w[0].toUpperCase()+w.slice(1)).join(' '), rateExample: r }));
+
+// ATUALIZADO: Garante que o valor para 'Telemedicina' seja sempre capitalizado
+const serviceTypesOptions = Object.entries(ServiceTypeRates).map(([v, r]) => {
+  const label = v.split('_').map(w=>w[0].toUpperCase()+w.slice(1)).join(' ');
+  // Força o valor para "Telemedicina" ser sempre capitalizado, enquanto mantém outros valores como estão.
+  const value = label.toLowerCase() === 'telemedicina' ? 'Telemedicina' : v;
+  return { value, label, rateExample: r };
+});
 
 const TimeSlotListItem: React.FC<{ slot: TimeSlot; onEdit: () => void; onDelete: () => void; }> = ({ slot, onEdit, onDelete }) => {
   const slotDate = slot.date instanceof Timestamp ? slot.date.toDate() : null;
@@ -235,7 +242,6 @@ const TimeSlotFormDialog: React.FC<{ onFormSubmitted: () => void; initialData?: 
             <span className="sr-only">Fechar</span>
           </Button>
       </DialogClose>
-      {/* CORREÇÃO: Aumentamos o padding inferior (`pb-12`) para dar mais espaço para o rodapé em telas móveis */}
       <div className="grid gap-5 py-4 max-h-[70vh] overflow-y-auto px-1 pr-3 md:pr-4 pb-12">
           <div className="space-y-2">
             <Label className="font-semibold text-gray-800 flex items-center"><CalendarDays className="h-4 w-4 mr-2 text-blue-600"/>Data(s) da Disponibilidade*</Label>
@@ -269,7 +275,6 @@ const TimeSlotFormDialog: React.FC<{ onFormSubmitted: () => void; initialData?: 
               </div>
               <div className="space-y-1.5">
                   <Label className="font-semibold text-gray-800">Cidades de Atuação*</Label>
-                  {/* O componente CitySelector agora funcionará corretamente em todas as telas */}
                   <CitySelector
                     selectedState={selectedState}
                     availableCities={availableCities}
@@ -282,10 +287,6 @@ const TimeSlotFormDialog: React.FC<{ onFormSubmitted: () => void; initialData?: 
           <div className="space-y-2"><Label className="font-semibold text-gray-800 flex items-center"><ClipboardList className="h-4 w-4 mr-2 text-blue-600"/>Especialidades Atendidas* <span className="text-xs text-gray-500 ml-1 font-normal">(Selecione ao menos uma)</span></Label><Popover open={specialtyPopoverOpen} onOpenChange={setSpecialtyPopoverOpen}><PopoverTrigger asChild><Button variant="outline" className="w-full justify-start font-normal text-muted-foreground h-9 border-dashed hover:border-solid">{selectedSpecialties.length > 0 ? `Selecionadas: ${selectedSpecialties.length}` : "Clique para selecionar especialidades..."}</Button></PopoverTrigger><PopoverContent className="w-[--radix-popover-trigger-width] p-0"><Command filter={(value, search) => medicalSpecialties.find(s => s.toLowerCase() === value.toLowerCase())?.toLowerCase().includes(search.toLowerCase()) ? 1 : 0}><CommandInput placeholder="Buscar especialidade..." value={specialtySearchValue} onValueChange={setSpecialtySearchValue}/><CommandList><CommandEmpty>Nenhuma.</CommandEmpty><CommandGroup heading={`${filteredSpecialties.length} encontradas`}>{filteredSpecialties.map((s) => (<CommandItem key={s} value={s} onSelect={() => handleSelectSpecialty(s)} className="cursor-pointer hover:bg-accent">{s}</CommandItem>))}</CommandGroup></CommandList></Command></PopoverContent></Popover>{selectedSpecialties.length > 0 && ( <div className="flex flex-wrap gap-1.5 mt-2 pt-2 border-t border-dashed"> {selectedSpecialties.map((s) => ( <Badge key={s} variant="secondary" className="bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100 font-normal"> {s} <button type="button" onClick={()=>handleRemoveSpecialty(s)} className="ml-1.5 p-0.5 rounded-full outline-none focus:ring-1 focus:ring-blue-500 hover:bg-blue-200"> <X className="h-3 w-3 text-blue-600 hover:text-blue-800" /> </button> </Badge> ))} </div> )}</div>
           <div className="space-y-1.5"><Label htmlFor="doc-notes" className="font-semibold text-gray-800 flex items-center"><Info className="h-4 w-4 mr-2 text-blue-600"/>Notas Adicionais <span className="text-xs text-gray-500 ml-1 font-normal">(Opcional)</span></Label><Textarea id="doc-notes" placeholder="Ex: Preferência por plantões mais tranquilos, etc." value={notes} onChange={(e) => setNotes(e.target.value)} className="min-h-[80px]"/></div>
       </div>
-       {/* CORREÇÃO: Adicionamos padding inferior extra para evitar que a barra de navegação do celular cubra os botões.
-        - `-m-6` e `px-6`: Mantêm o rodapé alinhado com as bordas do Dialog.
-        - `pb-8 sm:pb-4`: `pb-8` (padding-bottom: 2rem) para mobile, e `sm:pb-4` reseta para o valor original em telas maiores.
-      */}
       <DialogFooter className="pt-4 border-t bg-slate-50 -m-6 px-6 pb-8 sm:pb-4 rounded-b-lg">
           <DialogClose asChild><Button type="button" variant="outline" disabled={isLoadingSubmit}>Cancelar</Button></DialogClose>
           <Button type="button" onClick={handleSubmit} disabled={isLoadingSubmit || (dates.length === 0 && !isEditing)} className="bg-blue-600 hover:bg-blue-700">{isLoadingSubmit && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}{isLoadingSubmit ? (isEditing ? "Salvando..." : "Adicionando...") : (isEditing ? "Salvar Alterações" : `Adicionar Disponibilidade (${dates.length || 0} Dia(s))`)}</Button>

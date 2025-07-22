@@ -1,7 +1,6 @@
 // functions/src/index.ts
 import { onDocumentWritten, onDocumentDeleted, FirestoreEvent } from "firebase-functions/v2/firestore";
 import { HttpsError, onCall, CallableRequest } from "firebase-functions/v2/https";
-// CORREÇÃO: Removido o 'config' que não estava sendo utilizado.
 import { setGlobalOptions } from "firebase-functions/v2";
 import * as admin from "firebase-admin";
 import { logger } from "firebase-functions/v2";
@@ -293,25 +292,12 @@ export const generateContractPdf = onCall({ cors: [/fhtgestao\.com\.br$/, "https
     }
 });
 
-// =======================================================================
-// NOVA FUNÇÃO: TELEMEDICINA - FASE 1
-// =======================================================================
-
-/**
- * Cria uma sala de videochamada segura no Daily.co para um contrato específico.
- * Esta função é chamada a partir do frontend (pelo médico, por exemplo).
- * Ela usa uma API Key armazenada de forma segura como um "secret" do Firebase.
- */
 export const createTelemedicineRoom = onCall(
-    // Opções da função:
     { 
-        // Permite que a função seja chamada a partir do seu domínio.
         cors: true,
-        // Declara que a função precisa de acesso ao secret 'DAILY_APIKEY'.
         secrets: ["DAILY_APIKEY"] 
     }, 
     async (request: CallableRequest) => {
-        // 1. Validação e Autenticação
         if (!request.auth) {
             throw new HttpsError("unauthenticated", "A função só pode ser chamada por um utilizador autenticado.");
         }
@@ -321,8 +307,6 @@ export const createTelemedicineRoom = onCall(
         }
         logger.info(`A criar sala de telemedicina para o contrato: ${contractId}`);
     
-        // 2. Configuração da API do Daily.co
-        // Lê a API Key guardada de forma segura nas configurações de secrets do Firebase.
         const DAILY_API_KEY = process.env.DAILY_APIKEY;
         if (!DAILY_API_KEY) {
             logger.error("A API Key do Daily.co não está configurada nos Secrets do Firebase.");
@@ -330,19 +314,16 @@ export const createTelemedicineRoom = onCall(
         }
         const DAILY_API_URL = "https://api.daily.co/v1/rooms";
 
-        // 3. Definição das Propriedades da Sala
-        // A sala irá expirar 12 horas a partir de agora para garantir que não fiquem abertas indefinidamente.
         const twelveHoursFromNow = Math.floor(Date.now() / 1000) + (12 * 60 * 60);
         const roomOptions = {
             properties: {
-                exp: twelveHoursFromNow, // Timestamp de expiração
+                exp: twelveHoursFromNow,
                 enable_chat: true,
                 enable_screenshare: true,
-                enable_recording: 'cloud', // Permite gravação na nuvem
+                enable_recording: 'cloud',
             },
         };
 
-        // 4. Criação da Sala via API
         try {
             const apiResponse = await fetch(DAILY_API_URL, {
                 method: 'POST',
@@ -353,32 +334,96 @@ export const createTelemedicineRoom = onCall(
                 body: JSON.stringify(roomOptions),
             });
 
-            // Se a resposta da API não for bem-sucedida, lança um erro.
             if (!apiResponse.ok) {
                 const errorBody = await apiResponse.json();
                 logger.error("Erro da API do Daily.co:", errorBody);
                 throw new HttpsError("internal", `Falha ao criar a sala de videochamada. Status: ${apiResponse.status}`);
             }
 
-            // 5. Sucesso: Atualizar o Contrato no Firestore
             const roomData: any = await apiResponse.json();
             const roomUrl = roomData.url;
             logger.info(`Sala criada com sucesso para o contrato ${contractId}. URL: ${roomUrl}`);
 
-            // Salva o link da sala de telemedicina no documento do contrato.
             const contractRef = db.collection("contracts").doc(contractId);
             await contractRef.update({
                 telemedicineLink: roomUrl,
                 updatedAt: FieldValue.serverTimestamp(),
             });
 
-            // Retorna a URL da sala para o frontend.
             return { success: true, roomUrl: roomUrl };
 
         } catch (error) {
             logger.error(`Falha crítica ao criar sala para o contrato ${contractId}:`, error);
             if (error instanceof HttpsError) { throw error; }
             throw new HttpsError("internal", "Ocorreu um erro inesperado ao criar a sala de telemedicina.");
+        }
+    }
+);
+
+// =======================================================================
+// NOVA FUNÇÃO: SCRIPT DE CORREÇÃO DE DADOS
+// =======================================================================
+/**
+ * Procura em todas as coleções relevantes por documentos com serviceType "telemedicina" (minúsculo)
+ * e os atualiza para "Telemedicina" (maiúsculo).
+ * Esta é uma função para ser executada uma única vez.
+ */
+export const correctServiceTypeCapitalization = onCall(
+    { cors: true }, 
+    async (request: CallableRequest) => {
+        if (!request.auth) {
+            throw new HttpsError("unauthenticated", "A função só pode ser chamada por um utilizador autenticado.");
+        }
+        logger.info("Iniciando script de correção para 'serviceType'...");
+
+        const batch = db.batch();
+        let updatedCount = { contracts: 0, shiftRequirements: 0, doctorTimeSlots: 0 };
+        const incorrectValue = "telemedicina";
+        const correctValue = "Telemedicina";
+
+        try {
+            // 1. Corrigir a coleção 'contracts'
+            const contractsQuery = db.collection("contracts").where("serviceType", "==", incorrectValue);
+            const contractsSnapshot = await contractsQuery.get();
+            contractsSnapshot.forEach(doc => {
+                batch.update(doc.ref, { serviceType: correctValue });
+                updatedCount.contracts++;
+            });
+            logger.info(`Encontrados ${updatedCount.contracts} documentos para corrigir em 'contracts'.`);
+
+            // 2. Corrigir a coleção 'shiftRequirements'
+            const shiftsQuery = db.collection("shiftRequirements").where("serviceType", "==", incorrectValue);
+            const shiftsSnapshot = await shiftsQuery.get();
+            shiftsSnapshot.forEach(doc => {
+                batch.update(doc.ref, { serviceType: correctValue });
+                updatedCount.shiftRequirements++;
+            });
+            logger.info(`Encontrados ${updatedCount.shiftRequirements} documentos para corrigir em 'shiftRequirements'.`);
+            
+            // 3. Corrigir a coleção 'doctorTimeSlots'
+            const timeSlotsQuery = db.collection("doctorTimeSlots").where("serviceType", "==", incorrectValue);
+            const timeSlotsSnapshot = await timeSlotsQuery.get();
+            timeSlotsSnapshot.forEach(doc => {
+                batch.update(doc.ref, { serviceType: correctValue });
+                updatedCount.doctorTimeSlots++;
+            });
+            logger.info(`Encontrados ${updatedCount.doctorTimeSlots} documentos para corrigir em 'doctorTimeSlots'.`);
+
+            // Executar todas as atualizações de uma vez
+            await batch.commit();
+
+            const total = updatedCount.contracts + updatedCount.shiftRequirements + updatedCount.doctorTimeSlots;
+            logger.info(`Script concluído. Total de ${total} documentos atualizados.`);
+            
+            return {
+                success: true,
+                message: `Correção concluída! ${total} documentos foram atualizados.`,
+                details: updatedCount
+            };
+
+        } catch (error) {
+            logger.error("Erro durante o script de correção de 'serviceType':", error);
+            throw new HttpsError("internal", "Ocorreu um erro ao executar o script de correção.");
         }
     }
 );
