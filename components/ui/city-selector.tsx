@@ -17,7 +17,7 @@ import {
   CommandInput,
   CommandItem,
   CommandList,
-} from "@/components/ui/command"; // <<< 1. IMPORTAR COMPONENTES DO COMMAND
+} from "@/components/ui/command";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Check, ChevronsUpDown } from "lucide-react";
 
@@ -80,22 +80,21 @@ export function CitySelector({
       ? `${selectedCities.length} cidade(s) selecionada(s)`
       : isDisabled ? "Selecione um estado" : "Selecione as cidades...";
 
-  // Conteúdo da lista, agora usando a estrutura correta do Command
   const CityListContent = () => (
-    // 2. Usar o Command como container principal
-    <Command>
+    <Command shouldFilter={false}> {/* A busca manual já é feita, desabilitamos o filtro automático */}
       <CommandInput placeholder="Buscar cidade..." />
-      {/* CommandList gere a virtualização e navegação */}
       <CommandList>
         <CommandEmpty>Nenhuma cidade encontrada.</CommandEmpty>
         <CommandGroup>
           <ScrollArea className="h-[240px]">
             {availableCities.map(city => (
-              // 3. Usar CommandItem em vez de button
               <CommandItem
                 key={city}
-                value={city} // value é importante para a busca do Command
-                onSelect={() => handleSelectCity(city)}
+                value={city}
+                onSelect={(currentValue) => {
+                  // Previne o comportamento padrão que fecha o popover e causa o salto
+                  handleSelectCity(currentValue);
+                }}
                 className="cursor-pointer"
               >
                 <Check
@@ -113,7 +112,6 @@ export function CitySelector({
     </Command>
   );
 
-  // A renderização para Desktop (Popover) e Mobile (Drawer) permanece a mesma
   if (isDesktop) {
     return (
       <Popover open={isOpen} onOpenChange={handleOpenChange}>
