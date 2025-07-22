@@ -14,8 +14,11 @@ import {
 import { db, auth } from "./firebase";
 import { type Contract } from "./contract-service";
 
+// --- INTERFACE ATUALIZADA ---
 export interface CheckinRecord {
   id: string;
+  contractId: string; // ADICIONADO: Para referência no frontend.
+  serviceType: string; // ADICIONADO: Para diferenciar telemedicina de outros serviços.
   hospitalName: string;
   locationCity: string;
   locationState: string;
@@ -25,7 +28,6 @@ export interface CheckinRecord {
   status: 'SCHEDULED' | 'CHECKED_IN' | 'CHECKED_OUT' | 'MISSED' | 'CANCELLED';
   checkinAt?: Timestamp;
   checkoutAt?: Timestamp;
-  // --- CAMPOS ADICIONADOS ---
   checkinLocation?: { latitude: number; longitude: number; };
   checkoutLocation?: { latitude: number; longitude: number; };
 }
@@ -46,6 +48,7 @@ export const getActiveShiftsForCheckin = async (): Promise<CheckinRecord[]> => {
     return [];
   }
 
+  // --- MAPEAMENTO DE DADOS ATUALIZADO ---
   const records = snapshot.docs.map(doc => {
     const contract = doc.data() as Contract;
     
@@ -54,8 +57,11 @@ export const getActiveShiftsForCheckin = async (): Promise<CheckinRecord[]> => {
         currentStatus = 'CHECKED_IN';
     }
 
+    // O objeto retornado agora inclui os campos 'contractId' e 'serviceType'
     return {
       id: doc.id,
+      contractId: doc.id, // ADICIONADO
+      serviceType: contract.serviceType, // ADICIONADO
       hospitalName: contract.hospitalName,
       locationCity: contract.locationCity,
       locationState: contract.locationState,
@@ -65,10 +71,9 @@ export const getActiveShiftsForCheckin = async (): Promise<CheckinRecord[]> => {
       status: currentStatus,
       checkinAt: contract.checkinAt,
       checkoutAt: contract.checkoutAt,
-      // --- MAPEAMENTO ADICIONADO ---
       checkinLocation: contract.checkinLocation,
       checkoutLocation: contract.checkoutLocation,
-    };
+    } as CheckinRecord; // Adicionado um type assertion para garantir a conformidade
   });
   
   return records.sort((a, b) => a.shiftDate.toMillis() - b.shiftDate.toMillis());
