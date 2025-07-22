@@ -3,7 +3,6 @@
 
 import * as React from "react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Drawer, DrawerContent, DrawerTrigger, DrawerFooter, DrawerClose } from "@/components/ui/drawer";
 import {
   Popover,
@@ -44,9 +43,11 @@ export function CitySelector({
   const isDesktop = !isMobile;
 
   const [internalSelection, setInternalSelection] = React.useState<string[]>(selectedCities);
+  const [searchTerm, setSearchTerm] = React.useState("");
   
   React.useEffect(() => {
     setInternalSelection([]);
+    setSearchTerm("");
   }, [selectedState]);
 
   React.useEffect(() => {
@@ -79,20 +80,31 @@ export function CitySelector({
     selectedCities.length > 0
       ? `${selectedCities.length} cidade(s) selecionada(s)`
       : isDisabled ? "Selecione um estado" : "Selecione as cidades...";
+      
+  const filteredCities = React.useMemo(() =>
+    availableCities.filter(city =>
+      city.toLowerCase().includes(searchTerm.toLowerCase())
+    ), [availableCities, searchTerm]
+  );
 
   const CityListContent = () => (
-    <Command shouldFilter={false}> {/* A busca manual já é feita, desabilitamos o filtro automático */}
-      <CommandInput placeholder="Buscar cidade..." />
+    <Command>
+      <CommandInput 
+        placeholder="Buscar cidade..."
+        value={searchTerm}
+        onValueChange={setSearchTerm}
+      />
       <CommandList>
         <CommandEmpty>Nenhuma cidade encontrada.</CommandEmpty>
         <CommandGroup>
           <ScrollArea className="h-[240px]">
-            {availableCities.map(city => (
+            {filteredCities.map(city => (
               <CommandItem
                 key={city}
                 value={city}
                 onSelect={(currentValue) => {
-                  // Previne o comportamento padrão que fecha o popover e causa o salto
+                  // Esta função é chamada ao clicar ou usar Enter.
+                  // Apenas atualizamos o estado interno, sem fechar o popover.
                   handleSelectCity(currentValue);
                 }}
                 className="cursor-pointer"
@@ -121,7 +133,12 @@ export function CitySelector({
             <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
           </Button>
         </PopoverTrigger>
-        <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
+        <PopoverContent 
+          className="w-[--radix-popover-trigger-width] p-0" 
+          align="start"
+          // Impede que o foco volte para o botão ao selecionar, o que causa o "salto"
+          onCloseAutoFocus={(event) => event.preventDefault()}
+        >
           <CityListContent />
           <div className="p-2 border-t flex items-center justify-end gap-2">
             <Button variant="ghost" size="sm" onClick={() => setInternalSelection([])}>Limpar</Button>
