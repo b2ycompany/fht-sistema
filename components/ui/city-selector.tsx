@@ -45,16 +45,17 @@ export function CitySelector({
   const [internalSelection, setInternalSelection] = React.useState<string[]>(selectedCities);
   const [searchTerm, setSearchTerm] = React.useState("");
   
+  // Sincroniza o estado interno sempre que a seleção confirmada (prop) mudar.
+  // Isto garante que o componente reflete o estado real.
+  React.useEffect(() => {
+    setInternalSelection(selectedCities);
+  }, [selectedCities]);
+
+  // Limpa a seleção interna e a busca quando o estado (UF) é alterado.
   React.useEffect(() => {
     setInternalSelection([]);
     setSearchTerm("");
   }, [selectedState]);
-
-  React.useEffect(() => {
-    if (isOpen) {
-      setInternalSelection(selectedCities);
-    }
-  }, [isOpen, selectedCities]);
 
   const handleSelectCity = (city: string) => {
     setInternalSelection(prev => 
@@ -68,6 +69,7 @@ export function CitySelector({
   };
   
   const handleOpenChange = (open: boolean) => {
+      // Se o popover for fechado sem confirmar, reverte para a seleção original
       if (!open) {
           setInternalSelection(selectedCities);
       }
@@ -76,6 +78,8 @@ export function CitySelector({
 
   const isDisabled = !selectedState || availableCities.length === 0;
 
+  // O texto do botão agora usa `selectedCities` (a seleção confirmada)
+  // para ser consistente em ambas as vistas.
   const triggerButtonText =
     selectedCities.length > 0
       ? `${selectedCities.length} cidade(s) selecionada(s)`
@@ -102,11 +106,7 @@ export function CitySelector({
               <CommandItem
                 key={city}
                 value={city}
-                onSelect={(currentValue) => {
-                  // Esta função é chamada ao clicar ou usar Enter.
-                  // Apenas atualizamos o estado interno, sem fechar o popover.
-                  handleSelectCity(currentValue);
-                }}
+                onSelect={() => handleSelectCity(city)}
                 className="cursor-pointer"
               >
                 <Check
@@ -136,7 +136,6 @@ export function CitySelector({
         <PopoverContent 
           className="w-[--radix-popover-trigger-width] p-0" 
           align="start"
-          // Impede que o foco volte para o botão ao selecionar, o que causa o "salto"
           onCloseAutoFocus={(event) => event.preventDefault()}
         >
           <CityListContent />
