@@ -10,7 +10,7 @@ import { useToast } from "@/hooks/use-toast";
 import { Timestamp } from "firebase/firestore";
 import {
     MapPinIcon, LogIn, LogOut, CalendarDays, ClockIcon, AlertTriangle, Loader2,
-    ClipboardList, RotateCcw, Camera, Target, Video
+    ClipboardList, RotateCcw, Camera, Target, Video, User
 } from "lucide-react";
 import { getActiveShiftsForCheckin, performCheckin, performCheckout, type CheckinRecord } from "@/lib/checkin-service";
 import { createTelemedicineRoom } from "@/lib/contract-service";
@@ -249,18 +249,11 @@ const ShiftCheckinItem: React.FC<ShiftCheckinItemProps> = ({ record, onCheckinCl
     const shiftDate = record.shiftDate.toDate();
     const isCurrentlyLoading = isActionLoading === record.id || isActionLoading === record.contractId;
     
-    // --- LÓGICA DE VISIBILIDADE DOS BOTÕES CORRIGIDA ---
     const isTelemedicine = record.serviceType === 'Telemedicina';
     
-    // Botão de Telemedicina: aparece se for telemedicina e estiver agendado OU em andamento
     const showTelemedicineButton = isTelemedicine && (record.status === 'SCHEDULED' || record.status === 'CHECKED_IN');
-    
-    // Botão de Check-in presencial: aparece se NÃO for telemedicina e estiver agendado
     const showCheckinButton = !isTelemedicine && record.status === 'SCHEDULED';
-
-    // Botão de Check-out presencial: aparece se NÃO for telemedicina e estiver em andamento
     const showCheckoutButton = !isTelemedicine && record.status === 'CHECKED_IN';
-    
     const showCompletedBadge = record.status === 'CHECKED_OUT';
 
     const getStatusBadgeProps = (status: CheckinRecord['status']): { variant: BadgeProps["variant"], className: string } => {
@@ -288,29 +281,25 @@ const ShiftCheckinItem: React.FC<ShiftCheckinItemProps> = ({ record, onCheckinCl
             <CardContent className="text-sm space-y-2 pt-4">
                 <div className="flex items-center"><CalendarDays size={14} className="mr-2 text-gray-500"/><strong>Data:</strong><span className="ml-1">{shiftDate.toLocaleDateString('pt-BR')}</span></div>
                 <div className="flex items-center"><ClockIcon size={14} className="mr-2 text-gray-500"/><strong>Horário Esperado:</strong><span className="ml-1">{record.expectedStartTime} - {record.expectedEndTime}</span></div>
+                
+                {/* ATUALIZADO: Mostra os dados do paciente se for telemedicina e houver um agendamento */}
+                {isTelemedicine && record.patientName && (
+                    <div className="mt-3 pt-3 border-t border-dashed">
+                        <h4 className="text-xs font-semibold text-gray-500 mb-2">Paciente Agendado</h4>
+                        <div className="p-3 bg-blue-50 rounded-md border border-blue-200 space-y-1">
+                            <div className="flex items-center font-semibold text-blue-900"><User size={14} className="mr-2"/>{record.patientName}</div>
+                            <p className="text-xs text-gray-700 pl-6">{record.chiefComplaint}</p>
+                        </div>
+                    </div>
+                )}
+
                 {record.checkinAt && (<div className="pt-2 space-y-1"><div className="text-xs text-green-700 flex items-center"><LogIn size={13} className="mr-1.5"/>Check-in realizado às {record.checkinAt.toDate().toLocaleTimeString('pt-BR', {hour: '2-digit', minute: '2-digit'})}</div>{record.checkinLocation && <ReverseGeocodedLocation location={record.checkinLocation} />}</div>)}
                 {record.checkoutAt && (<div className="pt-2 space-y-1"><div className="text-xs text-red-700 flex items-center"><LogOut size={13} className="mr-1.5"/>Check-out realizado às {record.checkoutAt.toDate().toLocaleTimeString('pt-BR', {hour: '2-digit', minute: '2-digit'})}</div>{record.checkoutLocation && <ReverseGeocodedLocation location={record.checkoutLocation} />}</div>)}
             </CardContent>
             <CardFooter className="flex justify-end gap-2 border-t pt-4">
-                {/* LÓGICA DE BOTÃO ATUALIZADA */}
-                {showTelemedicineButton && (
-                    <Button onClick={() => onStartTelemedicineClick(record.contractId)} size="sm" className="bg-blue-600 hover:bg-blue-700" disabled={isCurrentlyLoading}>
-                        {isCurrentlyLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                        <Video className="mr-2 h-4 w-4" /> Iniciar Atendimento
-                    </Button>
-                )}
-                {showCheckinButton && (
-                    <Button onClick={onCheckinClick} size="sm" className="bg-blue-600 hover:bg-blue-700" disabled={isCurrentlyLoading}>
-                        {isCurrentlyLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                        <LogIn className="mr-2 h-4 w-4" /> Fazer Check-in
-                    </Button>
-                )}
-                {showCheckoutButton && (
-                    <Button onClick={() => onCheckoutClick(record.id)} size="sm" variant="outline" disabled={isCurrentlyLoading}>
-                        {isCurrentlyLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                        <LogOut className="mr-2 h-4 w-4" /> Fazer Check-out
-                    </Button>
-                )}
+                {showTelemedicineButton && ( <Button onClick={() => onStartTelemedicineClick(record.contractId)} size="sm" className="bg-blue-600 hover:bg-blue-700" disabled={isCurrentlyLoading}>{isCurrentlyLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}<Video className="mr-2 h-4 w-4" /> Iniciar Atendimento</Button> )}
+                {showCheckinButton && ( <Button onClick={onCheckinClick} size="sm" className="bg-blue-600 hover:bg-blue-700" disabled={isCurrentlyLoading}>{isCurrentlyLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}<LogIn className="mr-2 h-4 w-4" /> Fazer Check-in</Button> )}
+                {showCheckoutButton && ( <Button onClick={() => onCheckoutClick(record.id)} size="sm" variant="outline" disabled={isCurrentlyLoading}>{isCurrentlyLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}<LogOut className="mr-2 h-4 w-4" /> Fazer Check-out</Button> )}
                 {showCompletedBadge && <Badge variant="default" className="bg-green-100 text-green-800">Plantão Finalizado</Badge>}
             </CardFooter>
         </Card>

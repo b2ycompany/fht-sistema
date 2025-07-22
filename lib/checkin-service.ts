@@ -10,15 +10,17 @@ import {
   updateDoc,
   serverTimestamp,
   Timestamp,
+  limit,
 } from "firebase/firestore";
 import { db, auth } from "./firebase";
 import { type Contract } from "./contract-service";
 
 // --- INTERFACE ATUALIZADA ---
+// Adicionados campos opcionais para os dados do paciente
 export interface CheckinRecord {
   id: string;
-  contractId: string; // ADICIONADO: Para referência no frontend.
-  serviceType: string; // ADICIONADO: Para diferenciar telemedicina de outros serviços.
+  contractId: string;
+  serviceType: string;
   hospitalName: string;
   locationCity: string;
   locationState: string;
@@ -30,6 +32,10 @@ export interface CheckinRecord {
   checkoutAt?: Timestamp;
   checkinLocation?: { latitude: number; longitude: number; };
   checkoutLocation?: { latitude: number; longitude: number; };
+  
+  // Dados do paciente agendado
+  patientName?: string;
+  chiefComplaint?: string;
 }
 
 export const getActiveShiftsForCheckin = async (): Promise<CheckinRecord[]> => {
@@ -49,7 +55,8 @@ export const getActiveShiftsForCheckin = async (): Promise<CheckinRecord[]> => {
   }
 
   // --- MAPEAMENTO DE DADOS ATUALIZADO ---
-  const records = snapshot.docs.map(doc => {
+  // Agora a função também busca por uma consulta agendada para cada plantão
+  const recordsPromises = snapshot.docs.map(async (doc) => {
     const contract = doc.data() as Contract;
     
     let currentStatus: CheckinRecord['status'] = 'SCHEDULED';
@@ -57,11 +64,10 @@ export const getActiveShiftsForCheckin = async (): Promise<CheckinRecord[]> => {
         currentStatus = 'CHECKED_IN';
     }
 
-    // O objeto retornado agora inclui os campos 'contractId' e 'serviceType'
-    return {
+    const record: CheckinRecord = {
       id: doc.id,
-      contractId: doc.id, // ADICIONADO
-      serviceType: contract.serviceType, // ADICIONADO
+      contractId: doc.id,
+      serviceType: contract.serviceType,
       hospitalName: contract.hospitalName,
       locationCity: contract.locationCity,
       locationState: contract.locationState,
@@ -73,9 +79,26 @@ export const getActiveShiftsForCheckin = async (): Promise<CheckinRecord[]> => {
       checkoutAt: contract.checkoutAt,
       checkinLocation: contract.checkinLocation,
       checkoutLocation: contract.checkoutLocation,
-    } as CheckinRecord; // Adicionado um type assertion para garantir a conformidade
+    };
+
+    // Se for telemedicina, verifica se há um paciente agendado
+    if (contract.serviceType === 'Telemedicina') {
+        const consultQuery = query(
+            collection(db, "consultations"),
+            where("contractId", "==", doc.id),
+            limit(1)
+        );
+        const consultSnapshot = await getDocs(consultQuery);
+        if (!consultSnapshot.empty) {
+            const consultationData = consultSnapshot.docs[0].data();
+            record.patientName = consultationData.patientName;
+            record.chiefComplaint = consultationData.chiefComplaint;
+        }
+    }
+    return record;
   });
   
+  const records = await Promise.all(recordsPromises);
   return records.sort((a, b) => a.shiftDate.toMillis() - b.shiftDate.toMillis());
 };
 
