@@ -9,6 +9,7 @@
     "lint": "next lint"
   },
   "dependencies": {
+    "@daily-co/daily-react": "^0.23.1",
     "@fluentui/react-components": "^9.61.5",
     "@radix-ui/react-accordion": "^1.2.11",
     "@radix-ui/react-alert-dialog": "^1.1.13",

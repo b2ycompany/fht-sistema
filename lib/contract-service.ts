@@ -7,6 +7,7 @@ import {
     query, 
     where, 
     getDocs, 
+    getDoc, // Importado para buscar um único documento
     updateDoc, 
     serverTimestamp, 
     Timestamp, 
@@ -41,13 +42,16 @@ export interface Contract {
   contractDocumentUrl?: string;
   contractTermsPreview?: string;
   contractPdfUrl?: string;
+  
+  // Campo de telemedicina
+  telemedicineLink?: string; 
+  
   status: 'PENDING_DOCTOR_SIGNATURE' | 'PENDING_HOSPITAL_SIGNATURE' | 'ACTIVE_SIGNED' | 'CANCELLED' | 'COMPLETED' | 'REJECTED' | 'IN_PROGRESS';
   doctorSignature?: { signedAt: Timestamp; ipAddress?: string; };
   hospitalSignature?: { signedAt: Timestamp; signedByUID: string; };
   createdAt: Timestamp;
   updatedAt: Timestamp;
 
-  // --- CAMPOS PARA O CHECK-IN/CHECK-OUT ---
   checkinAt?: Timestamp;
   checkinLocation?: { latitude: number; longitude: number; };
   checkinPhotoUrl?: string;
@@ -58,6 +62,30 @@ export interface Contract {
 
   cancellationReason?: string;
 }
+
+// NOVA FUNÇÃO: Chama a Cloud Function para criar a sala de telemedicina
+export const createTelemedicineRoom = async (contractId: string): Promise<string> => {
+    const app = getApp();
+    const functions = getFunctions(app, 'us-central1');
+    const createRoomCallable = httpsCallable(functions, 'createTelemedicineRoom');
+
+    try {
+        console.log(`Chamando a Cloud Function 'createTelemedicineRoom' para o contrato: ${contractId}`);
+        const result = await createRoomCallable({ contractId });
+        const data = result.data as { success: boolean; roomUrl: string };
+
+        if (data.success && data.roomUrl) {
+            console.log("Sala de telemedicina criada com sucesso:", data.roomUrl);
+            return data.roomUrl;
+        } else {
+            throw new Error("A Cloud Function não retornou uma URL válida.");
+        }
+    } catch (error) {
+        console.error("Erro ao chamar a função createTelemedicineRoom:", error);
+        throw new Error("Não foi possível criar a sala de telemedicina.");
+    }
+};
+
 
 export const generateContractAndGetUrl = async (contractId: string): Promise<string> => {
     const app = getApp();
@@ -77,6 +105,22 @@ export const generateContractAndGetUrl = async (contractId: string): Promise<str
         throw new Error("Não foi possível gerar o documento do contrato.");
     }
 };
+
+// NOVA FUNÇÃO: Busca um único contrato pelo seu ID
+export const getContractById = async (contractId: string): Promise<Contract | null> => {
+    const contractRef = doc(db, "contracts", contractId);
+    try {
+        const docSnap = await getDoc(contractRef);
+        if (docSnap.exists()) {
+            return { id: docSnap.id, ...docSnap.data() } as Contract;
+        }
+        return null;
+    } catch (error) {
+        console.error(`[getContractById] Erro ao buscar contrato ${contractId}:`, error);
+        throw new Error("Falha ao carregar os detalhes do contrato.");
+    }
+};
+
 
 export const getContractsForDoctor = async (statuses: Contract['status'][]): Promise<Contract[]> => {
   const currentUser = auth.currentUser;

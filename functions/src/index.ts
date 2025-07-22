@@ -1,6 +1,7 @@
 // functions/src/index.ts
 import { onDocumentWritten, onDocumentDeleted, FirestoreEvent } from "firebase-functions/v2/firestore";
 import { HttpsError, onCall, CallableRequest } from "firebase-functions/v2/https";
+// CORREÇÃO: Removido o 'config' que não estava sendo utilizado.
 import { setGlobalOptions } from "firebase-functions/v2";
 import * as admin from "firebase-admin";
 import { logger } from "firebase-functions/v2";
@@ -8,12 +9,13 @@ import { Change } from "firebase-functions";
 import { DocumentSnapshot, FieldValue, getFirestore, Query } from "firebase-admin/firestore";
 import { PDFDocument, StandardFonts } from "pdf-lib";
 import { getStorage } from "firebase-admin/storage";
+import fetch from "node-fetch";
 
 if (admin.apps.length === 0) { admin.initializeApp(); }
 const db = getFirestore();
 const storage = getStorage();
 
-// Interfaces (sem alteração)
+// Interfaces
 interface ShiftRequirementData {
   hospitalId: string;
   hospitalName?: string;
@@ -112,18 +114,12 @@ export const findMatchesOnShiftRequirementWrite = onDocumentWritten({ document: 
     logger.info(`INICIANDO BUSCA DE MATCHES para a Demanda: ${event.params.requirementId}`);
     
     try {
-      // =======================================================================
-      // CORREÇÃO: A lógica da query foi reestruturada em 2 passos
-      // =======================================================================
-
-      // Passo 1: Fazer a consulta ao Firestore com apenas UM filtro de array (cidades)
       let timeSlotsQuery: Query = db.collection("doctorTimeSlots")
         .where("status", "==", "AVAILABLE")
         .where("state", "==", requirement.state)
         .where("serviceType", "==", requirement.serviceType)
         .where("date", "in", requirement.dates);
 
-      // Apenas adicionamos o filtro de cidades se ele existir
       if (requirement.cities && requirement.cities.length > 0) {
         timeSlotsQuery = timeSlotsQuery.where('cities', 'array-contains-any', requirement.cities);
       }
@@ -135,17 +131,15 @@ export const findMatchesOnShiftRequirementWrite = onDocumentWritten({ document: 
         return;
       }
       
-      // Passo 2: Filtrar os resultados em memória para a segunda condição de array (especialidades)
       const specialtiesRequired = requirement.specialtiesRequired;
       const finalCandidates = timeSlotsSnapshot.docs.filter(doc => {
         if (!specialtiesRequired || specialtiesRequired.length === 0) {
-            return true; // Se a demanda não exige especialidade, todos os resultados passam
+            return true;
         }
         const timeSlotSpecialties = doc.data().specialties as string[] | undefined;
         if (!timeSlotSpecialties || timeSlotSpecialties.length === 0) {
-            return false; // Se o médico não tem especialidade, não pode dar match com uma demanda que exige
+            return false;
         }
-        // Verifica se há pelo menos uma especialidade em comum
         return timeSlotSpecialties.some(s => specialtiesRequired.includes(s));
       });
 
@@ -167,7 +161,7 @@ export const findMatchesOnShiftRequirementWrite = onDocumentWritten({ document: 
         }
         
         const matchedDate = requirement.dates.find((reqDate) => reqDate.isEqual(timeSlot.date))!;
-        if (!matchedDate) continue; // Segurança extra
+        if (!matchedDate) continue;
 
         const deterministicMatchId = `${event.params.requirementId}_${timeSlotDoc.id}_${matchedDate.seconds}`;
         const matchRef = db.collection("potentialMatches").doc(deterministicMatchId);
@@ -248,7 +242,6 @@ export const generateContractPdf = onCall({ cors: [/fhtgestao\.com\.br$/, "https
             throw new HttpsError("not-found", "Contrato não encontrado.");
         }
         const contractData = contractSnap.data()!;
-
         const doctorProfileSnap = await db.collection("users").doc(contractData.doctorId).get();
         const hospitalProfileSnap = await db.collection("users").doc(contractData.hospitalId).get();
         const doctorData = doctorProfileSnap.data();
@@ -259,9 +252,7 @@ export const generateContractPdf = onCall({ cors: [/fhtgestao\.com\.br$/, "https
         const { height } = page.getSize();
         const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
         const fontSize = 11;
-        
         let y = height - 50;
-
         const drawText = (text: string, size = fontSize, indent = 50) => {
             page.drawText(text, { x: indent, y, size, font, lineHeight: size * 1.5 });
             y -= size * 1.5;
@@ -269,22 +260,18 @@ export const generateContractPdf = onCall({ cors: [/fhtgestao\.com\.br$/, "https
 
         drawText("CONTRATO DE PRESTAÇÃO DE SERVIÇOS MÉDICOS AUTÔNOMOS", 16, 50);
         y -= 20;
-
         drawText(`CONTRATANTE: ${contractData.hospitalName ?? 'Nome não disponível'}`, 12);
         drawText(`CNPJ: ${hospitalData?.companyInfo?.cnpj ?? 'Não informado'}`, 12);
         y -= 10;
-        
         drawText(`CONTRATADO(A): Dr(a). ${contractData.doctorName ?? 'Nome não disponível'}`, 12);
         drawText(`CRM: ${doctorData?.professionalCrm ?? 'Não informado'}`, 12);
         y -= 20;
-
         drawText("CLÁUSULA 1ª - DO OBJETO", 12, 50);
         const shiftDate = contractData.shiftDates?.[0]?.toDate()?.toLocaleDateString('pt-BR') ?? 'Data não informada';
         drawText(`O objeto do presente contrato é a prestação de serviços médicos pelo(a) CONTRATADO(A) ao CONTRATANTE,`, 11, 50);
         drawText(`na especialidade de ${(contractData.specialties ?? []).join(', ')}, a ser realizado no dia ${shiftDate}`, 11, 50);
         drawText(`das ${contractData.startTime ?? ''} às ${contractData.endTime ?? ''}.`, 11, 50);
         y -= 20;
-        
         drawText("CLÁUSULA 2ª - DA REMUNERAÇÃO", 12, 50);
         drawText(`Pelos serviços prestados, o CONTRATANTE pagará ao CONTRATADO(A) o valor de R$ ${(contractData.doctorRate ?? 0).toFixed(2)} por hora.`, 11, 50);
         y -= 20;
@@ -293,27 +280,105 @@ export const generateContractPdf = onCall({ cors: [/fhtgestao\.com\.br$/, "https
         const bucket = storage.bucket();
         const filePath = `contracts/${contractId}.pdf`;
         const file = bucket.file(filePath);
-
-        await file.save(Buffer.from(pdfBytes), {
-            metadata: { contentType: "application/pdf" },
-        });
-
-        const [url] = await file.getSignedUrl({
-            action: 'read',
-            expires: '03-09-2491'
-        });
-
+        await file.save(Buffer.from(pdfBytes), { metadata: { contentType: "application/pdf" }, });
+        const [url] = await file.getSignedUrl({ action: 'read', expires: '03-09-2491' });
         await contractRef.update({ contractPdfUrl: url });
-
         logger.info(`PDF para o contrato ${contractId} gerado e salvo com sucesso. URL: ${url}`);
-        
         return { success: true, pdfUrl: url };
 
     } catch (error) {
         logger.error(`Falha ao gerar PDF para o contrato ${contractId}:`, error);
-        if (error instanceof HttpsError) {
-            throw error;
-        }
+        if (error instanceof HttpsError) { throw error; }
         throw new HttpsError("internal", "Ocorreu um erro inesperado ao gerar o contrato.");
     }
 });
+
+// =======================================================================
+// NOVA FUNÇÃO: TELEMEDICINA - FASE 1
+// =======================================================================
+
+/**
+ * Cria uma sala de videochamada segura no Daily.co para um contrato específico.
+ * Esta função é chamada a partir do frontend (pelo médico, por exemplo).
+ * Ela usa uma API Key armazenada de forma segura como um "secret" do Firebase.
+ */
+export const createTelemedicineRoom = onCall(
+    // Opções da função:
+    { 
+        // Permite que a função seja chamada a partir do seu domínio.
+        cors: true,
+        // Declara que a função precisa de acesso ao secret 'DAILY_APIKEY'.
+        secrets: ["DAILY_APIKEY"] 
+    }, 
+    async (request: CallableRequest) => {
+        // 1. Validação e Autenticação
+        if (!request.auth) {
+            throw new HttpsError("unauthenticated", "A função só pode ser chamada por um utilizador autenticado.");
+        }
+        const { contractId } = request.data;
+        if (!contractId) {
+            throw new HttpsError("invalid-argument", "O ID do contrato é obrigatório.");
+        }
+        logger.info(`A criar sala de telemedicina para o contrato: ${contractId}`);
+    
+        // 2. Configuração da API do Daily.co
+        // Lê a API Key guardada de forma segura nas configurações de secrets do Firebase.
+        const DAILY_API_KEY = process.env.DAILY_APIKEY;
+        if (!DAILY_API_KEY) {
+            logger.error("A API Key do Daily.co não está configurada nos Secrets do Firebase.");
+            throw new HttpsError("internal", "Configuração do servidor incompleta.");
+        }
+        const DAILY_API_URL = "https://api.daily.co/v1/rooms";
+
+        // 3. Definição das Propriedades da Sala
+        // A sala irá expirar 12 horas a partir de agora para garantir que não fiquem abertas indefinidamente.
+        const twelveHoursFromNow = Math.floor(Date.now() / 1000) + (12 * 60 * 60);
+        const roomOptions = {
+            properties: {
+                exp: twelveHoursFromNow, // Timestamp de expiração
+                enable_chat: true,
+                enable_screenshare: true,
+                enable_recording: 'cloud', // Permite gravação na nuvem
+            },
+        };
+
+        // 4. Criação da Sala via API
+        try {
+            const apiResponse = await fetch(DAILY_API_URL, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${DAILY_API_KEY}`,
+                },
+                body: JSON.stringify(roomOptions),
+            });
+
+            // Se a resposta da API não for bem-sucedida, lança um erro.
+            if (!apiResponse.ok) {
+                const errorBody = await apiResponse.json();
+                logger.error("Erro da API do Daily.co:", errorBody);
+                throw new HttpsError("internal", `Falha ao criar a sala de videochamada. Status: ${apiResponse.status}`);
+            }
+
+            // 5. Sucesso: Atualizar o Contrato no Firestore
+            const roomData: any = await apiResponse.json();
+            const roomUrl = roomData.url;
+            logger.info(`Sala criada com sucesso para o contrato ${contractId}. URL: ${roomUrl}`);
+
+            // Salva o link da sala de telemedicina no documento do contrato.
+            const contractRef = db.collection("contracts").doc(contractId);
+            await contractRef.update({
+                telemedicineLink: roomUrl,
+                updatedAt: FieldValue.serverTimestamp(),
+            });
+
+            // Retorna a URL da sala para o frontend.
+            return { success: true, roomUrl: roomUrl };
+
+        } catch (error) {
+            logger.error(`Falha crítica ao criar sala para o contrato ${contractId}:`, error);
+            if (error instanceof HttpsError) { throw error; }
+            throw new HttpsError("internal", "Ocorreu um erro inesperado ao criar a sala de telemedicina.");
+        }
+    }
+);
