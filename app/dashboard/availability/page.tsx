@@ -220,7 +220,9 @@ const TimeSlotFormDialog: React.FC<{ onFormSubmitted: () => void; initialData?: 
   };
   
   return (
+    // AQUI ESTÁ A ÚNICA ALTERAÇÃO: A ESTRUTURA DO DIALOGO
     <DialogContent className="sm:max-w-2xl md:max-w-3xl flex flex-col max-h-[90vh] p-0">
+      {/* 1. Cabeçalho (Fixo) */}
       <DialogHeader className="p-6 pb-4 flex-shrink-0 border-b">
         <DialogTitle className="text-xl">{isEditing ? "Editar Disponibilidade" : "Adicionar Nova Disponibilidade"}</DialogTitle>
         <DialogDescription>
@@ -234,9 +236,11 @@ const TimeSlotFormDialog: React.FC<{ onFormSubmitted: () => void; initialData?: 
           </Button>
       </DialogClose>
       
-      {/* O conteúdo do formulário fica dentro do ScrollArea */}
+      {/* 2. Área de Conteúdo (Rolável) */}
       <ScrollArea className="flex-grow">
+        {/* Usamos um div extra para o padding, para que o padding role junto com o conteúdo */}
         <div className="grid gap-5 py-4 px-6">
+            {/* TODO O SEU CONTEÚDO ORIGINAL VAI AQUI DENTRO, INTACTO */}
             <div className="space-y-2">
               <Label className="font-semibold text-gray-800 flex items-center"><CalendarDays className="h-4 w-4 mr-2 text-blue-600"/>Data(s) da Disponibilidade*</Label>
               <p className="text-xs text-gray-500">{isEditing ? "Data original (não pode ser alterada)." : "Selecione um ou mais dias no calendário."}</p>
@@ -278,6 +282,7 @@ const TimeSlotFormDialog: React.FC<{ onFormSubmitted: () => void; initialData?: 
         </div>
       </ScrollArea>
       
+      {/* 3. Rodapé (Fixo) */}
       <DialogFooter className="p-6 pt-4 flex-shrink-0 border-t bg-slate-50/95">
         <DialogClose asChild><Button type="button" variant="outline" disabled={isLoadingSubmit}>Cancelar</Button></DialogClose>
         <Button type="button" onClick={handleSubmit} disabled={isLoadingSubmit || (dates.length === 0 && !isEditing)} className="bg-blue-600 hover:bg-blue-700">{isLoadingSubmit && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}{isLoadingSubmit ? (isEditing ? "Salvando..." : "Adicionando...") : (isEditing ? "Salvar Alterações" : `Adicionar Disponibilidade (${dates.length || 0} Dia(s))`)}</Button>
