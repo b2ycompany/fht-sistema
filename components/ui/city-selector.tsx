@@ -3,7 +3,8 @@
 
 import * as React from "react";
 import { Button } from "@/components/ui/button";
-import { Drawer, DrawerContent, DrawerTrigger, DrawerFooter, DrawerClose } from "@/components/ui/drawer";
+import { Input } from "@/components/ui/input";
+import { Drawer, DrawerContent, DrawerTrigger, DrawerFooter, DrawerClose, DrawerHeader, DrawerTitle, DrawerDescription } from "@/components/ui/drawer";
 import {
   Popover,
   PopoverContent,
@@ -43,7 +44,6 @@ export function CitySelector({
   const isDesktop = !isMobile;
 
   const [internalSelection, setInternalSelection] = React.useState<string[]>(selectedCities);
-  const [searchTerm, setSearchTerm] = React.useState("");
   
   React.useEffect(() => {
     setInternalSelection(selectedCities);
@@ -52,10 +52,16 @@ export function CitySelector({
   React.useEffect(() => {
     if (isOpen) {
       setInternalSelection(selectedCities);
-      setSearchTerm("");
+    } else {
+        // Limpa a busca quando o seletor é fechado
     }
   }, [isOpen, selectedCities]);
   
+  React.useEffect(() => {
+      setInternalSelection([]);
+  }, [selectedState]);
+
+
   const handleSelectCity = (city: string) => {
     setInternalSelection(prev => 
       prev.includes(city) ? prev.filter(c => c !== city) : [...prev, city]
@@ -80,29 +86,21 @@ export function CitySelector({
     selectedCities.length > 0
       ? `${selectedCities.length} cidade(s) selecionada(s)`
       : isDisabled ? "Selecione um estado" : "Selecione as cidades...";
-      
-  const filteredCities = React.useMemo(() =>
-    availableCities.filter(city =>
-      city.toLowerCase().includes(searchTerm.toLowerCase())
-    ), [availableCities, searchTerm]
-  );
 
   const CityListContent = () => (
     <Command>
-      <CommandInput 
-        placeholder="Buscar cidade..."
-        value={searchTerm}
-        onValueChange={setSearchTerm}
-      />
+      <CommandInput placeholder="Buscar cidade..." />
       <CommandList>
         <CommandEmpty>Nenhuma cidade encontrada.</CommandEmpty>
         <CommandGroup>
           <ScrollArea className="h-[240px]">
-            {filteredCities.map(city => (
+            {availableCities.map(city => (
               <CommandItem
                 key={city}
                 value={city}
-                onSelect={() => handleSelectCity(city)}
+                onSelect={(currentValue) => {
+                  handleSelectCity(currentValue);
+                }}
                 className="cursor-pointer"
               >
                 <Check
@@ -137,7 +135,6 @@ export function CitySelector({
           <CityListContent />
           <div className="p-2 border-t flex items-center justify-end gap-2">
             <Button variant="ghost" size="sm" onClick={() => setInternalSelection([])}>Limpar</Button>
-            {/* AQUI ESTÁ A ALTERAÇÃO: Adicionamos o contador ao botão do desktop */}
             <Button size="sm" onClick={handleConfirm} className="bg-blue-600 hover:bg-blue-700">
               Confirmar ({internalSelection.length})
             </Button>
@@ -148,6 +145,7 @@ export function CitySelector({
   }
 
   return (
+    // ESTRUTURA DO DRAWER CORRIGIDA PARA MOBILE
     <Drawer open={isOpen} onOpenChange={handleOpenChange}>
       <DrawerTrigger asChild>
         <Button variant="outline" role="combobox" disabled={isDisabled} aria-expanded={isOpen} className={cn("w-full justify-between font-normal h-9", className)}>
@@ -155,17 +153,23 @@ export function CitySelector({
             <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
         </Button>
       </DrawerTrigger>
-      <DrawerContent>
-        <div className="mt-4 border-t">
+      <DrawerContent className="flex flex-col max-h-[85vh]">
+        <DrawerHeader className="flex-shrink-0 text-left">
+          <DrawerTitle>Selecione as Cidades</DrawerTitle>
+          <DrawerDescription>
+            Escolha uma ou mais cidades para a sua disponibilidade.
+          </DrawerDescription>
+        </DrawerHeader>
+        <div className="flex-grow overflow-y-auto px-4">
           <CityListContent />
         </div>
-        <DrawerFooter className="pt-2 flex-col-reverse">
-          <DrawerClose asChild>
-            <Button variant="outline">Cancelar</Button>
-          </DrawerClose>
+        <DrawerFooter className="pt-2 flex-shrink-0 border-t">
           <Button onClick={handleConfirm} className="bg-blue-600 hover:bg-blue-700">
             Confirmar ({internalSelection.length})
           </Button>
+          <DrawerClose asChild>
+            <Button variant="outline">Cancelar</Button>
+          </DrawerClose>
         </DrawerFooter>
       </DrawerContent>
     </Drawer>

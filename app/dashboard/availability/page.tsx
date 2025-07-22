@@ -210,14 +210,14 @@ const TimeSlotFormDialog: React.FC<{ onFormSubmitted: () => void; initialData?: 
         </DialogDescription>
       </DialogHeader>
       <DialogClose asChild>
-          <Button variant="ghost" size="icon" className="absolute top-4 right-4">
+          <Button variant="ghost" size="icon" className="absolute top-4 right-4 z-10">
             <X className="h-4 w-4" />
             <span className="sr-only">Fechar</span>
           </Button>
       </DialogClose>
       
-      {/* 1. O CONTEÚDO DO FORMULÁRIO FICA DENTRO DE UMA ÁREA ROLÁVEL */}
-      <div className="flex-grow overflow-y-auto">
+      {/* O conteúdo do formulário fica dentro do ScrollArea */}
+      <ScrollArea className="flex-grow">
         <div className="grid gap-5 py-4 px-6">
           <div className="space-y-2">
             <Label className="font-semibold text-gray-800 flex items-center"><CalendarDays className="h-4 w-4 mr-2 text-blue-600"/>Data(s) da Disponibilidade*</Label>
@@ -250,10 +250,9 @@ const TimeSlotFormDialog: React.FC<{ onFormSubmitted: () => void; initialData?: 
           <div className="space-y-2"><Label className="font-semibold text-gray-800 flex items-center"><ClipboardList className="h-4 w-4 mr-2 text-blue-600"/>Especialidades Atendidas* <span className="text-xs text-gray-500 ml-1 font-normal">(Selecione ao menos uma)</span></Label><Popover open={specialtyPopoverOpen} onOpenChange={setSpecialtyPopoverOpen}><PopoverTrigger asChild><Button variant="outline" className="w-full justify-start font-normal text-muted-foreground h-9 border-dashed hover:border-solid">{selectedSpecialties.length > 0 ? `Selecionadas: ${selectedSpecialties.length}` : "Clique para selecionar especialidades..."}</Button></PopoverTrigger><PopoverContent className="w-[--radix-popover-trigger-width] p-0"><Command filter={(value, search) => medicalSpecialties.find(s => s.toLowerCase() === value.toLowerCase())?.toLowerCase().includes(search.toLowerCase()) ? 1 : 0}><CommandInput placeholder="Buscar especialidade..." value={specialtySearchValue} onValueChange={setSpecialtySearchValue}/><CommandList><CommandEmpty>Nenhuma.</CommandEmpty><CommandGroup heading={`${filteredSpecialties.length} encontradas`}>{filteredSpecialties.map((s) => (<CommandItem key={s} value={s} onSelect={() => handleSelectSpecialty(s)} className="cursor-pointer hover:bg-accent">{s}</CommandItem>))}</CommandGroup></CommandList></Command></PopoverContent></Popover>{selectedSpecialties.length > 0 && ( <div className="flex flex-wrap gap-1.5 mt-2 pt-2 border-t border-dashed"> {selectedSpecialties.map((s) => ( <Badge key={s} variant="secondary" className="bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100 font-normal"> {s} <button type="button" onClick={()=>handleRemoveSpecialty(s)} className="ml-1.5 p-0.5 rounded-full outline-none focus:ring-1 focus:ring-blue-500 hover:bg-blue-200"> <X className="h-3 w-3 text-blue-600 hover:text-blue-800" /> </button> </Badge> ))} </div> )}</div>
           <div className="space-y-1.5"><Label htmlFor="doc-notes" className="font-semibold text-gray-800 flex items-center"><Info className="h-4 w-4 mr-2 text-blue-600"/>Notas Adicionais <span className="text-xs text-gray-500 ml-1 font-normal">(Opcional)</span></Label><Textarea id="doc-notes" placeholder="Ex: Preferência por plantões mais tranquilos, etc." value={notes} onChange={(e) => setNotes(e.target.value)} className="min-h-[80px]"/></div>
         </div>
-      </div>
+      </ScrollArea>
       
-      {/* 2. O RODAPÉ FICA FORA DA ÁREA ROLÁVEL, SEMPRE VISÍVEL */}
-      <DialogFooter className="p-6 pt-4 flex-shrink-0 border-t bg-slate-50">
+      <DialogFooter className="p-6 pt-4 flex-shrink-0 border-t bg-slate-50/95">
         <DialogClose asChild><Button type="button" variant="outline" disabled={isLoadingSubmit}>Cancelar</Button></DialogClose>
         <Button type="button" onClick={handleSubmit} disabled={isLoadingSubmit || (dates.length === 0 && !isEditing)} className="bg-blue-600 hover:bg-blue-700">{isLoadingSubmit && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}{isLoadingSubmit ? (isEditing ? "Salvando..." : "Adicionando...") : (isEditing ? "Salvar Alterações" : `Adicionar Disponibilidade (${dates.length || 0} Dia(s))`)}</Button>
       </DialogFooter>
