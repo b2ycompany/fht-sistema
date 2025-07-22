@@ -5,7 +5,8 @@ import type React from "react";
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { Building, ClipboardList, User, Briefcase, FileText, LogOut, Menu, X, Loader2 } from "lucide-react";
+// ADICIONADO: Ícone para a nova página
+import { Building, ClipboardList, User, Briefcase, FileText, LogOut, Menu, X, Loader2, CalendarPlus } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useMobile } from "@/hooks/use-mobile";
 import { useAuth } from "@/components/auth-provider";
@@ -46,9 +47,11 @@ export default function HospitalLayout({ children }: { children: React.ReactNode
     }
   };
 
+  // ATUALIZADO: Adicionado o novo item de menu "Agendamentos"
   const navItems = [
     { href: "/hospital/dashboard", label: "Painel Hospital", icon: <Building className="h-5 w-5" /> },
     { href: "/hospital/shifts", label: "Plantões", icon: <ClipboardList className="h-5 w-5" /> },
+    { href: "/hospital/schedule", label: "Agendamentos", icon: <CalendarPlus className="h-5 w-5" /> }, // NOVO ITEM
     { href: "/hospital/contracts", label: "Contratos", icon: <FileText className="h-5 w-5" /> },
     { href: "/hospital/doctors", label: "Médicos", icon: <User className="h-5 w-5" /> },
     { href: "/hospital/profile", label: "Perfil Empresa", icon: <Briefcase className="h-5 w-5" /> },
@@ -96,7 +99,7 @@ export default function HospitalLayout({ children }: { children: React.ReactNode
                   href={item.href}
                   className={cn(
                     "flex items-center gap-3 px-4 py-3 rounded-md text-sm font-medium transition-all duration-200",
-                    pathname === item.href
+                    pathname.startsWith(item.href) // Alterado para startsWith para manter o item ativo em sub-rotas
                       ? "bg-blue-600 text-white shadow-sm hover:bg-blue-700"
                       : "text-gray-700 hover:bg-blue-100 hover:text-blue-600"
                   )}

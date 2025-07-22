@@ -2,7 +2,7 @@
 "use client";
 
 import React, { useState, useEffect, useCallback, useRef } from "react";
-import { useRouter } from 'next/navigation'; // ADICIONADO: Para navegação
+import { useRouter } from 'next/navigation';
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
@@ -10,10 +10,10 @@ import { useToast } from "@/hooks/use-toast";
 import { Timestamp } from "firebase/firestore";
 import {
     MapPinIcon, LogIn, LogOut, CalendarDays, ClockIcon, AlertTriangle, Loader2,
-    ClipboardList, RotateCcw, Camera, Target, Video // ADICIONADO: Ícone de vídeo
+    ClipboardList, RotateCcw, Camera, Target, Video
 } from "lucide-react";
 import { getActiveShiftsForCheckin, performCheckin, performCheckout, type CheckinRecord } from "@/lib/checkin-service";
-import { createTelemedicineRoom } from "@/lib/contract-service"; // ADICIONADO: Função para criar sala
+import { createTelemedicineRoom } from "@/lib/contract-service";
 import { uploadFileToStorage } from "@/lib/storage-service";
 import { auth } from "@/lib/firebase";
 import { cn } from "@/lib/utils";
@@ -113,7 +113,7 @@ const ReverseGeocodedLocation: React.FC<{ location: { latitude: number; longitud
 // --- COMPONENTE PRINCIPAL DA PÁGINA ---
 export default function DoctorCheckinPage() {
     const { toast } = useToast();
-    const router = useRouter(); // ADICIONADO: Hook para navegação
+    const router = useRouter();
     const [activeShifts, setActiveShifts] = useState<CheckinRecord[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
@@ -132,7 +132,6 @@ export default function DoctorCheckinPage() {
 
     useEffect(() => { fetchActiveShifts(); }, [fetchActiveShifts]);
 
-    // ADICIONADO: Lógica para iniciar telemedicina
     const handleStartTelemedicine = async (contractId: string) => {
         setActionLoadingId(contractId);
         toast({ title: "Preparando a sala de atendimento...", description: "Aguarde um momento." });
@@ -221,7 +220,7 @@ export default function DoctorCheckinPage() {
                                     record={record} 
                                     onCheckinClick={() => openCameraForCheckin(record.id)} 
                                     onCheckoutClick={handleCheckout} 
-                                    onStartTelemedicineClick={handleStartTelemedicine} // ADICIONADO
+                                    onStartTelemedicineClick={handleStartTelemedicine}
                                     isActionLoading={actionLoadingId} 
                                 />
                             ))}
@@ -241,7 +240,7 @@ interface ShiftCheckinItemProps {
   record: CheckinRecord;
   onCheckinClick: () => void;
   onCheckoutClick: (recordId: string) => void;
-  onStartTelemedicineClick: (contractId: string) => void; // ADICIONADO
+  onStartTelemedicineClick: (contractId: string) => void;
   isActionLoading: string | null;
 }
 
@@ -249,10 +248,21 @@ interface ShiftCheckinItemProps {
 const ShiftCheckinItem: React.FC<ShiftCheckinItemProps> = ({ record, onCheckinClick, onCheckoutClick, onStartTelemedicineClick, isActionLoading }) => {
     const shiftDate = record.shiftDate.toDate();
     const isCurrentlyLoading = isActionLoading === record.id || isActionLoading === record.contractId;
-    const canCheckin = record.status === 'SCHEDULED';
-    const canCheckout = record.status === 'CHECKED_IN';
-    const isTelemedicine = record.serviceType === 'Telemedicina'; // ADICIONADO: Verificação do tipo de serviço
     
+    // --- LÓGICA DE VISIBILIDADE DOS BOTÕES CORRIGIDA ---
+    const isTelemedicine = record.serviceType === 'Telemedicina';
+    
+    // Botão de Telemedicina: aparece se for telemedicina e estiver agendado OU em andamento
+    const showTelemedicineButton = isTelemedicine && (record.status === 'SCHEDULED' || record.status === 'CHECKED_IN');
+    
+    // Botão de Check-in presencial: aparece se NÃO for telemedicina e estiver agendado
+    const showCheckinButton = !isTelemedicine && record.status === 'SCHEDULED';
+
+    // Botão de Check-out presencial: aparece se NÃO for telemedicina e estiver em andamento
+    const showCheckoutButton = !isTelemedicine && record.status === 'CHECKED_IN';
+    
+    const showCompletedBadge = record.status === 'CHECKED_OUT';
+
     const getStatusBadgeProps = (status: CheckinRecord['status']): { variant: BadgeProps["variant"], className: string } => {
         switch (status) {
             case 'SCHEDULED': return { variant: 'outline', className: 'border-blue-300 text-blue-700 bg-blue-50' };
@@ -282,22 +292,26 @@ const ShiftCheckinItem: React.FC<ShiftCheckinItemProps> = ({ record, onCheckinCl
                 {record.checkoutAt && (<div className="pt-2 space-y-1"><div className="text-xs text-red-700 flex items-center"><LogOut size={13} className="mr-1.5"/>Check-out realizado às {record.checkoutAt.toDate().toLocaleTimeString('pt-BR', {hour: '2-digit', minute: '2-digit'})}</div>{record.checkoutLocation && <ReverseGeocodedLocation location={record.checkoutLocation} />}</div>)}
             </CardContent>
             <CardFooter className="flex justify-end gap-2 border-t pt-4">
-                {/* LÓGICA DE BOTÃO ALTERADA */}
-                {canCheckin && (
-                    isTelemedicine ? (
-                        <Button onClick={() => onStartTelemedicineClick(record.contractId)} size="sm" className="bg-blue-600 hover:bg-blue-700" disabled={isCurrentlyLoading}>
-                            {isCurrentlyLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                            <Video className="mr-2 h-4 w-4" /> Iniciar Atendimento
-                        </Button>
-                    ) : (
-                        <Button onClick={onCheckinClick} size="sm" className="bg-blue-600 hover:bg-blue-700" disabled={isCurrentlyLoading}>
-                            {isCurrentlyLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                            <LogIn className="mr-2 h-4 w-4" /> Fazer Check-in
-                        </Button>
-                    )
+                {/* LÓGICA DE BOTÃO ATUALIZADA */}
+                {showTelemedicineButton && (
+                    <Button onClick={() => onStartTelemedicineClick(record.contractId)} size="sm" className="bg-blue-600 hover:bg-blue-700" disabled={isCurrentlyLoading}>
+                        {isCurrentlyLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                        <Video className="mr-2 h-4 w-4" /> Iniciar Atendimento
+                    </Button>
                 )}
-                {canCheckout && <Button onClick={() => onCheckoutClick(record.id)} size="sm" variant="outline" disabled={isCurrentlyLoading}>{isCurrentlyLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}<LogOut className="mr-2 h-4 w-4" /> Fazer Check-out</Button>}
-                {record.status === 'CHECKED_OUT' && <Badge variant="default" className="bg-green-100 text-green-800">Plantão Finalizado</Badge>}
+                {showCheckinButton && (
+                    <Button onClick={onCheckinClick} size="sm" className="bg-blue-600 hover:bg-blue-700" disabled={isCurrentlyLoading}>
+                        {isCurrentlyLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                        <LogIn className="mr-2 h-4 w-4" /> Fazer Check-in
+                    </Button>
+                )}
+                {showCheckoutButton && (
+                    <Button onClick={() => onCheckoutClick(record.id)} size="sm" variant="outline" disabled={isCurrentlyLoading}>
+                        {isCurrentlyLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                        <LogOut className="mr-2 h-4 w-4" /> Fazer Check-out
+                    </Button>
+                )}
+                {showCompletedBadge && <Badge variant="default" className="bg-green-100 text-green-800">Plantão Finalizado</Badge>}
             </CardFooter>
         </Card>
     );

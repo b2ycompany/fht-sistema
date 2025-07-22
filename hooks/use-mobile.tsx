@@ -4,7 +4,7 @@
 import { useState, useEffect } from "react";
 
 // O parâmetro foi removido pois não era utilizado.
-export function useMobile() {
+export function useMobile(p0: number) {
   const [isMobile, setIsMobile] = useState(false);
 
   useEffect(() => {
