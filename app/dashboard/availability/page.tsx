@@ -21,6 +21,9 @@ import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
+import { PopoverClose } from "@radix-ui/react-popover";
 import {
     Dialog,
     DialogClose,
@@ -51,12 +54,15 @@ import {
 
 import {
   Plus, Loader2, AlertCircle, Users, DollarSign, Briefcase, ClipboardList, Info, Trash2, CheckCircle, History, X, CalendarDays, FilePenLine, RotateCcw,
-  MapPin, Clock
+  MapPin, Clock, Check, ChevronsUpDown
 } from "lucide-react";
 
 const LoadingState = React.memo(({ message = "Carregando..." }: { message?: string }) => ( <div className="flex flex-col justify-center items-center text-center py-10 min-h-[150px] w-full"> <Loader2 className="h-8 w-8 animate-spin text-blue-600" /> <span className="ml-3 text-sm text-gray-600 mt-3">{message}</span> </div> ));
+LoadingState.displayName = 'LoadingState';
 const EmptyState = React.memo(({ message, actionButton }: { message: string; actionButton?: React.ReactNode }) => ( <div className="text-center text-sm text-gray-500 py-10 min-h-[150px] flex flex-col items-center justify-center bg-gray-50/70 rounded-md border border-dashed border-gray-300 w-full"> <ClipboardList className="w-12 h-12 text-gray-400 mb-4"/> <p className="font-medium text-gray-600 mb-1">Nada por aqui ainda!</p> <p className="max-w-xs">{message}</p> {actionButton && <div className="mt-4">{actionButton}</div>} </div> ));
+EmptyState.displayName = 'EmptyState';
 const ErrorState = React.memo(({ message, onRetry }: { message: string; onRetry?: () => void }) => ( <div className="text-center text-sm text-red-600 py-10 min-h-[150px] flex flex-col items-center justify-center bg-red-50/70 rounded-md border border-dashed border-red-300 w-full"> <AlertCircle className="w-12 h-12 text-red-400 mb-4"/> <p className="font-semibold text-red-700 mb-1 text-base">Oops! Algo deu errado.</p> <p className="max-w-md text-red-600">{message || "Não foi possível carregar os dados. Por favor, tente novamente."}</p> {onRetry && ( <Button variant="destructive" size="sm" onClick={onRetry} className="mt-4 bg-red-600 hover:bg-red-700 text-white"> <RotateCcw className="mr-2 h-4 w-4" /> Tentar Novamente </Button> )} </div> ));
+ErrorState.displayName = 'ErrorState';
 
 const timeOptions = Array.from({ length: 48 }, (_, i) => { const h = Math.floor(i/2); const m = i%2 === 0 ? "00" : "30"; return `${h.toString().padStart(2,"0")}:${m}`; });
 const brazilianStates = ["AC", "AL", "AP", "AM", "BA", "CE", "DF", "ES", "GO", "MA", "MT", "MS", "MG", "PA", "PB", "PR", "PE", "PI", "RJ", "RN", "RS", "RO", "RR", "SC", "SP", "SE", "TO" ];
@@ -92,11 +98,11 @@ const TimeSlotListItem: React.FC<{ slot: TimeSlot; onEdit: () => void; onDelete:
           <div className="flex items-center gap-1.5 truncate">
             <MapPin className="h-3.5 w-3.5 shrink-0 text-purple-500" />
             <span>
-            {Array.isArray(slot.cities) && slot.cities.length > 0
-              ? slot.cities.join(', ')
-              : 'Cidades não informadas'}
-            , {slot.state}
-          </span>
+              {Array.isArray(slot.cities) && slot.cities.length > 0
+                ? slot.cities.join(', ')
+                : 'Cidades não informadas'}
+              , {slot.state}
+            </span>
           </div>
           <div className="flex items-center gap-1.5 truncate"><Briefcase className="h-3.5 w-3.5 shrink-0 text-cyan-500" /><span>{serviceTypeLabel}</span></div>
           <div className="flex items-center gap-1.5 text-green-600 font-medium sm:col-span-2"><DollarSign className="h-3.5 w-3.5 shrink-0" /><span>{formatCurrency(slot.desiredHourlyRate)}/hora (pretendido)</span></div>
@@ -113,8 +119,8 @@ const TimeSlotListItem: React.FC<{ slot: TimeSlot; onEdit: () => void; onDelete:
     </div>
   );
 };
+TimeSlotListItem.displayName = 'TimeSlotListItem';
 
-// --- COMPONENTE DO FORMULÁRIO (COM RESPONSIVIDADE CORRIGIDA) ---
 const TimeSlotFormDialog: React.FC<{ onFormSubmitted: () => void; initialData?: TimeSlot | null; }> = ({ onFormSubmitted, initialData }) => {
   const { toast } = useToast();
   const isEditing = !!initialData && !!initialData.id;
@@ -129,6 +135,8 @@ const TimeSlotFormDialog: React.FC<{ onFormSubmitted: () => void; initialData?: 
   const [selectedServiceType, setSelectedServiceType] = useState<string>(initialData?.serviceType || "");
   const [notes, setNotes] = useState<string>(initialData?.notes || "");
   const [isLoadingSubmit, setIsLoadingSubmit] = useState(false);
+  const [specialtyPopoverOpen, setSpecialtyPopoverOpen] = useState(false);
+  const [specialtySearchValue, setSpecialtySearchValue] = useState("");
   const [timeError, setTimeError] = useState<string | null>(null);
   const [availableCities, setAvailableCities] = useState<string[]>([]);
 
@@ -152,8 +160,9 @@ const TimeSlotFormDialog: React.FC<{ onFormSubmitted: () => void; initialData?: 
       }
   }, [selectedState, initialData]);
 
-  const handleSelectSpecialty = (specialty: string) => { if (!selectedSpecialties.includes(specialty)) setSelectedSpecialties(prev => [...prev, specialty]); };
+  const handleSelectSpecialty = (specialty: string) => { if (!selectedSpecialties.includes(specialty)) setSelectedSpecialties(prev => [...prev, specialty]); setSpecialtySearchValue(""); setSpecialtyPopoverOpen(false); };
   const handleRemoveSpecialty = (specialtyToRemove: string) => { setSelectedSpecialties(prev => prev.filter(s => s !== specialtyToRemove)); };
+  const filteredSpecialties = useMemo(() => medicalSpecialties.filter(s => typeof s === 'string' && s.toLowerCase().includes(specialtySearchValue.toLowerCase()) && !selectedSpecialties.includes(s)), [specialtySearchValue, selectedSpecialties]);
   const applyQuickTime = (start: string, end: string) => { setStartTime(start); setEndTime(end); };
 
   const handleSubmit = async () => {
@@ -193,58 +202,65 @@ const TimeSlotFormDialog: React.FC<{ onFormSubmitted: () => void; initialData?: 
   };
   
   return (
-    <DialogContent className="sm:max-w-2xl md:max-w-3xl flex flex-col max-h-[90vh]">
-      <DialogHeader className="flex-shrink-0">
+    // A ESTRUTURA DO DIALOGCONTENT FOI ALTERADA PARA MELHOR RESPONSIVIDADE
+    <DialogContent className="sm:max-w-2xl md:max-w-3xl flex flex-col max-h-[90vh] p-0">
+      <DialogHeader className="p-6 pb-4 flex-shrink-0">
         <DialogTitle className="text-xl">{isEditing ? "Editar Disponibilidade" : "Adicionar Nova Disponibilidade"}</DialogTitle>
         <DialogDescription>
-          {isEditing ? "Altere os detalhes da sua disponibilidade." : "Selecione as datas e preencha os detalhes."}
+          {isEditing ? "Altere os detalhes da sua disponibilidade. A data original não pode ser alterada." : "Selecione as datas e preencha os detalhes. Uma entrada de disponibilidade será criada para cada data selecionada."}
         </DialogDescription>
       </DialogHeader>
-      
+      <DialogClose asChild>
+          <Button variant="ghost" size="icon" className="absolute top-4 right-4">
+            <X className="h-4 w-4" />
+            <span className="sr-only">Fechar</span>
+          </Button>
+      </DialogClose>
+
       {/* ÁREA DE CONTEÚDO ROLÁVEL */}
-      <ScrollArea className="flex-grow">
-        <div className="grid gap-5 py-4 pr-6">
+      <div className="flex-grow overflow-y-auto px-6">
+          <div className="grid gap-5 py-4">
             <div className="space-y-2">
-              <Label className="font-semibold text-gray-800 flex items-center"><CalendarDays className="h-4 w-4 mr-2 text-blue-600"/>Data(s)*</Label>
+              <Label className="font-semibold text-gray-800 flex items-center"><CalendarDays className="h-4 w-4 mr-2 text-blue-600"/>Data(s) da Disponibilidade*</Label>
+              <p className="text-xs text-gray-500">{isEditing ? "Data original (não pode ser alterada)." : "Selecione um ou mais dias no calendário."}</p>
               <div className="flex flex-col sm:flex-row gap-2 items-start">
                 {isEditing ? (
-                    <Calendar mode="single" selected={dates[0]} disabled />
+                    <Calendar mode="single" selected={dates[0]} disabled footer={<p className="text-xs text-gray-700 font-medium p-2 border-t">Data: {dates[0]?.toLocaleDateString('pt-BR')}</p>}/>
                 ) : (
-                    <Calendar mode="multiple" selected={dates} onSelect={setDates as SelectMultipleEventHandler} disabled={{ before: new Date(new Date().setHours(0, 0, 0, 0)) }} modifiers={modifiers} modifiersStyles={modifiersStyles} />
+                    <Calendar mode="multiple" selected={dates} onSelect={setDates as SelectMultipleEventHandler} disabled={{ before: new Date(new Date().setHours(0, 0, 0, 0)) }} footer={ dates.length > 0 ? <p className="text-xs text-blue-700 font-medium p-2 border-t">{dates.length} dia(s) selecionado(s).</p> : <p className="text-xs text-gray-500 p-2 border-t">Nenhum dia selecionado.</p>} modifiers={modifiers} modifiersStyles={modifiersStyles} />
                 )}
-                {dates.length > 0 && !isEditing && <Button variant="outline" size="sm" onClick={() => setDates([])} className="text-xs self-start sm:self-end w-full sm:w-auto"><X className="h-3 w-3 mr-1"/> Limpar</Button>}
+                {dates.length > 0 && !isEditing && <Button variant="outline" size="sm" onClick={() => setDates([])} className="text-xs self-start sm:self-end w-full sm:w-auto"><X className="h-3 w-3 mr-1"/> Limpar Datas</Button>}
               </div>
             </div>
             <div className="space-y-2">
-                <Label className="font-semibold text-gray-800 flex items-center"><Clock className="h-4 w-4 mr-2 text-blue-600"/>Horário*</Label>
-                <div className="flex flex-wrap gap-2 mb-3"><Button variant="outline" size="sm" onClick={() => applyQuickTime("07:00", "19:00")} className="text-xs">Diurno</Button><Button variant="outline" size="sm" onClick={() => applyQuickTime("19:00", "07:00")} className="text-xs">Noturno</Button></div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4"><div className="space-y-1.5"><Label htmlFor="doc-start-time">Início*</Label><Select value={startTime} onValueChange={setStartTime}><SelectTrigger id="doc-start-time" className={cn("h-9", timeError && "border-red-500")}><SelectValue/></SelectTrigger><SelectContent>{timeOptions.map(t=><SelectItem key={"dst"+t} value={t}>{t}</SelectItem>)}</SelectContent></Select></div><div className="space-y-1.5"><Label htmlFor="doc-end-time">Término*</Label><Select value={endTime} onValueChange={setEndTime}><SelectTrigger id="doc-end-time" className={cn("h-9", timeError && "border-red-500")}><SelectValue/></SelectTrigger><SelectContent>{timeOptions.map(t=><SelectItem key={"det"+t} value={t}>{t}</SelectItem>)}</SelectContent></Select></div>{timeError && <p className="text-red-600 text-xs col-span-1 sm:col-span-2">{timeError}</p>}</div>
+                <Label className="font-semibold text-gray-800 flex items-center"><Clock className="h-4 w-4 mr-2 text-blue-600"/>Horário da Disponibilidade*</Label>
+                <div className="flex flex-wrap gap-2 mb-3"><Button variant="outline" size="sm" onClick={() => applyQuickTime("07:00", "19:00")} className="text-xs">Diurno (07-19h)</Button><Button variant="outline" size="sm" onClick={() => applyQuickTime("19:00", "07:00")} className="text-xs">Noturno (19-07h)</Button><Button variant="outline" size="sm" onClick={() => applyQuickTime("08:00", "12:00")} className="text-xs">Manhã (08-12h)</Button><Button variant="outline" size="sm" onClick={() => applyQuickTime("13:00", "18:00")} className="text-xs">Tarde (13-18h)</Button></div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4"><div className="space-y-1.5"><Label htmlFor="doc-start-time">Horário de Início*</Label><Select value={startTime} onValueChange={setStartTime}><SelectTrigger id="doc-start-time" className={cn("h-9", timeError && "border-red-500 ring-1 ring-red-500")}><SelectValue/></SelectTrigger><SelectContent>{timeOptions.map(t=><SelectItem key={"dst"+t} value={t}>{t}</SelectItem>)}</SelectContent></Select></div><div className="space-y-1.5"><Label htmlFor="doc-end-time">Horário de Término*</Label><Select value={endTime} onValueChange={setEndTime}><SelectTrigger id="doc-end-time" className={cn("h-9", timeError && "border-red-500 ring-1 ring-red-500")}><SelectValue/></SelectTrigger><SelectContent>{timeOptions.map(t=><SelectItem key={"det"+t} value={t}>{t}</SelectItem>)}</SelectContent></Select></div>{timeError && <p className="text-red-600 text-xs col-span-1 sm:col-span-2">{timeError}</p>}</div>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-1.5">
-                    <Label htmlFor="doc-state" className="font-semibold text-gray-800 flex items-center"><MapPin className="h-4 w-4 mr-2 text-blue-600"/>Estado*</Label>
-                    <Select value={selectedState} onValueChange={setSelectedState}><SelectTrigger id="doc-state" className="h-9"><SelectValue placeholder="UF..."/></SelectTrigger><SelectContent>{brazilianStates.map(s=><SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent></Select>
+                    <Label htmlFor="doc-state" className="font-semibold text-gray-800 flex items-center"><MapPin className="h-4 w-4 mr-2 text-blue-600"/>Estado de Atuação*</Label>
+                    <Select value={selectedState} onValueChange={setSelectedState}><SelectTrigger id="doc-state" className="h-9"><SelectValue placeholder="Selecione o UF..."/></SelectTrigger><SelectContent>{brazilianStates.map(s=><SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent></Select>
                 </div>
                 <div className="space-y-1.5">
-                    <Label className="font-semibold text-gray-800">Cidades*</Label>
+                    <Label className="font-semibold text-gray-800">Cidades de Atuação*</Label>
                     <CitySelector selectedState={selectedState} availableCities={availableCities} selectedCities={selectedCities} onConfirm={setSelectedCities} />
                 </div>
             </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4"><div className="space-y-1.5"><Label htmlFor="doc-service-type" className="font-semibold text-gray-800 flex items-center"><Briefcase className="h-4 w-4 mr-2 text-blue-600"/>Tipo*</Label><Select value={selectedServiceType} onValueChange={setSelectedServiceType}><SelectTrigger id="doc-service-type" className="h-9"><SelectValue placeholder="Selecione..."/></SelectTrigger><SelectContent>{serviceTypesOptions.map(o=><SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}</SelectContent></Select></div><div className="space-y-1.5"><Label htmlFor="doc-desired-rate" className="font-semibold text-gray-800 flex items-center"><DollarSign className="h-4 w-4 mr-2 text-green-600"/>Valor Hora (R$)*</Label><Input id="doc-desired-rate" type="number" min="0.01" step="0.01" placeholder="Ex: 100.00" value={desiredRateInput} onChange={(e)=>setDesiredRateInput(e.target.value)} className="h-9"/></div></div>
-            <div className="space-y-2"><Label className="font-semibold text-gray-800 flex items-center"><ClipboardList className="h-4 w-4 mr-2 text-blue-600"/>Especialidades*</Label>
-                {/* O seu seletor de especialidades aqui */}
-            </div>
-            <div className="space-y-1.5"><Label htmlFor="doc-notes" className="font-semibold text-gray-800 flex items-center"><Info className="h-4 w-4 mr-2 text-blue-600"/>Notas (Opcional)</Label><Textarea id="doc-notes" placeholder="Ex: Preferência por plantões mais tranquilos..." value={notes} onChange={(e) => setNotes(e.target.value)} className="min-h-[80px]"/></div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4"><div className="space-y-1.5"><Label htmlFor="doc-service-type" className="font-semibold text-gray-800 flex items-center"><Briefcase className="h-4 w-4 mr-2 text-blue-600"/>Tipo de Atendimento*</Label><Select value={selectedServiceType} onValueChange={setSelectedServiceType}><SelectTrigger id="doc-service-type" className="h-9"><SelectValue placeholder="Selecione..."/></SelectTrigger><SelectContent>{serviceTypesOptions.map(o=><SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}</SelectContent></Select></div><div className="space-y-1.5"><Label htmlFor="doc-desired-rate" className="font-semibold text-gray-800 flex items-center"><DollarSign className="h-4 w-4 mr-2 text-green-600"/>Valor Hora Pretendido (R$)*</Label><Input id="doc-desired-rate" type="number" min="0.01" step="0.01" placeholder="Ex: 100.00" value={desiredRateInput} onChange={(e)=>setDesiredRateInput(e.target.value)} className="h-9"/></div></div>
+            <div className="space-y-2"><Label className="font-semibold text-gray-800 flex items-center"><ClipboardList className="h-4 w-4 mr-2 text-blue-600"/>Especialidades Atendidas* <span className="text-xs text-gray-500 ml-1 font-normal">(Selecione ao menos uma)</span></Label><Popover open={specialtyPopoverOpen} onOpenChange={setSpecialtyPopoverOpen}><PopoverTrigger asChild><Button variant="outline" className="w-full justify-start font-normal text-muted-foreground h-9 border-dashed hover:border-solid">{selectedSpecialties.length > 0 ? `Selecionadas: ${selectedSpecialties.length}` : "Clique para selecionar especialidades..."}</Button></PopoverTrigger><PopoverContent className="w-[--radix-popover-trigger-width] p-0"><Command filter={(value, search) => medicalSpecialties.find(s => s.toLowerCase() === value.toLowerCase())?.toLowerCase().includes(search.toLowerCase()) ? 1 : 0}><CommandInput placeholder="Buscar especialidade..." value={specialtySearchValue} onValueChange={setSpecialtySearchValue}/><CommandList><CommandEmpty>Nenhuma.</CommandEmpty><CommandGroup heading={`${filteredSpecialties.length} encontradas`}>{filteredSpecialties.map((s) => (<CommandItem key={s} value={s} onSelect={() => handleSelectSpecialty(s)} className="cursor-pointer hover:bg-accent">{s}</CommandItem>))}</CommandGroup></CommandList></Command></PopoverContent></Popover>{selectedSpecialties.length > 0 && ( <div className="flex flex-wrap gap-1.5 mt-2 pt-2 border-t border-dashed"> {selectedSpecialties.map((s) => ( <Badge key={s} variant="secondary" className="bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100 font-normal"> {s} <button type="button" onClick={()=>handleRemoveSpecialty(s)} className="ml-1.5 p-0.5 rounded-full outline-none focus:ring-1 focus:ring-blue-500 hover:bg-blue-200"> <X className="h-3 w-3 text-blue-600 hover:text-blue-800" /> </button> </Badge> ))} </div> )}</div>
+            <div className="space-y-1.5"><Label htmlFor="doc-notes" className="font-semibold text-gray-800 flex items-center"><Info className="h-4 w-4 mr-2 text-blue-600"/>Notas Adicionais <span className="text-xs text-gray-500 ml-1 font-normal">(Opcional)</span></Label><Textarea id="doc-notes" placeholder="Ex: Preferência por plantões mais tranquilos, etc." value={notes} onChange={(e) => setNotes(e.target.value)} className="min-h-[80px]"/></div>
         </div>
-      </ScrollArea>
-
-      <DialogFooter className="flex-shrink-0 pt-4 border-t">
+      </div>
+      
+      <DialogFooter className="p-6 pt-4 flex-shrink-0 border-t bg-slate-50">
         <DialogClose asChild><Button type="button" variant="outline" disabled={isLoadingSubmit}>Cancelar</Button></DialogClose>
-        <Button type="button" onClick={handleSubmit} disabled={isLoadingSubmit || (dates.length === 0 && !isEditing)} className="bg-blue-600 hover:bg-blue-700">{isLoadingSubmit && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}{isLoadingSubmit ? (isEditing ? "Salvando..." : "Adicionando...") : (isEditing ? "Salvar Alterações" : `Adicionar (${dates.length || 0} Dia(s))`)}</Button>
+        <Button type="button" onClick={handleSubmit} disabled={isLoadingSubmit || (dates.length === 0 && !isEditing)} className="bg-blue-600 hover:bg-blue-700">{isLoadingSubmit && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}{isLoadingSubmit ? (isEditing ? "Salvando..." : "Adicionando...") : (isEditing ? "Salvar Alterações" : `Adicionar Disponibilidade (${dates.length || 0} Dia(s))`)}</Button>
       </DialogFooter>
     </DialogContent>
   );
 };
+TimeSlotFormDialog.displayName = 'TimeSlotFormDialog';
 
 export default function AvailabilityPage() {
     const { toast } = useToast();
@@ -261,7 +277,8 @@ export default function AvailabilityPage() {
             const slots = await getTimeSlots();
             setTimeSlots(slots.sort((a,b) => (a.date.toDate().getTime() - b.date.toDate().getTime()) || a.startTime.localeCompare(b.startTime) ));
         } catch (error: any) {
-            setFetchErrorList(error.message || "Não foi possível carregar suas disponibilidades.");
+            const errorMsg = error.message?.includes("query requires an index") ? `Falha ao buscar: Índice do Firestore necessário. ${error.message}` : error.message || "Não foi possível carregar suas disponibilidades.";
+            setFetchErrorList(errorMsg);
         } finally {
             setIsLoadingList(false);
         }
@@ -275,10 +292,10 @@ export default function AvailabilityPage() {
     
     const handleDeleteTimeSlot = async (slotId: string | undefined) => {
         if (!slotId) return;
-        if (confirm("Tem certeza que deseja apagar esta disponibilidade?")) {
+        if (confirm("Tem certeza que deseja apagar esta disponibilidade? Esta ação não pode ser desfeita.")) {
             try {
                 await deleteTimeSlot(slotId);
-                toast({ title: "Disponibilidade Removida", variant: "default" });
+                toast({ title: "Disponibilidade Removida", description: "O seu horário foi removido com sucesso.", variant: "default" });
                 fetchDoctorTimeSlots();
             } catch (error: any) {
                 toast({ title: "Erro ao Remover", description: error.message, variant: "destructive" });
@@ -310,7 +327,7 @@ export default function AvailabilityPage() {
                 <CardContent>
                     {isLoadingList ? ( <LoadingState /> )
                     : fetchErrorList ? ( <ErrorState message={fetchErrorList} onRetry={fetchDoctorTimeSlots} /> )
-                    : timeSlots.length === 0 ? ( <EmptyState message="Você ainda não cadastrou nenhuma disponibilidade." actionButton={<Button size="sm" onClick={handleOpenAddDialog} className="bg-blue-600 hover:bg-blue-700"><Plus className="mr-1.5 h-4 w-4"/>Cadastrar</Button>} /> )
+                    : timeSlots.length === 0 ? ( <EmptyState message="Você ainda não cadastrou nenhuma disponibilidade." actionButton={<Button size="sm" onClick={handleOpenAddDialog} className="bg-blue-600 hover:bg-blue-700"><Plus className="mr-1.5 h-4 w-4"/>Cadastrar Primeira Disponibilidade</Button>} /> )
                     : ( <div className="space-y-3"> {timeSlots.map(slot => ( <TimeSlotListItem key={slot.id} slot={slot} onEdit={() => handleOpenEditDialog(slot)} onDelete={() => handleDeleteTimeSlot(slot.id)} /> ))} </div> )}
                 </CardContent>
             </Card>
