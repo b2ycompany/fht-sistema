@@ -21,7 +21,23 @@ import {
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Check, ChevronsUpDown } from "lucide-react";
 
-import { useMobile } from "@/hooks/use-mobile";
+// Hook customizado para detectar se a visualização é mobile
+const useMediaQuery = (query: string) => {
+  const [value, setValue] = React.useState(false);
+  React.useEffect(() => {
+    const mediaQuery = window.matchMedia(query);
+    setValue(mediaQuery.matches);
+    const handler = (event: MediaQueryListEvent) => setValue(event.matches);
+    mediaQuery.addEventListener("change", handler);
+    return () => mediaQuery.removeEventListener("change", handler);
+  }, [query]);
+  return value;
+};
+
+// Hook simplificado para verificar se é mobile (useMobile)
+const useMobile = () => useMediaQuery("(max-width: 768px)");
+
+
 import { cn } from "@/lib/utils";
 
 interface CitySelectorProps {
@@ -40,9 +56,14 @@ export function CitySelector({
   className,
 }: CitySelectorProps) {
   const [isOpen, setIsOpen] = React.useState(false);
+  // Garante que o hook useMobile não cause inconsistências na renderização inicial (SSR)
+  const [isMounted, setIsMounted] = React.useState(false);
   const isMobile = useMobile();
-  const isDesktop = !isMobile;
 
+  React.useEffect(() => {
+    setIsMounted(true);
+  }, []);
+  
   const [internalSelection, setInternalSelection] = React.useState<string[]>(selectedCities);
   
   React.useEffect(() => {
@@ -52,14 +73,14 @@ export function CitySelector({
   React.useEffect(() => {
     if (isOpen) {
       setInternalSelection(selectedCities);
-    } else {
-        // Limpa a busca quando o seletor é fechado
     }
   }, [isOpen, selectedCities]);
   
   React.useEffect(() => {
+      // Ao trocar de estado, limpamos a seleção interna e a confirmada no formulário.
       setInternalSelection([]);
-  }, [selectedState]);
+      onConfirm([]);
+  }, [selectedState, onConfirm]);
 
 
   const handleSelectCity = (city: string) => {
@@ -74,6 +95,7 @@ export function CitySelector({
   };
   
   const handleOpenChange = (open: boolean) => {
+      // Se o popover/drawer for fechado sem confirmação, reverte a seleção interna para a seleção confirmada.
       if (!open) {
           setInternalSelection(selectedCities);
       }
@@ -87,19 +109,22 @@ export function CitySelector({
       ? `${selectedCities.length} cidade(s) selecionada(s)`
       : isDisabled ? "Selecione um estado" : "Selecione as cidades...";
 
+  // Componente que renderiza a lista de cidades, reutilizado no Popover e no Drawer.
   const CityListContent = () => (
     <Command>
       <CommandInput placeholder="Buscar cidade..." />
       <CommandList>
         <CommandEmpty>Nenhuma cidade encontrada.</CommandEmpty>
         <CommandGroup>
-          <ScrollArea className="h-[240px]">
+          {/* Adicionamos uma altura fixa e scroll para a lista de cidades */}
+          <ScrollArea className="h-[250px]">
             {availableCities.map(city => (
               <CommandItem
                 key={city}
                 value={city}
                 onSelect={(currentValue) => {
-                  handleSelectCity(currentValue);
+                  // Prevenimos que a seleção feche o Popover/Drawer
+                  handleSelectCity(city);
                 }}
                 className="cursor-pointer"
               >
@@ -118,7 +143,17 @@ export function CitySelector({
     </Command>
   );
 
-  if (isDesktop) {
+  // Apenas renderiza o componente no cliente para evitar erros de hidratação com o useMobile
+  if (!isMounted) {
+    return (
+      <Button variant="outline" disabled={true} className={cn("w-full justify-between font-normal h-9", className)}>
+        Carregando...
+      </Button>
+    );
+  }
+
+  // Lógica para renderizar Popover em Desktop
+  if (!isMobile) {
     return (
       <Popover open={isOpen} onOpenChange={handleOpenChange}>
         <PopoverTrigger asChild>
@@ -130,10 +165,9 @@ export function CitySelector({
         <PopoverContent 
           className="w-[--radix-popover-trigger-width] p-0" 
           align="start"
-          onCloseAutoFocus={(event) => event.preventDefault()}
         >
           <CityListContent />
-          <div className="p-2 border-t flex items-center justify-end gap-2">
+          <div className="p-2 border-t flex items-center justify-end gap-2 bg-gray-50">
             <Button variant="ghost" size="sm" onClick={() => setInternalSelection([])}>Limpar</Button>
             <Button size="sm" onClick={handleConfirm} className="bg-blue-600 hover:bg-blue-700">
               Confirmar ({internalSelection.length})
@@ -144,8 +178,8 @@ export function CitySelector({
     );
   }
 
+  // Lógica para renderizar Drawer em Mobile
   return (
-    // ESTRUTURA DO DRAWER CORRIGIDA PARA MOBILE
     <Drawer open={isOpen} onOpenChange={handleOpenChange}>
       <DrawerTrigger asChild>
         <Button variant="outline" role="combobox" disabled={isDisabled} aria-expanded={isOpen} className={cn("w-full justify-between font-normal h-9", className)}>
@@ -153,17 +187,22 @@ export function CitySelector({
             <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
         </Button>
       </DrawerTrigger>
-      <DrawerContent className="flex flex-col max-h-[85vh]">
+      {/* CORREÇÃO: Estrutura do Drawer para Mobile.
+        - Usamos flexbox (`flex flex-col`) para garantir que o conteúdo se ajuste corretamente.
+        - O conteúdo principal (lista de cidades) é colocado em um `div` que pode crescer (`flex-grow`) e ter sua própria rolagem.
+        - O rodapé (`DrawerFooter`) fica fixo na parte inferior.
+      */}
+      <DrawerContent className="flex flex-col max-h-[90vh]">
         <DrawerHeader className="flex-shrink-0 text-left">
           <DrawerTitle>Selecione as Cidades</DrawerTitle>
           <DrawerDescription>
-            Escolha uma ou mais cidades para a sua disponibilidade.
+            Escolha uma ou mais cidades de atuação.
           </DrawerDescription>
         </DrawerHeader>
-        <div className="flex-grow overflow-y-auto px-4">
+        <div className="flex-grow overflow-y-auto px-2">
           <CityListContent />
         </div>
-        <DrawerFooter className="pt-2 flex-shrink-0 border-t">
+        <DrawerFooter className="pt-4 flex-shrink-0 border-t bg-gray-50">
           <Button onClick={handleConfirm} className="bg-blue-600 hover:bg-blue-700">
             Confirmar ({internalSelection.length})
           </Button>
