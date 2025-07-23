@@ -1,3 +1,4 @@
+// next.config.mjs
 let userConfig = undefined
 try {
   userConfig = await import('./v0-user-next.config')
@@ -7,6 +8,9 @@ try {
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  // ADICIONADO: Habilita a exportação estática, que cria a pasta 'out'.
+//  output: 'export',
+  
   eslint: {
     ignoreDuringBuilds: true,
   },

@@ -7,7 +7,7 @@ import {
     query, 
     where, 
     getDocs, 
-    getDoc, // Importado para buscar um único documento
+    getDoc,
     updateDoc, 
     serverTimestamp, 
     Timestamp, 
@@ -42,28 +42,21 @@ export interface Contract {
   contractDocumentUrl?: string;
   contractTermsPreview?: string;
   contractPdfUrl?: string;
-  
-  // Campo de telemedicina
   telemedicineLink?: string; 
-  
   status: 'PENDING_DOCTOR_SIGNATURE' | 'PENDING_HOSPITAL_SIGNATURE' | 'ACTIVE_SIGNED' | 'CANCELLED' | 'COMPLETED' | 'REJECTED' | 'IN_PROGRESS';
   doctorSignature?: { signedAt: Timestamp; ipAddress?: string; };
   hospitalSignature?: { signedAt: Timestamp; signedByUID: string; };
   createdAt: Timestamp;
   updatedAt: Timestamp;
-
   checkinAt?: Timestamp;
   checkinLocation?: { latitude: number; longitude: number; };
   checkinPhotoUrl?: string;
-  
   checkoutAt?: Timestamp;
   checkoutLocation?: { latitude: number; longitude: number; };
   checkoutPhotoUrl?: string;
-
   cancellationReason?: string;
 }
 
-// NOVA FUNÇÃO: Chama a Cloud Function para criar a sala de telemedicina
 export const createTelemedicineRoom = async (contractId: string): Promise<string> => {
     const app = getApp();
     const functions = getFunctions(app, 'us-central1');
@@ -106,7 +99,6 @@ export const generateContractAndGetUrl = async (contractId: string): Promise<str
     }
 };
 
-// NOVA FUNÇÃO: Busca um único contrato pelo seu ID
 export const getContractById = async (contractId: string): Promise<Contract | null> => {
     const contractRef = doc(db, "contracts", contractId);
     try {
@@ -203,5 +195,22 @@ export const signContractByHospital = async (contractId: string): Promise<void> 
                 addedAt: serverTimestamp()
             }, { merge: true });
         }
+    });
+};
+
+// ADICIONADO: Nova função para o admin cancelar um contrato
+export const cancelContractByAdmin = async (contractId: string, reason: string): Promise<void> => {
+    if (!contractId) throw new Error("ID do contrato é obrigatório.");
+    if (!reason || reason.trim() === '') throw new Error("O motivo do cancelamento é obrigatório.");
+    
+    const contractRef = doc(db, "contracts", contractId);
+    
+    // TODO: Adicionar lógica para reabrir a vaga (ShiftRequirement) e a disponibilidade (TimeSlot) se necessário.
+    // Por enquanto, apenas cancelamos o contrato.
+
+    await updateDoc(contractRef, {
+        status: 'CANCELLED',
+        cancellationReason: reason,
+        updatedAt: serverTimestamp()
     });
 };

@@ -1,10 +1,8 @@
 // app/admin/contracts/page.tsx
 "use client";
 
-// Adicione estas duas linhas junto às outras importações
 import { Textarea } from "@/components/ui/textarea";
 import { cancelContractByAdmin } from "@/lib/contract-service";
-
 import * as React from "react";
 import {
     ColumnDef,
@@ -25,7 +23,6 @@ import { db } from "@/lib/firebase";
 import { collection, onSnapshot, query, orderBy } from "firebase/firestore";
 import { useToast } from "@/hooks/use-toast";
 import { cn, formatCurrency } from "@/lib/utils";
-
 import { Button } from "@/components/ui/button";
 import {
     DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger,
@@ -35,13 +32,10 @@ import {
     Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-// CORREÇÃO: CardDescription foi adicionado à importação.
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { type Contract } from "@/lib/contract-service";
-
-// 1. DEFINIÇÃO DOS COMPONENTES E TIPOS (Nenhuma alteração aqui)
 
 const StatCard = ({ title, value, icon: Icon, description }: { title: string, value: string, icon: React.ElementType, description?: string }) => (
     <Card>
@@ -74,7 +68,7 @@ const TableEmptyState = () => (
         </TableCell>
     </TableRow>
 );
-// Cole este novo componente logo após o TableEmptyState
+
 const ActionCell: React.FC<{ contract: Contract }> = ({ contract }) => {
     const [isSheetOpen, setIsSheetOpen] = React.useState(false);
     const [isAlertOpen, setIsAlertOpen] = React.useState(false);
@@ -143,9 +137,7 @@ const ActionCell: React.FC<{ contract: Contract }> = ({ contract }) => {
         </Sheet>
     );
 };
-// 2. LÓGICA DA TABELA (COLUNAS E AÇÕES) - Nenhuma alteração na lógica, apenas na tipagem implícita
 
-// Substitua todo o seu bloco "export const columns" por este
 export const columns: ColumnDef<Contract>[] = [
     {
         accessorKey: "status",
@@ -180,8 +172,6 @@ export const columns: ColumnDef<Contract>[] = [
         cell: ({ row }) => <ActionCell contract={row.original} />,
     },
 ];
-
-// 3. COMPONENTE PRINCIPAL DA PÁGINA
 
 export default function AdminContractsPage() {
     const { toast } = useToast();
@@ -269,7 +259,6 @@ export default function AdminContractsPage() {
                                         key={column.id}
                                         className="capitalize"
                                         checked={column.getIsVisible()}
-                                        // CORREÇÃO: Adicionado o tipo 'boolean' ao parâmetro 'value'.
                                         onCheckedChange={(value: boolean) => column.toggleVisibility(!!value)}
                                     >
                                         {column.id}

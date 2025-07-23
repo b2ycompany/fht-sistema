@@ -1,10 +1,7 @@
-// app/telemedicine/[contractId]/page.tsx
 "use client";
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-
-// CORREÇÃO: Importações separadas para a biblioteca React e a biblioteca JS principal.
 import {
   DailyProvider,
   useLocalParticipant,
@@ -12,12 +9,13 @@ import {
   useParticipantIds,
   useDailyEvent,
 } from '@daily-co/daily-react';
-import Daily, { type DailyCall as CallObject } from '@daily-co/daily-js'; // Importa o Daily e o tipo CallObject daqui
-
+import Daily, { type DailyCall as CallObject } from '@daily-co/daily-js';
 import { getContractById, type Contract } from '@/lib/contract-service';
 import { Loader2, Mic, MicOff, Video, VideoOff, PhoneOff, AlertTriangle, User } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/components/auth-provider';
+
+// A função generateStaticParams foi REMOVIDA deste arquivo e movida para layout.tsx
 
 // --- Componentes da UI da Videochamada ---
 
@@ -153,7 +151,6 @@ const TelemedicineRoom = ({ callObject }: { callObject: CallObject | null }) => 
 };
 
 export default function TelemedicinePageWrapper() {
-  // CORREÇÃO: `Daily.createCallObject()` agora funciona porque `Daily` foi importado de '@daily-co/daily-js'
   const callObject = useMemo(() => Daily.createCallObject(), []);
 
   return (
