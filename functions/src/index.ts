@@ -298,6 +298,7 @@ export const createTelemedicineRoom = onCall(
         secrets: ["DAILY_APIKEY"] 
     }, 
     async (request: CallableRequest) => {
+      // Forçando o redeploy para atualizar permissões
         if (!request.auth) {
             throw new HttpsError("unauthenticated", "A função só pode ser chamada por um utilizador autenticado.");
         }
@@ -320,7 +321,7 @@ export const createTelemedicineRoom = onCall(
                 exp: twelveHoursFromNow,
                 enable_chat: true,
                 enable_screenshare: true,
-                enable_recording: 'cloud',
+//                enable_recording: 'cloud',
             },
         };
 
