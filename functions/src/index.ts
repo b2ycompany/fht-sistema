@@ -6,7 +6,7 @@ import * as admin from "firebase-admin";
 import { logger } from "firebase-functions/v2";
 import { Change } from "firebase-functions";
 import { DocumentSnapshot, FieldValue, getFirestore, Query } from "firebase-admin/firestore";
-import { PDFDocument, StandardFonts } from "pdf-lib";
+import { PDFDocument, StandardFonts, rgb, PDFFont } from "pdf-lib";
 import { getStorage } from "firebase-admin/storage";
 import fetch from "node-fetch";
 
@@ -250,11 +250,12 @@ export const generateContractPdf = onCall({ cors: [/fhtgestao\.com\.br$/, "https
         const page = pdfDoc.addPage();
         const { height } = page.getSize();
         const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
-        const fontSize = 11;
+        const size = 11;
         let y = height - 50;
-        const drawText = (text: string, size = fontSize, indent = 50) => {
-            page.drawText(text, { x: indent, y, size, font, lineHeight: size * 1.5 });
-            y -= size * 1.5;
+        
+        const drawText = (text: string, fontSize = size, indent = 50) => {
+            page.drawText(text, { x: indent, y, size: fontSize, font, lineHeight: fontSize * 1.5 });
+            y -= fontSize * 1.5;
         };
 
         drawText("CONTRATO DE PRESTAÇÃO DE SERVIÇOS MÉDICOS AUTÔNOMOS", 16, 50);
@@ -298,7 +299,7 @@ export const createTelemedicineRoom = onCall(
         secrets: ["DAILY_APIKEY"] 
     }, 
     async (request: CallableRequest) => {
-      // Forçando o redeploy para atualizar permissões
+        // Forçando o redeploy para atualizar permissões.
         if (!request.auth) {
             throw new HttpsError("unauthenticated", "A função só pode ser chamada por um utilizador autenticado.");
         }
@@ -316,12 +317,12 @@ export const createTelemedicineRoom = onCall(
         const DAILY_API_URL = "https://api.daily.co/v1/rooms";
 
         const twelveHoursFromNow = Math.floor(Date.now() / 1000) + (12 * 60 * 60);
+        
         const roomOptions = {
             properties: {
                 exp: twelveHoursFromNow,
                 enable_chat: true,
                 enable_screenshare: true,
-//                enable_recording: 'cloud',
             },
         };
 
@@ -361,14 +362,6 @@ export const createTelemedicineRoom = onCall(
     }
 );
 
-// =======================================================================
-// NOVA FUNÇÃO: SCRIPT DE CORREÇÃO DE DADOS
-// =======================================================================
-/**
- * Procura em todas as coleções relevantes por documentos com serviceType "telemedicina" (minúsculo)
- * e os atualiza para "Telemedicina" (maiúsculo).
- * Esta é uma função para ser executada uma única vez.
- */
 export const correctServiceTypeCapitalization = onCall(
     { cors: true }, 
     async (request: CallableRequest) => {
@@ -428,3 +421,133 @@ export const correctServiceTypeCapitalization = onCall(
         }
     }
 );
+
+// =======================================================================
+// NOVA FUNÇÃO: Geração de Receita Médica em PDF
+// =======================================================================
+interface Medication {
+  name: string;
+  dosage: string;
+  instructions: string;
+}
+
+interface PrescriptionPayload {
+  consultationId: string;
+  patientName: string;
+  doctorName: string;
+  doctorCrm: string;
+  medications: Medication[];
+}
+
+// Função auxiliar para desenhar texto com quebra de linha no PDF
+async function drawTextWithWrapping(page: any, text: string, options: { x: number, y: number, font: PDFFont, size: number, maxWidth: number, lineHeight: number }) {
+    const { x, font, size, maxWidth, lineHeight } = options;
+    let { y } = options;
+    const words = text.split(' ');
+    let line = '';
+
+    for (const word of words) {
+        const testLine = line + word + ' ';
+        const testWidth = font.widthOfTextAtSize(testLine, size);
+        if (testWidth > maxWidth && line !== '') {
+            page.drawText(line, { x, y, font, size, color: rgb(0, 0, 0) });
+            y -= lineHeight;
+            line = word + ' ';
+        } else {
+            line = testLine;
+        }
+    }
+    page.drawText(line, { x, y, font, size, color: rgb(0, 0, 0) });
+    return y - lineHeight;
+}
+
+
+export const generatePrescriptionPdf = onCall({ cors: true }, async (request: CallableRequest<PrescriptionPayload>) => {
+    if (!request.auth) {
+        throw new HttpsError("unauthenticated", "A função só pode ser chamada por um usuário autenticado.");
+    }
+
+    const { consultationId, patientName, doctorName, doctorCrm, medications } = request.data;
+    if (!consultationId || !patientName || !doctorName || !doctorCrm || !medications || medications.length === 0) {
+        throw new HttpsError("invalid-argument", "Dados da receita incompletos.");
+    }
+    logger.info(`Iniciando geração de receita para a consulta: ${consultationId}`);
+
+    try {
+        const pdfDoc = await PDFDocument.create();
+        const page = pdfDoc.addPage();
+        const { width, height } = page.getSize();
+        
+        const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+        const fontBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+        
+        page.drawText("Receituário Médico", { x: 50, y: height - 60, font: fontBold, size: 20 });
+        
+        page.drawText("Paciente:", { x: 50, y: height - 100, font: fontBold, size: 12 });
+        page.drawText(patientName, { x: 50, y: height - 115, font: font, size: 12 });
+
+        page.drawText("Prescrição:", { x: 50, y: height - 150, font: fontBold, size: 14 });
+        
+        let currentY = height - 175;
+        for (let i = 0; i < medications.length; i++) {
+            const med = medications[i];
+            page.drawText(`${i + 1}. ${med.name}`, { x: 60, y: currentY, font: fontBold, size: 12 });
+            currentY -= 15;
+            currentY = await drawTextWithWrapping(page, `${med.dosage} - ${med.instructions}`, {
+                x: 60, y: currentY, font, size: 11, maxWidth: width - 120, lineHeight: 15
+            });
+            currentY -= 10;
+        }
+
+        const signatureY = 100;
+        page.drawLine({
+            start: { x: width / 2 - 100, y: signatureY },
+            end: { x: width / 2 + 100, y: signatureY },
+            thickness: 1,
+            color: rgb(0, 0, 0),
+        });
+        
+        // CORRIGIDO: O alinhamento central é feito calculando a posição x
+        const doctorNameWidth = fontBold.widthOfTextAtSize(doctorName, 12);
+        page.drawText(doctorName, { x: (width - doctorNameWidth) / 2, y: signatureY - 15, font: fontBold, size: 12 });
+        
+        const crmText = `CRM: ${doctorCrm}`;
+        const crmTextWidth = font.widthOfTextAtSize(crmText, 11);
+        page.drawText(crmText, { x: (width - crmTextWidth) / 2, y: signatureY - 30, font, size: 11 });
+        
+        const date = new Date().toLocaleDateString('pt-BR', { day: '2-digit', month: 'long', year: 'numeric' });
+        page.drawText(`Data: ${date}`, { x: 50, y: 50, font, size: 10 });
+
+        const pdfBytes = await pdfDoc.save();
+        
+        const prescriptionsRef = db.collection('prescriptions').doc();
+        
+        const bucket = storage.bucket();
+        const filePath = `prescriptions/${prescriptionsRef.id}.pdf`;
+        const file = bucket.file(filePath);
+        await file.save(Buffer.from(pdfBytes), { metadata: { contentType: "application/pdf" }, });
+        const [url] = await file.getSignedUrl({ action: 'read', expires: '03-09-2491' });
+        
+        await prescriptionsRef.set({
+            consultationId,
+            patientName,
+            doctorName,
+            doctorCrm,
+            medications,
+            createdAt: FieldValue.serverTimestamp(),
+            pdfUrl: url,
+        });
+
+        const consultationRef = db.collection('consultations').doc(consultationId);
+        await consultationRef.update({
+            prescriptions: FieldValue.arrayUnion(prescriptionsRef.id)
+        });
+
+        logger.info(`Receita ${prescriptionsRef.id} gerada e salva com sucesso.`);
+        return { success: true, prescriptionId: prescriptionsRef.id, pdfUrl: url };
+
+    } catch (error) {
+        logger.error(`Falha ao gerar PDF da receita para a consulta ${consultationId}:`, error);
+        throw new HttpsError("internal", "Ocorreu um erro inesperado ao gerar a receita.");
+    }
+});
