@@ -116,7 +116,7 @@ export const findMatchesOnShiftRequirementWrite = onDocumentWritten({ document: 
       let timeSlotsQuery: Query = db.collection("doctorTimeSlots")
         .where("status", "==", "AVAILABLE")
         .where("state", "==", requirement.state)
-        .where("serviceType", "==", requirement.serviceType)
+        // .where("serviceType", "==", requirement.serviceType) // CORREÇÃO: Linha removida para tornar a busca mais flexível
         .where("date", "in", requirement.dates);
 
       if (requirement.cities && requirement.cities.length > 0) {
@@ -171,14 +171,17 @@ export const findMatchesOnShiftRequirementWrite = onDocumentWritten({ document: 
         const newPotentialMatchData: PotentialMatchInput = {
           shiftRequirementId: event.params.requirementId, hospitalId: requirement.hospitalId, hospitalName: requirement.hospitalName || "",
           originalShiftRequirementDates: requirement.dates, matchedDate: matchedDate, shiftRequirementStartTime: requirement.startTime,
-          shiftRequirementEndTime: requirement.endTime, shiftRequirementIsOvernight: requirement.isOvernight, shiftRequirementServiceType: requirement.serviceType,
+          shiftRequirementEndTime: requirement.endTime, shiftRequirementIsOvernight: requirement.isOvernight,
+          // CORREÇÃO: Guardamos o tipo de serviço de ambos os lados para o admin poder comparar
+          shiftRequirementServiceType: requirement.serviceType,
+          doctorServiceType: timeSlot.serviceType, 
           shiftRequirementSpecialties: requirement.specialtiesRequired || [], offeredRateByHospital: requirement.offeredRate,
           shiftRequirementNotes: requirement.notes || "", numberOfVacanciesInRequirement: requirement.numberOfVacancies,
           timeSlotId: timeSlotDoc.id, doctorId: timeSlot.doctorId,
           doctorName: timeSlot.doctorName ?? "", 
           timeSlotStartTime: timeSlot.startTime, timeSlotEndTime: timeSlot.endTime, timeSlotIsOvernight: timeSlot.isOvernight,
           doctorTimeSlotNotes: timeSlot.notes || "", doctorDesiredRate: timeSlot.desiredHourlyRate, doctorSpecialties: timeSlot.specialties || [],
-          doctorServiceType: timeSlot.serviceType, status: "PENDING_BACKOFFICE_REVIEW",
+          status: "PENDING_BACKOFFICE_REVIEW",
           createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp(),
           shiftCities: requirement.cities,
           shiftState: requirement.state,
@@ -546,9 +549,6 @@ export const generatePrescriptionPdf = onCall({ cors: true }, async (request: Ca
     }
 });
 
-// =======================================================================
-// NOVA FUNÇÃO UNIVERSAL: Geração de Documentos (Atestado, Declaração)
-// =======================================================================
 type DocumentType = 'medicalCertificate' | 'attendanceCertificate';
 
 interface DocumentPayload {
@@ -583,7 +583,6 @@ export const generateDocumentPdf = onCall({ cors: true }, async (request: Callab
         const fontBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
         const date = new Date().toLocaleDateString('pt-BR', { day: '2-digit', month: 'long', year: 'numeric' });
 
-        // Lógica para construir o PDF baseado no TIPO de documento
         if (type === 'medicalCertificate') {
             const days = details.daysOff || 0;
             page.drawText("Atestado Médico", { x: 50, y: height - 60, font: fontBold, size: 24 });
@@ -598,7 +597,6 @@ export const generateDocumentPdf = onCall({ cors: true }, async (request: Callab
             await drawTextWithWrapping(page, text, { x: 50, y: height - 120, font, size: 12, lineHeight: 20, maxWidth: width - 100 });
         }
 
-        // Rodapé com assinatura (comum a todos os documentos)
         const signatureY = 150;
         page.drawLine({ start: { x: width / 2 - 100, y: signatureY }, end: { x: width / 2 + 100, y: signatureY }, thickness: 1 });
         const doctorNameWidth = fontBold.widthOfTextAtSize(doctorName, 12);
