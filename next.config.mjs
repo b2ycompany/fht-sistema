@@ -8,8 +8,8 @@ try {
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  // ADICIONADO: Habilita a exportação estática, que cria a pasta 'out'.
-//  output: 'export',
+  // ADICIONADO: Desativa o Strict Mode para resolver o problema com a biblioteca de vídeo.
+  reactStrictMode: false,
   
   eslint: {
     ignoreDuringBuilds: true,

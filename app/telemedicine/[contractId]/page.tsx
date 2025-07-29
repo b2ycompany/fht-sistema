@@ -13,9 +13,10 @@ import {
 import Daily, { type DailyCall as CallObject } from '@daily-co/daily-js';
 
 import { getContractById, type Contract } from '@/lib/contract-service';
-import { getConsultationByContractId, saveConsultationDetails, type Consultation, type ConsultationDetailsPayload } from '@/lib/consultation-service';
+import { getConsultationByContractId, saveConsultationDetails, type Consultation, type ConsultationDetailsPayload } from '@/lib/patient-service';
 import { generatePrescription, type Medication, type Prescription } from '@/lib/prescription-service';
-import { getCurrentUserData } from '@/lib/auth-service'; // ADICIONADO: Para buscar o perfil do médico
+import { generateDocument, type MedicalDocument } from '@/lib/document-service';
+import { getCurrentUserData } from '@/lib/auth-service';
 
 import { Loader2, Mic, MicOff, Video, VideoOff, PhoneOff, AlertTriangle, User, Save, PlusCircle, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -71,7 +72,7 @@ const CallTray = ({ callObject }: { callObject: CallObject | null }) => {
   const leaveCall = () => callObject.leave();
 
   useDailyEvent('left-meeting', () => {
-    router.push('/dashboard/contracts');
+    router.push('/dashboard/agenda');
   });
 
   return (
@@ -117,6 +118,7 @@ const PrescriptionForm: React.FC<{ consultation: Consultation, doctorName: strin
             const validMeds = medications.filter(m => m.name.trim() !== '' && m.dosage.trim() !== '' && m.instructions.trim() !== '');
             if (validMeds.length === 0) {
               toast({ title: "Nenhum medicamento válido", description: "Preencha todos os campos do medicamento.", variant: "destructive" });
+              setIsGenerating(false);
               return;
             }
             await generatePrescription({
@@ -127,7 +129,7 @@ const PrescriptionForm: React.FC<{ consultation: Consultation, doctorName: strin
                 medications: validMeds,
             });
             toast({ title: "Sucesso!", description: "Receita gerada e salva." });
-            onPrescriptionGenerated(); // Fecha o dialog e atualiza a lista
+            onPrescriptionGenerated();
         } catch (error: any) {
             toast({ title: "Erro ao Gerar Receita", description: error.message, variant: "destructive" });
         } finally {
@@ -171,6 +173,90 @@ const PrescriptionForm: React.FC<{ consultation: Consultation, doctorName: strin
     );
 };
 
+const CertificateForm: React.FC<{ consultation: any, userProfile: any, onGenerated: () => void }> = ({ consultation, userProfile, onGenerated }) => {
+    const { toast } = useToast();
+    const [daysOff, setDaysOff] = useState('');
+    const [cid, setCid] = useState('');
+    const [isGenerating, setIsGenerating] = useState(false);
+
+    const handleGenerate = async (e: React.FormEvent) => {
+        e.preventDefault();
+        setIsGenerating(true);
+        try {
+            await generateDocument({
+                type: 'medicalCertificate',
+                consultationId: consultation.id,
+                patientName: consultation.patientName,
+                doctorName: userProfile.displayName,
+                doctorCrm: userProfile.professionalCrm,
+                details: { daysOff: Number(daysOff), cid }
+            });
+            toast({ title: "Sucesso!", description: "Atestado gerado e salvo." });
+            onGenerated();
+        } catch (error: any) {
+            toast({ title: "Erro ao Gerar Atestado", description: error.message, variant: "destructive" });
+        } finally {
+            setIsGenerating(false);
+        }
+    };
+    
+    return (
+        <form onSubmit={handleGenerate} className="space-y-4 py-4">
+            <div className="space-y-1">
+                <Label htmlFor="days-off">Dias de Afastamento*</Label>
+                <Input id="days-off" type="number" value={daysOff} onChange={e => setDaysOff(e.target.value)} required />
+            </div>
+            <div className="space-y-1">
+                <Label htmlFor="cid">CID (Opcional)</Label>
+                <Input id="cid" value={cid} onChange={e => setCid(e.target.value)} />
+            </div>
+            <DialogFooter className="pt-4">
+                <DialogClose asChild><Button type="button" variant="outline">Cancelar</Button></DialogClose>
+                <Button type="submit" disabled={isGenerating}>{isGenerating && <Loader2 className="mr-2 h-4 w-4 animate-spin"/>}Gerar Atestado</Button>
+            </DialogFooter>
+        </form>
+    );
+};
+
+const DeclarationForm: React.FC<{ consultation: any, userProfile: any, onGenerated: () => void }> = ({ consultation, userProfile, onGenerated }) => {
+    const { toast } = useToast();
+    const [period, setPeriod] = useState('');
+    const [isGenerating, setIsGenerating] = useState(false);
+
+    const handleGenerate = async (e: React.FormEvent) => {
+        e.preventDefault();
+        setIsGenerating(true);
+        try {
+            await generateDocument({
+                type: 'attendanceCertificate',
+                consultationId: consultation.id,
+                patientName: consultation.patientName,
+                doctorName: userProfile.displayName,
+                doctorCrm: userProfile.professionalCrm,
+                details: { consultationPeriod: period }
+            });
+            toast({ title: "Sucesso!", description: "Declaração gerada e salva." });
+            onGenerated();
+        } catch (error: any) {
+            toast({ title: "Erro", description: error.message, variant: "destructive" });
+        } finally {
+            setIsGenerating(false);
+        }
+    };
+
+    return (
+        <form onSubmit={handleGenerate} className="space-y-4 py-4">
+            <div className="space-y-1">
+                <Label htmlFor="period">Período do Atendimento*</Label>
+                <Input id="period" value={period} onChange={e => setPeriod(e.target.value)} placeholder="Ex: das 10:00 às 10:45" required />
+            </div>
+            <DialogFooter className="pt-4">
+                <DialogClose asChild><Button type="button" variant="outline">Cancelar</Button></DialogClose>
+                <Button type="submit" disabled={isGenerating}>{isGenerating && <Loader2 className="mr-2 h-4 w-4 animate-spin"/>}Gerar Declaração</Button>
+            </DialogFooter>
+        </form>
+    );
+};
 
 const ElectronicHealthRecord: React.FC<{ consultation: Consultation | null; userProfile: any | null }> = ({ consultation, userProfile }) => {
     const { toast } = useToast();
@@ -178,6 +264,8 @@ const ElectronicHealthRecord: React.FC<{ consultation: Consultation | null; user
     const [diagnosticHypothesis, setDiagnosticHypothesis] = useState(consultation?.diagnosticHypothesis || '');
     const [isSaving, setIsSaving] = useState(false);
     const [isPrescriptionDialogOpen, setIsPrescriptionDialogOpen] = useState(false);
+    const [isCertificateDialogOpen, setIsCertificateDialogOpen] = useState(false);
+    const [isDeclarationDialogOpen, setIsDeclarationDialogOpen] = useState(false);
 
     const handleSave = async () => {
         if (!consultation) return;
@@ -257,10 +345,46 @@ const ElectronicHealthRecord: React.FC<{ consultation: Consultation | null; user
                                         doctorCrm={userProfile.professionalCrm || 'CRM não encontrado'}
                                         onPrescriptionGenerated={() => {
                                             setIsPrescriptionDialogOpen(false);
-                                            // TODO: Adicionar lógica para recarregar a lista de documentos gerados
                                         }}
                                     />
                                 ) : <div className="py-8 text-center">A carregar dados do médico...</div>}
+                            </DialogContent>
+                        </Dialog>
+                        
+                        <Dialog open={isCertificateDialogOpen} onOpenChange={setIsCertificateDialogOpen}>
+                            <DialogTrigger asChild>
+                                <Button variant="outline" className="w-full bg-gray-700 hover:bg-gray-600 border-gray-600">Gerar Atestado Médico</Button>
+                            </DialogTrigger>
+                            <DialogContent>
+                                <DialogHeader>
+                                    <DialogTitle>Novo Atestado Médico</DialogTitle>
+                                    <DialogDescription>Preencha os dados para o atestado.</DialogDescription>
+                                </DialogHeader>
+                                {consultation && userProfile && (
+                                    <CertificateForm 
+                                        consultation={consultation} 
+                                        userProfile={userProfile} 
+                                        onGenerated={() => setIsCertificateDialogOpen(false)}
+                                    />
+                                )}
+                            </DialogContent>
+                        </Dialog>
+                        
+                        <Dialog open={isDeclarationDialogOpen} onOpenChange={setIsDeclarationDialogOpen}>
+                            <DialogTrigger asChild>
+                                <Button variant="outline" className="w-full bg-gray-700 hover:bg-gray-600 border-gray-600">Gerar Declaração de Comparecimento</Button>
+                            </DialogTrigger>
+                            <DialogContent>
+                                <DialogHeader>
+                                    <DialogTitle>Nova Declaração de Comparecimento</DialogTitle>
+                                </DialogHeader>
+                                {consultation && userProfile && (
+                                    <DeclarationForm 
+                                        consultation={consultation} 
+                                        userProfile={userProfile} 
+                                        onGenerated={() => setIsDeclarationDialogOpen(false)}
+                                    />
+                                )}
                             </DialogContent>
                         </Dialog>
                     </TabsContent>
@@ -276,16 +400,15 @@ const ElectronicHealthRecord: React.FC<{ consultation: Consultation | null; user
     );
 };
 
-
 const TelemedicineRoom = ({ callObject }: { callObject: CallObject | null }) => {
-  const { user } = useAuth(); // CORRIGIDO: Removido 'profile' daqui
+  const { user } = useAuth();
   const router = useRouter();
   const params = useParams();
   const contractId = params.contractId as string;
 
   const [contract, setContract] = useState<Contract | null>(null);
   const [consultation, setConsultation] = useState<Consultation | null>(null);
-  const [doctorProfile, setDoctorProfile] = useState<any | null>(null); // ADICIONADO: Estado para o perfil do médico
+  const [doctorProfile, setDoctorProfile] = useState<any | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -296,14 +419,13 @@ const TelemedicineRoom = ({ callObject }: { callObject: CallObject | null }) => 
 
     const fetchAndJoin = async () => {
       try {
-        // ADICIONADO: Busca o perfil do médico em paralelo com os outros dados
         const [contractData, consultationData, profileData] = await Promise.all([
             getContractById(contractId),
             getConsultationByContractId(contractId),
             getCurrentUserData() 
         ]);
 
-        setDoctorProfile(profileData); // Salva o perfil no estado
+        setDoctorProfile(profileData);
 
         if (!contractData || contractData.doctorId !== user.uid) {
           setError("Contrato não encontrado ou acesso não permitido.");
@@ -327,10 +449,7 @@ const TelemedicineRoom = ({ callObject }: { callObject: CallObject | null }) => 
       }
     };
     fetchAndJoin();
-
-    return () => {
-      callObject?.leave();
-    };
+    
   }, [contractId, callObject, user, router]);
 
   if (isLoading) {
@@ -347,7 +466,7 @@ const TelemedicineRoom = ({ callObject }: { callObject: CallObject | null }) => 
         <div className="flex flex-col items-center justify-center h-screen bg-gray-900 text-white p-4">
             <AlertTriangle className="h-12 w-12 text-red-400" />
             <p className="mt-4 text-lg text-center">Erro: {error}</p>
-            <Button onClick={() => router.push('/dashboard/contracts')} className="mt-4">Voltar</Button>
+            <Button onClick={() => router.push('/dashboard/agenda')} className="mt-4">Voltar para a Agenda</Button>
         </div>
     );
   }
@@ -355,7 +474,6 @@ const TelemedicineRoom = ({ callObject }: { callObject: CallObject | null }) => 
   return (
     <div className="w-full h-screen bg-gray-900 text-white flex flex-col md:flex-row gap-4 p-4">
       <div className="w-full md:w-1/3 h-full">
-        {/* CORRIGIDO: Passa o perfil buscado do estado */}
         <ElectronicHealthRecord consultation={consultation} userProfile={doctorProfile} />
       </div>
       <div className="w-full md:w-2/3 h-full flex flex-col gap-4">
@@ -364,7 +482,7 @@ const TelemedicineRoom = ({ callObject }: { callObject: CallObject | null }) => 
             {contract && <p className="text-sm text-gray-400">Contrato com: {contract.hospitalName}</p>}
           </header>
           <main className="flex-grow grid grid-cols-1 place-content-center">
-            {participantIds.map(id => <VideoTile key={id} id={id} />)}
+            <ParticipantRenderer />
           </main>
           <footer className="flex-shrink-0">
             <CallTray callObject={callObject} />
@@ -374,15 +492,27 @@ const TelemedicineRoom = ({ callObject }: { callObject: CallObject | null }) => 
   );
 };
 
+const ParticipantRenderer = () => {
+    const participantIds = useParticipantIds();
+    return (
+        <>
+            {participantIds.map(id => <VideoTile key={id} id={id} />)}
+        </>
+    )
+}
+
 
 export default function TelemedicinePageWrapper() {
   const [callObject, setCallObject] = useState<CallObject | null>(null);
 
   useEffect(() => {
-    const newCallObject = Daily.createCallObject();
-    setCallObject(newCallObject);
+    const co = Daily.createCallObject();
+    setCallObject(co);
+
     return () => {
-      newCallObject.destroy();
+        co.leave().finally(() => {
+            co.destroy();
+        });
     };
   }, []);
 
@@ -397,7 +527,7 @@ export default function TelemedicinePageWrapper() {
 
   return (
     <DailyProvider callObject={callObject}>
-      <TelemedicineRoom callObject={callObject} />
+        <TelemedicineRoom callObject={callObject} />
     </DailyProvider>
   );
 }

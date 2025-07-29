@@ -1,0 +1,192 @@
+// app/hospital/patients/page.tsx
+"use client";
+
+import React, { useState, useEffect, useMemo } from 'react';
+import { useRouter } from 'next/navigation'; // Importado para navegação
+import { useToast } from "@/hooks/use-toast";
+import { addPatient, getPatientsByHospital, type Patient } from "@/lib/patient-service";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, DialogClose, DialogTrigger } from '@/components/ui/dialog';
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Loader2, PlusCircle, User, Users, AlertTriangle } from 'lucide-react';
+import { Timestamp } from 'firebase/firestore';
+
+const AddPatientDialog: React.FC<{ onPatientAdded: () => void }> = ({ onPatientAdded }) => {
+    const [name, setName] = useState('');
+    const [cpf, setCpf] = useState('');
+    const [dob, setDob] = useState('');
+    const [phone, setPhone] = useState('');
+    const [email, setEmail] = useState('');
+    const [isSubmitting, setIsSubmitting] = useState(false);
+    const { toast } = useToast();
+
+    const handleSubmit = async (e: React.FormEvent) => {
+        e.preventDefault();
+        setIsSubmitting(true);
+        try {
+            await addPatient({
+                name,
+                cpf,
+                dateOfBirth: dob ? new Date(dob) : undefined,
+                phone,
+                email,
+            });
+            toast({ title: "Paciente Adicionado!", description: `${name} foi cadastrado com sucesso.`, variant: 'success' });
+            onPatientAdded();
+        } catch (error: any) {
+            toast({ title: "Erro ao Adicionar Paciente", description: error.message, variant: "destructive" });
+        } finally {
+            setIsSubmitting(false);
+        }
+    };
+
+    return (
+        <DialogContent>
+            <DialogHeader>
+                <DialogTitle>Adicionar Novo Paciente</DialogTitle>
+                <DialogDescription>Preencha os dados demográficos do paciente.</DialogDescription>
+            </DialogHeader>
+            <form onSubmit={handleSubmit}>
+                <div className="grid gap-4 py-4">
+                    <div className="grid grid-cols-4 items-center gap-4">
+                        <Label htmlFor="name" className="text-right">Nome*</Label>
+                        <Input id="name" value={name} onChange={e => setName(e.target.value)} className="col-span-3" required />
+                    </div>
+                    <div className="grid grid-cols-4 items-center gap-4">
+                        <Label htmlFor="cpf" className="text-right">CPF</Label>
+                        <Input id="cpf" value={cpf} onChange={e => setCpf(e.target.value)} className="col-span-3" />
+                    </div>
+                    <div className="grid grid-cols-4 items-center gap-4">
+                        <Label htmlFor="dob" className="text-right">Data de Nasc.</Label>
+                        <Input id="dob" type="date" value={dob} onChange={e => setDob(e.target.value)} className="col-span-3" />
+                    </div>
+                    <div className="grid grid-cols-4 items-center gap-4">
+                        <Label htmlFor="phone" className="text-right">Telefone</Label>
+                        <Input id="phone" value={phone} onChange={e => setPhone(e.target.value)} className="col-span-3" />
+                    </div>
+                    <div className="grid grid-cols-4 items-center gap-4">
+                        <Label htmlFor="email" className="text-right">Email</Label>
+                        <Input id="email" type="email" value={email} onChange={e => setEmail(e.target.value)} className="col-span-3" />
+                    </div>
+                </div>
+                <DialogFooter>
+                    <DialogClose asChild><Button type="button" variant="outline">Cancelar</Button></DialogClose>
+                    <Button type="submit" disabled={isSubmitting}>
+                        {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                        Salvar Paciente
+                    </Button>
+                </DialogFooter>
+            </form>
+        </DialogContent>
+    );
+};
+
+export default function PatientsPage() {
+    const router = useRouter(); // Hook para navegação
+    const [patients, setPatients] = useState<Patient[]>([]);
+    const [isLoading, setIsLoading] = useState(true);
+    const [error, setError] = useState<string | null>(null);
+    const [searchTerm, setSearchTerm] = useState("");
+    const [isDialogOpen, setIsDialogOpen] = useState(false);
+
+    const fetchPatients = async () => {
+        setIsLoading(true);
+        setError(null);
+        try {
+            const patientList = await getPatientsByHospital();
+            setPatients(patientList);
+        } catch (err: any) {
+            setError(err.message);
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    useEffect(() => {
+        fetchPatients();
+    }, []);
+
+    const filteredPatients = useMemo(() => {
+        if (!searchTerm) return patients;
+        return patients.filter(p =>
+            p.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+            p.cpf?.includes(searchTerm)
+        );
+    }, [patients, searchTerm]);
+
+    const handlePatientAdded = () => {
+        setIsDialogOpen(false);
+        fetchPatients();
+    };
+
+    // Função para navegar para a página de detalhes do paciente
+    const handleRowClick = (patientId: string) => {
+        router.push(`/hospital/patients/${patientId}`);
+    };
+
+    return (
+        <div className="space-y-6">
+            <div className="flex justify-between items-center">
+                <h1 className="text-2xl md:text-3xl font-bold">Gestão de Pacientes</h1>
+                <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+                    <DialogTrigger asChild>
+                        <Button><PlusCircle className="mr-2 h-4 w-4" />Adicionar Paciente</Button>
+                    </DialogTrigger>
+                    <AddPatientDialog onPatientAdded={handlePatientAdded} />
+                </Dialog>
+            </div>
+
+            <Card>
+                <CardHeader>
+                    <CardTitle>Lista de Pacientes</CardTitle>
+                    <CardDescription>Busque ou selecione um paciente para ver seu prontuário.</CardDescription>
+                </CardHeader>
+                <CardContent>
+                    <Input
+                        placeholder="Buscar por nome ou CPF..."
+                        value={searchTerm}
+                        onChange={e => setSearchTerm(e.target.value)}
+                        className="max-w-sm mb-4"
+                    />
+                    <div className="border rounded-md">
+                        <Table>
+                            <TableHeader>
+                                <TableRow>
+                                    <TableHead>Nome</TableHead>
+                                    <TableHead>CPF</TableHead>
+                                    <TableHead>Data de Nasc.</TableHead>
+                                    <TableHead>Contato</TableHead>
+                                </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                                {isLoading ? (
+                                    <TableRow><TableCell colSpan={4} className="h-24 text-center"><Loader2 className="mx-auto h-6 w-6 animate-spin" /></TableCell></TableRow>
+                                ) : error ? (
+                                    <TableRow><TableCell colSpan={4} className="h-24 text-center text-red-600"><AlertTriangle className="mx-auto mb-2"/>{error}</TableCell></TableRow>
+                                ) : filteredPatients.length === 0 ? (
+                                    <TableRow><TableCell colSpan={4} className="h-24 text-center">Nenhum paciente encontrado.</TableCell></TableRow>
+                                ) : (
+                                    filteredPatients.map(patient => (
+                                        <TableRow 
+                                            key={patient.id} 
+                                            className="cursor-pointer hover:bg-gray-50"
+                                            onClick={() => handleRowClick(patient.id)}
+                                        >
+                                            <TableCell className="font-medium">{patient.name}</TableCell>
+                                            <TableCell>{patient.cpf || 'N/A'}</TableCell>
+                                            <TableCell>{patient.dateOfBirth ? patient.dateOfBirth.toDate().toLocaleDateString('pt-BR') : 'N/A'}</TableCell>
+                                            <TableCell>{patient.phone || patient.email || 'N/A'}</TableCell>
+                                        </TableRow>
+                                    ))
+                                )}
+                            </TableBody>
+                        </Table>
+                    </div>
+                </CardContent>
+            </Card>
+        </div>
+    );
+}

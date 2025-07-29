@@ -422,9 +422,6 @@ export const correctServiceTypeCapitalization = onCall(
     }
 );
 
-// =======================================================================
-// NOVA FUNÇÃO: Geração de Receita Médica em PDF
-// =======================================================================
 interface Medication {
   name: string;
   dosage: string;
@@ -439,7 +436,6 @@ interface PrescriptionPayload {
   medications: Medication[];
 }
 
-// Função auxiliar para desenhar texto com quebra de linha no PDF
 async function drawTextWithWrapping(page: any, text: string, options: { x: number, y: number, font: PDFFont, size: number, maxWidth: number, lineHeight: number }) {
     const { x, font, size, maxWidth, lineHeight } = options;
     let { y } = options;
@@ -460,7 +456,6 @@ async function drawTextWithWrapping(page: any, text: string, options: { x: numbe
     page.drawText(line, { x, y, font, size, color: rgb(0, 0, 0) });
     return y - lineHeight;
 }
-
 
 export const generatePrescriptionPdf = onCall({ cors: true }, async (request: CallableRequest<PrescriptionPayload>) => {
     if (!request.auth) {
@@ -507,7 +502,6 @@ export const generatePrescriptionPdf = onCall({ cors: true }, async (request: Ca
             color: rgb(0, 0, 0),
         });
         
-        // CORRIGIDO: O alinhamento central é feito calculando a posição x
         const doctorNameWidth = fontBold.widthOfTextAtSize(doctorName, 12);
         page.drawText(doctorName, { x: (width - doctorNameWidth) / 2, y: signatureY - 15, font: fontBold, size: 12 });
         
@@ -516,7 +510,7 @@ export const generatePrescriptionPdf = onCall({ cors: true }, async (request: Ca
         page.drawText(crmText, { x: (width - crmTextWidth) / 2, y: signatureY - 30, font, size: 11 });
         
         const date = new Date().toLocaleDateString('pt-BR', { day: '2-digit', month: 'long', year: 'numeric' });
-        page.drawText(`Data: ${date}`, { x: 50, y: 50, font, size: 10 });
+        page.drawText(`Data: ${date}`, { x: 50, y: 50, font: font, size: 10 });
 
         const pdfBytes = await pdfDoc.save();
         
@@ -549,5 +543,96 @@ export const generatePrescriptionPdf = onCall({ cors: true }, async (request: Ca
     } catch (error) {
         logger.error(`Falha ao gerar PDF da receita para a consulta ${consultationId}:`, error);
         throw new HttpsError("internal", "Ocorreu um erro inesperado ao gerar a receita.");
+    }
+});
+
+// =======================================================================
+// NOVA FUNÇÃO UNIVERSAL: Geração de Documentos (Atestado, Declaração)
+// =======================================================================
+type DocumentType = 'medicalCertificate' | 'attendanceCertificate';
+
+interface DocumentPayload {
+  type: DocumentType;
+  consultationId: string;
+  patientName: string;
+  doctorName: string;
+  doctorCrm: string;
+  details: {
+    daysOff?: number;
+    cid?: string;
+    consultationPeriod?: string;
+  };
+}
+
+export const generateDocumentPdf = onCall({ cors: true }, async (request: CallableRequest<DocumentPayload>) => {
+    if (!request.auth) {
+        throw new HttpsError("unauthenticated", "A função só pode ser chamada por um usuário autenticado.");
+    }
+
+    const { type, consultationId, patientName, doctorName, doctorCrm, details } = request.data;
+    if (!type || !consultationId || !patientName || !doctorName || !doctorCrm) {
+        throw new HttpsError("invalid-argument", "Dados do documento incompletos.");
+    }
+    logger.info(`Iniciando geração de documento tipo '${type}' para a consulta: ${consultationId}`);
+
+    try {
+        const pdfDoc = await PDFDocument.create();
+        const page = pdfDoc.addPage();
+        const { width, height } = page.getSize();
+        const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+        const fontBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+        const date = new Date().toLocaleDateString('pt-BR', { day: '2-digit', month: 'long', year: 'numeric' });
+
+        // Lógica para construir o PDF baseado no TIPO de documento
+        if (type === 'medicalCertificate') {
+            const days = details.daysOff || 0;
+            page.drawText("Atestado Médico", { x: 50, y: height - 60, font: fontBold, size: 24 });
+            const text = `Atesto para os devidos fins que o(a) Sr(a). ${patientName} esteve sob meus cuidados médicos nesta data, necessitando de ${days} dia(s) de afastamento de suas atividades laborais a partir de hoje.`;
+            await drawTextWithWrapping(page, text, { x: 50, y: height - 120, font, size: 12, lineHeight: 20, maxWidth: width - 100 });
+            if (details.cid) {
+                page.drawText(`CID: ${details.cid}`, { x: 50, y: height - 200, font, size: 12 });
+            }
+        } else if (type === 'attendanceCertificate') {
+            page.drawText("Declaração de Comparecimento", { x: 50, y: height - 60, font: fontBold, size: 24 });
+            const text = `Declaro para os devidos fins que o(a) Sr(a). ${patientName} esteve presente nesta unidade de saúde para consulta médica no dia de hoje, ${date}, durante o período de ${details.consultationPeriod || 'não informado'}.`;
+            await drawTextWithWrapping(page, text, { x: 50, y: height - 120, font, size: 12, lineHeight: 20, maxWidth: width - 100 });
+        }
+
+        // Rodapé com assinatura (comum a todos os documentos)
+        const signatureY = 150;
+        page.drawLine({ start: { x: width / 2 - 100, y: signatureY }, end: { x: width / 2 + 100, y: signatureY }, thickness: 1 });
+        const doctorNameWidth = fontBold.widthOfTextAtSize(doctorName, 12);
+        page.drawText(doctorName, { x: (width - doctorNameWidth) / 2, y: signatureY - 15, font: fontBold, size: 12 });
+        const crmText = `CRM: ${doctorCrm}`;
+        const crmTextWidth = font.widthOfTextAtSize(crmText, 11);
+        page.drawText(crmText, { x: (width - crmTextWidth) / 2, y: signatureY - 30, font, size: 11 });
+        page.drawText(date, { x: 50, y: 50, font, size: 10 });
+
+        const pdfBytes = await pdfDoc.save();
+        const documentsRef = db.collection('documents').doc();
+        
+        const bucket = storage.bucket();
+        const filePath = `documents/${documentsRef.id}.pdf`;
+        const file = bucket.file(filePath);
+        await file.save(Buffer.from(pdfBytes), { metadata: { contentType: "application/pdf" } });
+        const [url] = await file.getSignedUrl({ action: 'read', expires: '03-09-2491' });
+
+        await documentsRef.set({
+            consultationId,
+            patientName,
+            doctorName,
+            doctorCrm,
+            type,
+            details,
+            createdAt: FieldValue.serverTimestamp(),
+            pdfUrl: url,
+        });
+
+        logger.info(`Documento ${documentsRef.id} gerado e salvo com sucesso.`);
+        return { success: true, documentId: documentsRef.id, pdfUrl: url };
+
+    } catch (error) {
+        logger.error(`Falha ao gerar PDF para a consulta ${consultationId}:`, error);
+        throw new HttpsError("internal", "Ocorreu um erro inesperado ao gerar o documento.");
     }
 });
