@@ -20,7 +20,7 @@ import interactionPlugin from '@fullcalendar/interaction';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 
-
+// Importações de componentes de UI gerais
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, DialogClose, DialogTrigger } from '@/components/ui/dialog';
@@ -31,11 +31,11 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Loader2, CalendarDays, ClipboardList, AlertTriangle, RotateCcw, Search, User, Clock, CheckCircle, PlusCircle, Filter, Stethoscope, Video, Hospital } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
-// --- Interfaces e Tipos ---
+// --- Interfaces e Tipos (sem alterações) ---
 interface Consultation { id: string; patientId: string; patientName: string; chiefComplaint: string; startTime: string; endTime: string; contractId: string; }
 interface CalendarEvent { id: string; title: string; start: Date; end: Date; backgroundColor: string; borderColor: string; extendedProps: { type: 'SHIFT' | 'CONSULTATION'; contractId: string; doctorName: string; consultations?: Consultation[]; patientName?: string; }; }
 
-// --- Componentes de Estado e Diálogos (Helpers) ---
+// --- Componentes de Estado e Diálogos (Helpers - sem alterações) ---
 const LoadingState = () => <div className="flex justify-center py-10"><Loader2 className="h-8 w-8 animate-spin text-blue-600" /></div>;
 const EmptyState = ({ title, description }: { title: string, description: string }) => <div className="text-center text-sm text-gray-500 py-10 min-h-[150px] flex flex-col items-center justify-center bg-gray-50/70 rounded-md border border-dashed"><ClipboardList className="w-12 h-12 text-gray-400 mb-4"/><p className="font-medium text-gray-600 mb-1">{title}</p><p>{description}</p></div>;
 const ErrorState = ({ onRetry }: { onRetry: () => void }) => <div className="text-center text-sm text-red-600 py-10 min-h-[150px] flex flex-col items-center justify-center bg-red-50/70 rounded-md border border-dashed"><AlertTriangle className="w-12 h-12 text-red-400 mb-4"/><p className="font-semibold text-red-700 mb-1">Erro ao carregar dados</p><Button variant="destructive" size="sm" onClick={onRetry} className="mt-4"><RotateCcw className="mr-2 h-4 w-4" />Tentar Novamente</Button></div>;
@@ -47,20 +47,14 @@ export default function HospitalSchedulePage() {
     const { user } = useAuth();
     const { toast } = useToast();
 
-    // Estado dos dados brutos
+    // Estados dos dados e UI (sem alterações)
     const [contracts, setContracts] = useState<Contract[]>([]);
     const [consultations, setConsultations] = useState<Consultation[]>([]);
-    
-    // Estado dos filtros
     const [selectedDoctor, setSelectedDoctor] = useState<string>('all');
     const [selectedSpecialty, setSelectedSpecialty] = useState<string>('all');
     const [selectedServiceType, setSelectedServiceType] = useState<string>('all');
-
-    // Estado de carregamento e erro
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
-
-    // Estados para os modais (diálogos)
     const [isShiftDetailsOpen, setIsShiftDetailsOpen] = useState(false);
     const [isPatientSelectOpen, setIsPatientSelectOpen] = useState(false);
     const [isNewAppointmentOpen, setIsNewAppointmentOpen] = useState(false);
@@ -70,17 +64,26 @@ export default function HospitalSchedulePage() {
     const [chiefComplaint, setChiefComplaint] = useState('');
     const [isSubmitting, setIsSubmitting] = useState(false);
 
-    // Função para buscar os dados do Firestore
+    // Lógica de busca e opções de filtro (sem alterações)
     const fetchData = useCallback(async () => { if (!user) return; setIsLoading(true); setError(null); try { const hospitalId = user.uid; const contractsQuery = query(collection(db, "contracts"), where("hospitalId", "==", hospitalId), where("status", "==", "ACTIVE_SIGNED")); const contractsSnapshot = await getDocs(contractsQuery); const fetchedContracts = contractsSnapshot.docs.map(doc => ({ ...doc.data(), id: doc.id })) as Contract[]; setContracts(fetchedContracts); const consultsQuery = query(collection(db, "consultations"), where("hospitalId", "==", hospitalId)); const consultsSnapshot = await getDocs(consultsQuery); const fetchedConsultations = consultsSnapshot.docs.map(doc => ({ ...doc.data(), id: doc.id })) as Consultation[]; setConsultations(fetchedConsultations); } catch (err) { console.error("Erro ao buscar dados da agenda:", err); setError("Falha ao carregar os dados. Por favor, tente novamente."); } finally { setIsLoading(false); } }, [user]);
     useEffect(() => { fetchData(); }, [fetchData]);
-
-    // Geração das opções para os filtros
     const filterOptions = useMemo(() => { const doctors = new Map<string, string>(); const specialties = new Set<string>(); contracts.forEach(c => { if (c.doctorId && c.doctorName) doctors.set(c.doctorId, c.doctorName); c.specialties.forEach(s => specialties.add(s)); }); return { doctors: Array.from(doctors.entries()).map(([id, name]) => ({ id, name })), specialties: Array.from(specialties), }; }, [contracts]);
 
-    // Mapeamento dos dados para o calendário, aplicando os filtros
-    const calendarEvents = useMemo((): CalendarEvent[] => { const filteredContracts = contracts.filter(contract => { const doctorMatch = selectedDoctor === 'all' || contract.doctorId === selectedDoctor; const specialtyMatch = selectedSpecialty === 'all' || contract.specialties.includes(selectedSpecialty); const serviceTypeMatch = selectedServiceType === 'all' || contract.serviceType === selectedServiceType; return doctorMatch && specialtyMatch && serviceTypeMatch; }); const events: CalendarEvent[] = []; filteredContracts.forEach(contract => { const shiftDate = contract.shiftDates[0].toDate(); const [startHour, startMinute] = contract.startTime.split(':').map(Number); const [endHour, endMinute] = contract.endTime.split(':').map(Number); const startDate = new Date(new Date(shiftDate).setHours(startHour, startMinute)); const endDate = new Date(new Date(shiftDate).setHours(endHour, endMinute)); events.push({ id: contract.id, title: `Plantão - Dr(a). ${contract.doctorName}`, start: startDate, end: endDate, backgroundColor: '#3b82f6', borderColor: '#1e40af', extendedProps: { type: 'SHIFT', contractId: contract.id, doctorName: contract.doctorName || 'N/A', consultations: consultations.filter(c => c.contractId === contract.id), } }); consultations.filter(c => c.contractId === contract.id).forEach(consult => { const [consultStartHour, consultStartMinute] = consult.startTime.split(':').map(Number); const consultEndDate = new Date(new Date(shiftDate).setHours(consultStartHour, consultStartMinute + 30)); events.push({ id: consult.id, title: `Consulta: ${consult.patientName}`, start: new Date(new Date(shiftDate).setHours(consultStartHour, consultStartMinute)), end: consultEndDate, backgroundColor: '#16a34a', borderColor: '#15803d', extendedProps: { type: 'CONSULTATION', contractId: contract.id, doctorName: contract.doctorName || 'N/A', patientName: consult.patientName } }); }); }); return events; }, [contracts, consultations, selectedDoctor, selectedSpecialty, selectedServiceType]);
+    // ALTERADO: Lógica de filtragem mais robusta
+    const calendarEvents = useMemo((): CalendarEvent[] => {
+        const filteredContracts = contracts.filter(contract => {
+            const doctorMatch = selectedDoctor === 'all' || contract.doctorId === selectedDoctor;
+            const specialtyMatch = selectedSpecialty === 'all' || contract.specialties.includes(selectedSpecialty);
+            // CORREÇÃO: Comparação sem diferenciar maiúsculas/minúsculas
+            const serviceTypeMatch = selectedServiceType === 'all' || (contract.serviceType && contract.serviceType.toLowerCase() === selectedServiceType.toLowerCase());
+            return doctorMatch && specialtyMatch && serviceTypeMatch;
+        });
+        
+        const events: CalendarEvent[] = [];
+        // Lógica de mapeamento dos eventos (sem alteração)
+        filteredContracts.forEach(contract => { const shiftDate = contract.shiftDates[0].toDate(); const [startHour, startMinute] = contract.startTime.split(':').map(Number); const [endHour, endMinute] = contract.endTime.split(':').map(Number); const startDate = new Date(new Date(shiftDate).setHours(startHour, startMinute)); const endDate = new Date(new Date(shiftDate).setHours(endHour, endMinute)); events.push({ id: contract.id, title: `Plantão - Dr(a). ${contract.doctorName}`, start: startDate, end: endDate, backgroundColor: '#3b82f6', borderColor: '#1e40af', extendedProps: { type: 'SHIFT', contractId: contract.id, doctorName: contract.doctorName || 'N/A', consultations: consultations.filter(c => c.contractId === contract.id), } }); consultations.filter(c => c.contractId === contract.id).forEach(consult => { const [consultStartHour, consultStartMinute] = consult.startTime.split(':').map(Number); const consultEndDate = new Date(new Date(shiftDate).setHours(consultStartHour, consultStartMinute + 30)); events.push({ id: consult.id, title: `Consulta: ${consult.patientName}`, start: new Date(new Date(shiftDate).setHours(consultStartHour, consultStartMinute)), end: consultEndDate, backgroundColor: '#16a34a', borderColor: '#15803d', extendedProps: { type: 'CONSULTATION', contractId: contract.id, doctorName: contract.doctorName || 'N/A', patientName: consult.patientName } }); }); }); return events; }, [contracts, consultations, selectedDoctor, selectedSpecialty, selectedServiceType]);
 
-    // Funções de manipulação dos diálogos e submissão
+    // Lógicas de manipulação de diálogos e submissão (sem alterações)
     const handleEventClick = (clickInfo: any) => { const event = clickInfo.event; const calendarEvent: CalendarEvent = { id: event.id, title: event.title, start: event.start, end: event.end, backgroundColor: event.backgroundColor, borderColor: event.borderColor, extendedProps: event.extendedProps as any }; setSelectedEvent(calendarEvent); setIsShiftDetailsOpen(true); };
     const handlePatientSelected = (patient: Patient) => { setSelectedPatient(patient); setIsPatientSelectOpen(false); setIsNewAppointmentOpen(true); };
     const handleScheduleSubmit = async (e: React.FormEvent) => { e.preventDefault(); if (!selectedEvent || !selectedPatient || !appointmentTime.trim() || !chiefComplaint.trim() || !user) { toast({ title: "Campos obrigatórios", variant: "destructive" }); return; } setIsSubmitting(true); try { const hospitalProfile = await getCurrentUserData() as HospitalProfile; const contract = contracts.find(c => c.id === selectedEvent.extendedProps.contractId); if (!hospitalProfile || !contract) throw new Error("Dados do hospital ou contrato não encontrados."); const [hour, minute] = appointmentTime.split(':').map(Number); const appointmentDuration = 30; const startDate = new Date(selectedEvent.start); startDate.setHours(hour, minute); const endDate = new Date(startDate.getTime() + appointmentDuration * 60000); const newConsultation = { patientId: selectedPatient.id, patientName: selectedPatient.name, chiefComplaint, startTime: appointmentTime, endTime: `${String(endDate.getHours()).padStart(2, '0')}:${String(endDate.getMinutes()).padStart(2, '0')}`, contractId: contract.id, doctorId: contract.doctorId, doctorName: contract.doctorName, serviceType: contract.serviceType, hospitalId: user.uid, hospitalName: hospitalProfile.displayName, status: "SCHEDULED", createdAt: serverTimestamp(), }; const docRef = await addDoc(collection(db, "consultations"), newConsultation); toast({ title: "Consulta Agendada!", variant: 'success' }); setConsultations(prev => [...prev, { id: docRef.id, ...newConsultation } as Consultation]); setIsNewAppointmentOpen(false); setIsShiftDetailsOpen(false); setSelectedEvent(null); } catch (err: any) { toast({ title: "Erro no Agendamento", description: err.message, variant: "destructive" }); } finally { setIsSubmitting(false); } };
@@ -100,11 +103,11 @@ export default function HospitalSchedulePage() {
                 <CardContent className="flex flex-col sm:flex-row gap-4">
                     <div className="flex-1 space-y-2">
                         <Label>Tipo de Atendimento</Label>
-                        {/* ALTERADO: Adicionado o tipo 'string' ao parâmetro 'value' para corrigir o erro do TypeScript */}
                         <ToggleGroup type="single" value={selectedServiceType} onValueChange={(value: string) => value && setSelectedServiceType(value)} className="w-full sm:w-auto">
-                            <ToggleGroupItem value="all" aria-label="Todos os tipos">Todos</ToggleGroupItem>
-                            <ToggleGroupItem value="Presencial" aria-label="Presencial"><Hospital className="h-4 w-4 mr-2"/>Presencial</ToggleGroupItem>
-                            <ToggleGroupItem value="Telemedicina" aria-label="Telemedicina"><Video className="h-4 w-4 mr-2"/>Telemedicina</ToggleGroupItem>
+                            {/* MELHORIA DE UX/UI: Adicionada classe para feedback visual */}
+                            <ToggleGroupItem value="all" aria-label="Todos os tipos" className="data-[state=on]:bg-primary data-[state=on]:text-primary-foreground">Todos</ToggleGroupItem>
+                            <ToggleGroupItem value="Presencial" aria-label="Presencial" className="data-[state=on]:bg-primary data-[state=on]:text-primary-foreground"><Hospital className="h-4 w-4 mr-2"/>Presencial</ToggleGroupItem>
+                            <ToggleGroupItem value="Telemedicina" aria-label="Telemedicina" className="data-[state=on]:bg-primary data-[state=on]:text-primary-foreground"><Video className="h-4 w-4 mr-2"/>Telemedicina</ToggleGroupItem>
                         </ToggleGroup>
                     </div>
                      <div className="flex-1 space-y-2">
@@ -130,7 +133,7 @@ export default function HospitalSchedulePage() {
                 </CardContent>
             </Card>
 
-            {/* Diálogos */}
+            {/* Diálogos (sem alterações) */}
             <Dialog open={isShiftDetailsOpen} onOpenChange={setIsShiftDetailsOpen}>
                 <DialogContent className="sm:max-w-2xl">
                     <DialogHeader><DialogTitle>Detalhes do Plantão - Dr(a). {selectedEvent?.extendedProps.doctorName}</DialogTitle><DialogDescription>{selectedEvent?.start.toLocaleDateString('pt-br', { weekday: 'long', day: '2-digit', month: 'long' })}, das {selectedEvent?.start.toLocaleTimeString('pt-br', { hour: '2-digit', minute: '2-digit' })} às {selectedEvent?.end.toLocaleTimeString('pt-br', { hour: '2-digit', minute: '2-digit' })}.</DialogDescription></DialogHeader>
