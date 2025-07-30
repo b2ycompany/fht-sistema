@@ -69,13 +69,16 @@ export default function HospitalSchedulePage() {
     useEffect(() => { fetchData(); }, [fetchData]);
     const filterOptions = useMemo(() => { const doctors = new Map<string, string>(); const specialties = new Set<string>(); contracts.forEach(c => { if (c.doctorId && c.doctorName) doctors.set(c.doctorId, c.doctorName); c.specialties.forEach(s => specialties.add(s)); }); return { doctors: Array.from(doctors.entries()).map(([id, name]) => ({ id, name })), specialties: Array.from(specialties), }; }, [contracts]);
 
-    // ALTERADO: Lógica de filtragem mais robusta
     const calendarEvents = useMemo((): CalendarEvent[] => {
         const filteredContracts = contracts.filter(contract => {
             const doctorMatch = selectedDoctor === 'all' || contract.doctorId === selectedDoctor;
             const specialtyMatch = selectedSpecialty === 'all' || contract.specialties.includes(selectedSpecialty);
-            // CORREÇÃO: Comparação sem diferenciar maiúsculas/minúsculas
-            const serviceTypeMatch = selectedServiceType === 'all' || (contract.serviceType && contract.serviceType.toLowerCase() === selectedServiceType.toLowerCase());
+            
+            // CORREÇÃO DEFINITIVA: Lógica de filtro robusta e à prova de falhas.
+            const serviceTypeMatch = selectedServiceType === 'all' || 
+                (typeof contract.serviceType === 'string' && 
+                 contract.serviceType.trim().toLowerCase() === selectedServiceType.toLowerCase());
+
             return doctorMatch && specialtyMatch && serviceTypeMatch;
         });
         
@@ -97,14 +100,13 @@ export default function HospitalSchedulePage() {
                 <div><h1 className="text-2xl md:text-3xl font-bold">Agenda Hospitalar</h1><p className="text-muted-foreground">Visualize e gerencie seus plantões e consultas.</p></div>
             </div>
 
-            {/* PAINEL DE FILTROS */}
+            {/* PAINEL DE FILTROS (sem alterações visuais) */}
             <Card className="bg-muted/40">
                 <CardHeader><CardTitle className="flex items-center gap-2 text-md"><Filter size={18}/> Filtros da Agenda</CardTitle></CardHeader>
                 <CardContent className="flex flex-col sm:flex-row gap-4">
                     <div className="flex-1 space-y-2">
                         <Label>Tipo de Atendimento</Label>
                         <ToggleGroup type="single" value={selectedServiceType} onValueChange={(value: string) => value && setSelectedServiceType(value)} className="w-full sm:w-auto">
-                            {/* MELHORIA DE UX/UI: Adicionada classe para feedback visual */}
                             <ToggleGroupItem value="all" aria-label="Todos os tipos" className="data-[state=on]:bg-primary data-[state=on]:text-primary-foreground">Todos</ToggleGroupItem>
                             <ToggleGroupItem value="Presencial" aria-label="Presencial" className="data-[state=on]:bg-primary data-[state=on]:text-primary-foreground"><Hospital className="h-4 w-4 mr-2"/>Presencial</ToggleGroupItem>
                             <ToggleGroupItem value="Telemedicina" aria-label="Telemedicina" className="data-[state=on]:bg-primary data-[state=on]:text-primary-foreground"><Video className="h-4 w-4 mr-2"/>Telemedicina</ToggleGroupItem>
