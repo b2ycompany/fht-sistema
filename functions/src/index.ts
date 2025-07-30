@@ -5,7 +5,7 @@ import { setGlobalOptions } from "firebase-functions/v2";
 import * as admin from "firebase-admin";
 import { logger } from "firebase-functions/v2";
 import { Change } from "firebase-functions";
-import { DocumentSnapshot, FieldValue, getFirestore, Query } from "firebase-admin/firestore";
+import { DocumentSnapshot, FieldValue, getFirestore, Query, GeoPoint } from "firebase-admin/firestore";
 import { PDFDocument, StandardFonts, rgb, PDFFont } from "pdf-lib";
 import { getStorage } from "firebase-admin/storage";
 import fetch from "node-fetch";
@@ -80,7 +80,19 @@ interface PotentialMatchInput {
   matchScore: number;
 }
 
-setGlobalOptions({ region: "us-central1", memory: "256MiB" });
+// NOVO: Interface para o Ponto Eletrônico
+interface TimeRecordInput {
+    contractId: string;
+    doctorId: string;
+    hospitalId: string;
+    checkInTime: FieldValue;
+    checkInLocation: GeoPoint;
+    checkInPhotoUrl: string;
+    status: 'IN_PROGRESS';
+}
+
+
+setGlobalOptions({ region: "us-central1", memory: "512MiB" });
 
 const timeToMinutes = (timeStr: string): number => {
   if (!timeStr || !timeStr.includes(":")) { return 0; }
@@ -653,8 +665,6 @@ export const generateDocumentPdf = onCall({ cors: true }, async (request: Callab
     }
 });
 
-
-// NOVA FUNÇÃO PARA UNIFICAR O FLUXO (O ELO PERDIDO)
 export const onContractFinalizedUpdateRequirement = onDocumentWritten("contracts/{contractId}", async (event) => {
     const change = event.data;
     if (!change) {
@@ -692,5 +702,73 @@ export const onContractFinalizedUpdateRequirement = onDocumentWritten("contracts
 
     } catch (error) {
         logger.error(`Erro ao tentar atualizar a demanda ${shiftRequirementId} a partir do contrato ${event.params.contractId}:`, error);
+    }
+});
+
+// NOVA FUNÇÃO PARA O PONTO ELETRÔNICO
+export const registerTimeRecord = onCall({ cors: true }, async (request: CallableRequest) => {
+    if (!request.auth) {
+        throw new HttpsError("unauthenticated", "A função só pode ser chamada por um usuário autenticado.");
+    }
+    const { contractId, latitude, longitude, photoBase64 } = request.data;
+    if (!contractId || !latitude || !longitude || !photoBase64) {
+        throw new HttpsError("invalid-argument", "Dados para registro de ponto estão incompletos.");
+    }
+
+    const doctorId = request.auth.uid;
+    logger.info(`Médico ${doctorId} iniciando check-in para o contrato ${contractId}.`);
+
+    try {
+        // Valida o contrato
+        const contractRef = db.collection("contracts").doc(contractId);
+        const contractSnap = await contractRef.get();
+        if (!contractSnap.exists || contractSnap.data()?.doctorId !== doctorId) {
+            throw new HttpsError("not-found", "Contrato não encontrado ou não pertence a este médico.");
+        }
+        
+        const hospitalId = contractSnap.data()?.hospitalId;
+        const recordId = `${contractId}_${doctorId}`; // ID determinístico para evitar duplicatas
+
+        // 1. Salvar a foto no Cloud Storage
+        const bucket = storage.bucket();
+        const filePath = `timeRecords/${recordId}_checkin.jpg`;
+        const file = bucket.file(filePath);
+        // Converte a string Base64 em um buffer de dados para a imagem
+        const buffer = Buffer.from(photoBase64.replace(/^data:image\/jpeg;base64,/, ""), 'base64');
+        
+        await file.save(buffer, { metadata: { contentType: "image/jpeg" } });
+        const [photoUrl] = await file.getSignedUrl({ action: 'read', expires: '03-09-2491' });
+        
+        logger.info(`Foto de check-in salva em: ${photoUrl}`);
+
+        // 2. Criar o documento de registro de ponto no Firestore
+        const timeRecordRef = db.collection("timeRecords").doc(recordId);
+        const newRecordData: TimeRecordInput = {
+            contractId,
+            doctorId,
+            hospitalId,
+            checkInTime: FieldValue.serverTimestamp(),
+            checkInLocation: new GeoPoint(latitude, longitude),
+            checkInPhotoUrl: photoUrl,
+            status: 'IN_PROGRESS',
+        };
+
+        const batch = db.batch();
+        // Usamos set com merge:true para criar o documento se não existir, ou prepará-lo para
+        // ser atualizado no futuro (ex: com dados de check-out) sem sobrescrever tudo.
+        batch.set(timeRecordRef, newRecordData, { merge: true }); 
+
+        // 3. Atualizar o status do contrato para indicar que o plantão começou
+        batch.update(contractRef, { status: "IN_PROGRESS", updatedAt: FieldValue.serverTimestamp() });
+
+        await batch.commit();
+
+        logger.info(`Check-in para o contrato ${contractId} registrado com sucesso.`);
+        return { success: true, recordId: timeRecordRef.id };
+
+    } catch (error) {
+        logger.error(`Falha ao registrar ponto para o contrato ${contractId}:`, error);
+        if (error instanceof HttpsError) throw error;
+        throw new HttpsError("internal", "Ocorreu um erro inesperado ao registrar o ponto.");
     }
 });
