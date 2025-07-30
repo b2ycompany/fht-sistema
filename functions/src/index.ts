@@ -80,15 +80,18 @@ interface PotentialMatchInput {
   matchScore: number;
 }
 
-// NOVO: Interface para o Ponto Eletrônico
-interface TimeRecordInput {
+// MODIFICADO: A interface do ponto agora pode ter campos de check-out e status atualizado
+interface TimeRecord {
     contractId: string;
     doctorId: string;
     hospitalId: string;
     checkInTime: FieldValue;
     checkInLocation: GeoPoint;
     checkInPhotoUrl: string;
-    status: 'IN_PROGRESS';
+    status: 'IN_PROGRESS' | 'COMPLETED'; // Status pode ser alterado
+    checkOutTime?: FieldValue;
+    checkOutLocation?: GeoPoint;
+    checkOutPhotoUrl?: string;
 }
 
 
@@ -705,7 +708,6 @@ export const onContractFinalizedUpdateRequirement = onDocumentWritten("contracts
     }
 });
 
-// NOVA FUNÇÃO PARA O PONTO ELETRÔNICO
 export const registerTimeRecord = onCall({ cors: true }, async (request: CallableRequest) => {
     if (!request.auth) {
         throw new HttpsError("unauthenticated", "A função só pode ser chamada por um usuário autenticado.");
@@ -719,7 +721,6 @@ export const registerTimeRecord = onCall({ cors: true }, async (request: Callabl
     logger.info(`Médico ${doctorId} iniciando check-in para o contrato ${contractId}.`);
 
     try {
-        // Valida o contrato
         const contractRef = db.collection("contracts").doc(contractId);
         const contractSnap = await contractRef.get();
         if (!contractSnap.exists || contractSnap.data()?.doctorId !== doctorId) {
@@ -727,13 +728,12 @@ export const registerTimeRecord = onCall({ cors: true }, async (request: Callabl
         }
         
         const hospitalId = contractSnap.data()?.hospitalId;
-        const recordId = `${contractId}_${doctorId}`; // ID determinístico para evitar duplicatas
+        const recordId = `${contractId}_${doctorId}`; // ID determinístico
 
         // 1. Salvar a foto no Cloud Storage
         const bucket = storage.bucket();
         const filePath = `timeRecords/${recordId}_checkin.jpg`;
         const file = bucket.file(filePath);
-        // Converte a string Base64 em um buffer de dados para a imagem
         const buffer = Buffer.from(photoBase64.replace(/^data:image\/jpeg;base64,/, ""), 'base64');
         
         await file.save(buffer, { metadata: { contentType: "image/jpeg" } });
@@ -741,9 +741,9 @@ export const registerTimeRecord = onCall({ cors: true }, async (request: Callabl
         
         logger.info(`Foto de check-in salva em: ${photoUrl}`);
 
-        // 2. Criar o documento de registro de ponto no Firestore
+        // 2. Criar o documento de registro de ponto
         const timeRecordRef = db.collection("timeRecords").doc(recordId);
-        const newRecordData: TimeRecordInput = {
+        const newRecordData: TimeRecord = {
             contractId,
             doctorId,
             hospitalId,
@@ -754,11 +754,9 @@ export const registerTimeRecord = onCall({ cors: true }, async (request: Callabl
         };
 
         const batch = db.batch();
-        // Usamos set com merge:true para criar o documento se não existir, ou prepará-lo para
-        // ser atualizado no futuro (ex: com dados de check-out) sem sobrescrever tudo.
-        batch.set(timeRecordRef, newRecordData, { merge: true }); 
+        batch.set(timeRecordRef, newRecordData, { merge: true }); // Usar `set` com `merge` para permitir check-out futuro
 
-        // 3. Atualizar o status do contrato para indicar que o plantão começou
+        // 3. Atualizar o status do contrato
         batch.update(contractRef, { status: "IN_PROGRESS", updatedAt: FieldValue.serverTimestamp() });
 
         await batch.commit();
@@ -770,5 +768,66 @@ export const registerTimeRecord = onCall({ cors: true }, async (request: Callabl
         logger.error(`Falha ao registrar ponto para o contrato ${contractId}:`, error);
         if (error instanceof HttpsError) throw error;
         throw new HttpsError("internal", "Ocorreu um erro inesperado ao registrar o ponto.");
+    }
+});
+
+// --- NOVO ---: Função para registrar o Check-out
+export const registerCheckout = onCall({ cors: true }, async (request: CallableRequest) => {
+    if (!request.auth) {
+        throw new HttpsError("unauthenticated", "A função só pode ser chamada por um usuário autenticado.");
+    }
+
+    const { contractId, latitude, longitude, photoBase64 } = request.data;
+    if (!contractId || !latitude || !longitude || !photoBase64) {
+        throw new HttpsError("invalid-argument", "Dados para registro de check-out estão incompletos.");
+    }
+
+    const doctorId = request.auth.uid;
+    logger.info(`Médico ${doctorId} iniciando check-out para o contrato ${contractId}.`);
+
+    try {
+        // 1. Validar o registro de ponto existente
+        const recordId = `${contractId}_${doctorId}`;
+        const timeRecordRef = db.collection("timeRecords").doc(recordId);
+        const recordSnap = await timeRecordRef.get();
+
+        if (!recordSnap.exists || recordSnap.data()?.status !== 'IN_PROGRESS') {
+            throw new HttpsError("failed-precondition", "Nenhum check-in em andamento foi encontrado para este plantão.");
+        }
+
+        // 2. Salvar a foto de check-out no Cloud Storage
+        const bucket = storage.bucket();
+        const filePath = `timeRecords/${recordId}_checkout.jpg`;
+        const file = bucket.file(filePath);
+        const buffer = Buffer.from(photoBase64.replace(/^data:image\/jpeg;base64,/, ""), 'base64');
+        
+        await file.save(buffer, { metadata: { contentType: "image/jpeg" } });
+        const [photoUrl] = await file.getSignedUrl({ action: 'read', expires: '03-09-2491' });
+        logger.info(`Foto de check-out salva em: ${photoUrl}`);
+
+        // 3. Preparar a atualização dos dados
+        const checkoutData = {
+            checkOutTime: FieldValue.serverTimestamp(),
+            checkOutLocation: new GeoPoint(latitude, longitude),
+            checkOutPhotoUrl: photoUrl,
+            status: 'COMPLETED' as const, // Finaliza o registro de ponto
+        };
+
+        const contractRef = db.collection("contracts").doc(contractId);
+
+        // 4. Usar um batch para garantir que tudo seja atualizado junto
+        const batch = db.batch();
+        batch.update(timeRecordRef, checkoutData);
+        batch.update(contractRef, { status: "COMPLETED", updatedAt: FieldValue.serverTimestamp() }); // Finaliza o contrato
+        
+        await batch.commit();
+
+        logger.info(`Check-out para o contrato ${contractId} registrado com sucesso.`);
+        return { success: true, recordId: timeRecordRef.id };
+
+    } catch (error) {
+        logger.error(`Falha ao registrar check-out para o contrato ${contractId}:`, error);
+        if (error instanceof HttpsError) throw error;
+        throw new HttpsError("internal", "Ocorreu um erro inesperado ao registrar o check-out.");
     }
 });
