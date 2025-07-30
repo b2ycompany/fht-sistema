@@ -77,7 +77,7 @@ interface PotentialMatchInput {
   updatedAt: FieldValue;
   shiftCities: string[];
   shiftState: string;
-  matchScore: number; // NOVO: Campo para a pontuação do match.
+  matchScore: number;
 }
 
 setGlobalOptions({ region: "us-central1", memory: "256MiB" });
@@ -168,33 +168,22 @@ export const findMatchesOnShiftRequirementWrite = onDocumentWritten({ document: 
         const matchSnap = await matchRef.get();
         if (matchSnap.exists) { continue; }
 
-        // ==================================================================
-        // LÓGICA DE CÁLCULO DO 'matchScore'
-        // ==================================================================
         let score = 0;
-        
-        // Critério 1: Especialidade (Peso: 5)
         const doctorSpecialtiesSet = new Set(timeSlot.specialties || []);
         const requiredSpecialtiesSet = new Set(requirement.specialtiesRequired || []);
         const intersection = new Set([...doctorSpecialtiesSet].filter(x => requiredSpecialtiesSet.has(x)));
         if (intersection.size > 0) {
-            score += 5; // Bônus base por ter pelo menos uma especialidade em comum.
+            score += 5;
             if (intersection.size === requiredSpecialtiesSet.size) {
-                 score += 3; // Bônus extra se o médico atende a TODAS as especialidades pedidas.
+                 score += 3;
             }
         }
-        
-        // Critério 2: Tipo de Serviço (Peso: 3)
         if (requirement.serviceType === timeSlot.serviceType) {
             score += 3;
         }
-
-        // Critério 3: Custo (Peso: 4)
         if (timeSlot.desiredHourlyRate <= requirement.offeredRate) {
             score += 4;
         }
-
-        // Critério 4: Localização (Cidade) (Peso: 2)
         const doctorCities = new Set(timeSlot.cities || []);
         const requirementCities = new Set(requirement.cities || []);
         const cityIntersection = new Set([...doctorCities].filter(city => requirementCities.has(city)));
@@ -202,8 +191,6 @@ export const findMatchesOnShiftRequirementWrite = onDocumentWritten({ document: 
             score += 2;
         }
         
-        // ==================================================================
-
         const newPotentialMatchData: PotentialMatchInput = {
           shiftRequirementId: event.params.requirementId, hospitalId: requirement.hospitalId, hospitalName: requirement.hospitalName || "",
           originalShiftRequirementDates: requirement.dates, matchedDate: matchedDate, shiftRequirementStartTime: requirement.startTime,
@@ -220,7 +207,7 @@ export const findMatchesOnShiftRequirementWrite = onDocumentWritten({ document: 
           createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp(),
           shiftCities: requirement.cities,
           shiftState: requirement.state,
-          matchScore: score, // Adiciona o score calculado ao objeto.
+          matchScore: score,
         };
         batch.set(matchRef, newPotentialMatchData);
         matchesCreatedCount++;
@@ -663,5 +650,47 @@ export const generateDocumentPdf = onCall({ cors: true }, async (request: Callab
     } catch (error) {
         logger.error(`Falha ao gerar PDF para a consulta ${consultationId}:`, error);
         throw new HttpsError("internal", "Ocorreu um erro inesperado ao gerar o documento.");
+    }
+});
+
+
+// NOVA FUNÇÃO PARA UNIFICAR O FLUXO (O ELO PERDIDO)
+export const onContractFinalizedUpdateRequirement = onDocumentWritten("contracts/{contractId}", async (event) => {
+    const change = event.data;
+    if (!change) {
+        return;
+    }
+
+    const dataBefore = change.before?.data();
+    const dataAfter = change.after.data();
+
+    if (!dataAfter || dataAfter.status !== 'ACTIVE_SIGNED' || dataBefore?.status === 'ACTIVE_SIGNED') {
+        logger.info(`Gatilho de contrato ${event.params.contractId} ignorado. Status não é ACTIVE_SIGNED ou não houve mudança.`);
+        return;
+    }
+    
+    const contract = dataAfter;
+    const shiftRequirementId = contract.shiftRequirementId;
+
+    if (!shiftRequirementId) {
+        logger.warn(`Contrato ${event.params.contractId} finalizado, mas não possui shiftRequirementId.`);
+        return;
+    }
+
+    logger.info(`Contrato ${event.params.contractId} finalizado. Atualizando demanda original: ${shiftRequirementId}`);
+
+    try {
+        const requirementRef = db.collection("shiftRequirements").doc(shiftRequirementId);
+        
+        await requirementRef.update({
+            status: "CONFIRMED",
+            contractId: event.params.contractId,
+            updatedAt: FieldValue.serverTimestamp(),
+        });
+        
+        logger.info(`Demanda ${shiftRequirementId} atualizada para CONFIRMED com sucesso!`);
+
+    } catch (error) {
+        logger.error(`Erro ao tentar atualizar a demanda ${shiftRequirementId} a partir do contrato ${event.params.contractId}:`, error);
     }
 });

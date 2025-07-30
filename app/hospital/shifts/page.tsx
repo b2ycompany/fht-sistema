@@ -2,6 +2,7 @@
 "use client";
 
 import React, { useState, useEffect, useMemo, useCallback, ChangeEvent, ReactNode } from "react";
+import { useRouter } from 'next/navigation';
 import { Button, buttonVariants } from "@/components/ui/button";
 import type { VariantProps } from "class-variance-authority";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
@@ -21,24 +22,16 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { CitySelector } from "@/components/ui/city-selector"; 
 
 import { cn, formatCurrency, formatPercentage, formatHours } from "@/lib/utils";
-import { auth } from "@/lib/firebase";
-import { Timestamp } from "firebase/firestore";
+import { auth, db } from "@/lib/firebase";
+import { collection, query, where, getDocs, Timestamp, orderBy } from "firebase/firestore";
 
 import {
   addShiftRequirement,
-  getHospitalShiftRequirements,
   deleteShiftRequirement,
   updateShiftRequirement,
-  getPendingActionShifts,
-  getConfirmedShiftsForHospital,
-  getPastShiftsForHospital,
   type ShiftRequirement,
   type ShiftFormPayload,
   type ShiftUpdatePayload,
-  type HospitalKPIs,
-  type MonthlyCostData,
-  type SpecialtyDemandData,
-  type DashboardData
 } from "@/lib/hospital-shift-service";
 import { medicalSpecialties, ServiceTypeRates } from "@/lib/availability-service";
 
@@ -52,7 +45,7 @@ type ButtonVariant = VariantProps<typeof Button>["variant"];
 const timeOptions = Array.from({ length: 48 }, (_, i) => { const h = Math.floor(i/2); const m = i%2 === 0 ? "00" : "30"; return `${h.toString().padStart(2,"0")}:${m}`; });
 const brazilianStates = ["AC", "AL", "AP", "AM", "BA", "CE", "DF", "ES", "GO", "MA", "MT", "MS", "MG", "PA", "PB", "PR", "PE", "PI", "RJ", "RN", "RS", "RO", "RR", "SC", "SP", "SE", "TO" ];
 const citiesByState: { [key: string]: string[] } = {
-  "SP": ["São Paulo", "Campinas", "Guarulhos", "Osasco", "Santo André", "São Bernardo do Campo", "Santos", "Ribeirão Preto", "Sorocaba", "Jundiaí", "Piracicaba", "Bauru", "Franca", "Taubaté", "Limeira", "Barueri", "Cotia", "Itapevi", "Araçariguama"],
+  "SP": ["São Paulo", "Campinas", "Guarulhos", "Osasco", "Santo André", "São Bernardo do Campo", "Santos", "Ribeirão Preto", "Sorocaba", "Jundiai", "Piracicaba", "Bauru", "Franca", "Taubaté", "Limeira", "Barueri", "Cotia", "Itapevi", "Araçariguama"],
   "RJ": ["Rio de Janeiro", "São Gonçalo", "Duque de Caxias", "Nova Iguaçu", "Niterói", "Belford Roxo", "Campos dos Goytacazes", "São João de Meriti", "Petrópolis", "Volta Redonda"],
   "MG": ["Belo Horizonte", "Uberlândia", "Contagem", "Juiz de Fora", "Betim", "Montes Claros", "Ribeirão das Neves", "Uberaba", "Governador Valadares", "Ipatinga"],
 };
@@ -86,13 +79,7 @@ const AddShiftDialog: React.FC<AddShiftDialogProps> = ({ onShiftSubmitted, initi
   const [availableCities, setAvailableCities] = useState<string[]>([]);
   
   const modifiers = { selected: dates };
-  const modifiersStyles = {
-    selected: {
-      backgroundColor: '#2563eb',
-      color: 'white',
-      borderRadius: '0.375rem',
-    },
-  };
+  const modifiersStyles = { selected: { backgroundColor: '#2563eb', color: 'white', borderRadius: '0.375rem', }, };
   
   const applyQuickTime = (start: string, end: string) => { setStartTime(start); setEndTime(end); };
   const resetFormFields = useCallback(() => { setDates([]); setStartTime("07:00"); setEndTime("19:00"); setNumberOfVacancies("1"); setRequiredSpecialties([]); setSpecialtySearchValue(""); setTimeError(null); setSelectedState(""); setSelectedCities([]); setAvailableCities([]); setSelectedServiceType(""); setOfferedRateInput(""); setNotes(""); }, []);
@@ -103,13 +90,8 @@ const AddShiftDialog: React.FC<AddShiftDialogProps> = ({ onShiftSubmitted, initi
   useEffect(() => {
     if (selectedState) {
         setAvailableCities(citiesByState[selectedState] || []);
-        if (!initialData || selectedState !== initialData.state) {
-            setSelectedCities([]);
-        }
-    } else {
-        setAvailableCities([]);
-        setSelectedCities([]);
-    }
+        if (!initialData || selectedState !== initialData.state) { setSelectedCities([]); }
+    } else { setAvailableCities([]); setSelectedCities([]); }
   }, [selectedState, initialData]);
 
   const handleSelectRequiredSpecialty = (specialty: string) => { if (!requiredSpecialties.includes(specialty)) setRequiredSpecialties((prev: string[]) => [...prev, specialty]); setSpecialtySearchValue(""); setSpecialtyPopoverOpen(false); };
@@ -135,25 +117,12 @@ const AddShiftDialog: React.FC<AddShiftDialogProps> = ({ onShiftSubmitted, initi
 
     try {
       if (isEditing && initialData?.id) {
-        const updatePayload: ShiftUpdatePayload = {
-          startTime, endTime, isOvernight: isOvernightShift,
-          state: selectedState, cities: selectedCities,
-          serviceType: selectedServiceType, specialtiesRequired: requiredSpecialties,
-          offeredRate, numberOfVacancies: numVacancies,
-          ...(finalNotes ? { notes: finalNotes } : { notes: "" }),
-        };
+        const updatePayload: ShiftUpdatePayload = { startTime, endTime, isOvernight: isOvernightShift, state: selectedState, cities: selectedCities, serviceType: selectedServiceType, specialtiesRequired: requiredSpecialties, offeredRate, numberOfVacancies: numVacancies, ...(finalNotes ? { notes: finalNotes } : { notes: "" }), };
         await updateShiftRequirement(initialData.id, updatePayload);
         toast({ title: "Demanda Atualizada!", variant: "default" });
       } else {
         const dateTimestamps: Timestamp[] = dates.map(date => Timestamp.fromDate(date));
-        const createPayload: ShiftFormPayload = {
-          publishedByUID: currentUser.uid, dates: dateTimestamps,
-          startTime, endTime, isOvernight: isOvernightShift,
-          state: selectedState, cities: selectedCities,
-          serviceType: selectedServiceType, specialtiesRequired: requiredSpecialties,
-          offeredRate, numberOfVacancies: numVacancies,
-          ...(finalNotes && { notes: finalNotes }),
-        };
+        const createPayload: ShiftFormPayload = { publishedByUID: currentUser.uid, dates: dateTimestamps, startTime, endTime, isOvernight: isOvernightShift, state: selectedState, cities: selectedCities, serviceType: selectedServiceType, specialtiesRequired: requiredSpecialties, offeredRate, numberOfVacancies: numVacancies, ...(finalNotes && { notes: finalNotes }), };
         await addShiftRequirement(createPayload);
         toast({ title: "Demanda Publicada!", variant: "default" });
         if(!isEditing) resetFormFields();
@@ -165,50 +134,17 @@ const AddShiftDialog: React.FC<AddShiftDialogProps> = ({ onShiftSubmitted, initi
 
   return ( 
     <DialogContent className="sm:max-w-2xl md:max-w-3xl"> 
-        <DialogHeader> 
-            <DialogTitle className="text-xl">{isEditing ? "Editar Demanda" : "Publicar Nova Demanda"}</DialogTitle> 
-            <DialogDescription>{isEditing ? "Altere os detalhes. Datas não são editáveis." : "Defina os critérios. Uma demanda será criada para cada data selecionada."}</DialogDescription> 
-        </DialogHeader>
-        {/* BOTÃO DE FECHAR PARA MOBILE E DESKTOP */}
-        <DialogClose asChild>
-            <Button variant="ghost" size="icon" className="absolute top-4 right-4">
-              <X className="h-4 w-4" />
-              <span className="sr-only">Fechar</span>
-            </Button>
-        </DialogClose>
+        <DialogHeader><DialogTitle className="text-xl">{isEditing ? "Editar Demanda" : "Publicar Nova Demanda"}</DialogTitle><DialogDescription>{isEditing ? "Altere os detalhes. Datas não são editáveis." : "Defina os critérios. Uma demanda será criada para cada data selecionada."}</DialogDescription></DialogHeader>
+        <DialogClose asChild><Button variant="ghost" size="icon" className="absolute top-4 right-4"><X className="h-4 w-4" /><span className="sr-only">Fechar</span></Button></DialogClose>
         <div className="grid gap-5 py-4 max-h-[70vh] overflow-y-auto px-1 pr-3 md:pr-4"> 
-            <div className="space-y-2"> 
-                <Label className="font-semibold text-gray-800 flex items-center"><CalendarDays/>Data(s)*</Label> 
-                <p className="text-xs text-gray-500">{isEditing ? "Original (não editável)." : "Selecione."}</p> 
-                <div className="flex flex-col sm:flex-row gap-2 items-start"> 
-                    {isEditing ? ( <Calendar mode="single" selected={dates[0]} disabled footer={ dates[0] ? <p>{dates[0]?.toLocaleDateString('pt-BR')}</p> : null} /> ) : ( <Calendar mode="multiple" selected={dates} onSelect={setDates as SelectMultipleEventHandler} disabled={{ before: new Date(new Date().setHours(0,0,0,0))}} footer={ dates.length > 0 ? <p>{dates.length} dia(s)</p> : <p>Nenhum dia</p>} modifiers={modifiers} modifiersStyles={modifiersStyles}/> )} 
-                    {dates.length > 0 && !isEditing && <Button variant="outline" size="sm" onClick={() => setDates([])}><X/> Limpar</Button>} 
-                </div> 
-            </div> 
-            <div className="space-y-2"> <Label className="font-semibold text-gray-800 flex items-center"><Clock/>Horário*</Label> <div className="flex flex-wrap gap-2 mb-3"> <Button variant="outline" size="sm" onClick={() => applyQuickTime("07:00", "19:00")}>Diurno</Button> <Button variant="outline" size="sm" onClick={() => applyQuickTime("19:00", "07:00")}>Noturno</Button> <Button variant="outline" size="sm" onClick={() => applyQuickTime("08:00", "12:00")}>Manhã</Button> <Button variant="outline" size="sm" onClick={() => applyQuickTime("13:00", "18:00")}>Tarde</Button> <Button variant="outline" size="sm" onClick={() => applyQuickTime("00:00", "23:30")}>24h</Button> </div> <div className="grid grid-cols-1 sm:grid-cols-2 gap-4"> <div><Label htmlFor="sTime">Início*</Label><Select value={startTime} onValueChange={setStartTime}><SelectTrigger id="sTime" className={cn(timeError && "border-red-500")}><SelectValue/></SelectTrigger><SelectContent>{timeOptions.map(t=><SelectItem key={"s"+t} value={t}>{t}</SelectItem>)}</SelectContent></Select></div> <div><Label htmlFor="eTime">Término*</Label><Select value={endTime} onValueChange={setEndTime}><SelectTrigger id="eTime" className={cn(timeError && "border-red-500")}><SelectValue/></SelectTrigger><SelectContent>{timeOptions.map(t=><SelectItem key={"e"+t} value={t}>{t}</SelectItem>)}</SelectContent></Select></div> {timeError && <p className="text-red-600 col-span-2">{timeError}</p>} </div> </div> 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                    <Label htmlFor="state-m" className="font-semibold text-gray-800 flex items-center"><MapPin/>Estado*</Label>
-                    <Select value={selectedState} onValueChange={setSelectedState}><SelectTrigger id="state-m"><SelectValue placeholder="UF..."/></SelectTrigger><SelectContent>{brazilianStates.map(s=><SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent></Select>
-                </div>
-                <div>
-                    <Label htmlFor="city-m" className="font-semibold text-gray-800">Cidades*</Label>
-                    <CitySelector
-                      selectedState={selectedState}
-                      availableCities={availableCities}
-                      selectedCities={selectedCities}
-                      onConfirm={setSelectedCities}
-                    />
-                </div>
-            </div> 
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4"> <div><Label htmlFor="serv-type-m" className="font-semibold text-gray-800 flex items-center"><Briefcase/>Tipo*</Label><Select value={selectedServiceType} onValueChange={setSelectedServiceType}><SelectTrigger id="serv-type-m"><SelectValue placeholder="Selecione..."/></SelectTrigger><SelectContent>{serviceTypesOptions.map(o=><SelectItem key={o.value} value={o.value}>{o.label} <span className="text-xs text-gray-500">({formatCurrency(o.rateExample)}/h)</span></SelectItem>)}</SelectContent></Select></div> <div><Label htmlFor="rate-m" className="font-semibold text-gray-800 flex items-center"><DollarSign/>Valor/Hora (R$)*</Label><Input id="rate-m" type="number" min="1" step="any" placeholder="150.00" value={offeredRateInput} onChange={e=>setOfferedRateInput(e.target.value)}/></div> <div><Label htmlFor="vac-m" className="font-semibold text-gray-800 flex items-center"><Users/>Profissionais*</Label><Input id="vac-m" type="number" min="1" step="1" placeholder="1" value={numberOfVacancies} onChange={e=>setNumberOfVacancies(e.target.value)}/></div> </div> 
-            <div className="space-y-2"> <Label className="font-semibold text-gray-800 flex items-center"><ClipboardList/>Especialidades (Opcional)</Label> <Popover open={specialtyPopoverOpen} onOpenChange={setSpecialtyPopoverOpen}><PopoverTrigger asChild><Button variant="outline" className="w-full justify-start font-normal h-9">{requiredSpecialties.length?requiredSpecialties.join(', '):"Selecione..."}</Button></PopoverTrigger><PopoverContent className="w-[--radix-popover-trigger-width] p-0"><Command><CommandInput value={specialtySearchValue} onValueChange={setSpecialtySearchValue}/><CommandList><CommandEmpty>Nenhuma.</CommandEmpty><CommandGroup>{filteredSpecialties.map(s=>(<CommandItem key={s} value={s} onSelect={()=>handleSelectRequiredSpecialty(s)}>{s}</CommandItem>))}</CommandGroup></CommandList></Command></PopoverContent></Popover> {requiredSpecialties.length > 0 && ( <div className="flex flex-wrap gap-1.5 mt-2 pt-2 border-t"> {requiredSpecialties.map((s: string)=>(<Badge key={s} variant="secondary">{s}<button type="button" onClick={()=>handleRemoveRequiredSpecialty(s)} className="ml-1.5"><X className="h-3 w-3"/></button></Badge>))} </div> )} </div> 
-            <div className="space-y-1.5"> <Label htmlFor="notes-m" className="font-semibold text-gray-800 flex items-center"><Info/>Notas (Opcional)</Label> <Textarea id="notes-m" placeholder="Detalhes adicionais..." value={notes} onChange={e=>setNotes(e.target.value)}/></div> 
+            <div className="space-y-2"><Label className="font-semibold text-gray-800 flex items-center"><CalendarDays/>Data(s)*</Label><p className="text-xs text-gray-500">{isEditing ? "Original (não editável)." : "Selecione."}</p><div className="flex flex-col sm:flex-row gap-2 items-start">{isEditing ? ( <Calendar mode="single" selected={dates[0]} disabled footer={ dates[0] ? <p>{dates[0]?.toLocaleDateString('pt-BR')}</p> : null} /> ) : ( <Calendar mode="multiple" selected={dates} onSelect={setDates as SelectMultipleEventHandler} disabled={{ before: new Date(new Date().setHours(0,0,0,0))}} footer={ dates.length > 0 ? <p>{dates.length} dia(s)</p> : <p>Nenhum dia</p>} modifiers={modifiers} modifiersStyles={modifiersStyles}/> )}{dates.length > 0 && !isEditing && <Button variant="outline" size="sm" onClick={() => setDates([])}><X/> Limpar</Button>}</div></div> 
+            <div className="space-y-2"><Label className="font-semibold text-gray-800 flex items-center"><Clock/>Horário*</Label><div className="flex flex-wrap gap-2 mb-3"><Button variant="outline" size="sm" onClick={() => applyQuickTime("07:00", "19:00")}>Diurno</Button><Button variant="outline" size="sm" onClick={() => applyQuickTime("19:00", "07:00")}>Noturno</Button><Button variant="outline" size="sm" onClick={() => applyQuickTime("08:00", "12:00")}>Manhã</Button><Button variant="outline" size="sm" onClick={() => applyQuickTime("13:00", "18:00")}>Tarde</Button><Button variant="outline" size="sm" onClick={() => applyQuickTime("00:00", "23:30")}>24h</Button></div><div className="grid grid-cols-1 sm:grid-cols-2 gap-4"><div><Label htmlFor="sTime">Início*</Label><Select value={startTime} onValueChange={setStartTime}><SelectTrigger id="sTime" className={cn(timeError && "border-red-500")}><SelectValue/></SelectTrigger><SelectContent>{timeOptions.map(t=><SelectItem key={"s"+t} value={t}>{t}</SelectItem>)}</SelectContent></Select></div><div><Label htmlFor="eTime">Término*</Label><Select value={endTime} onValueChange={setEndTime}><SelectTrigger id="eTime" className={cn(timeError && "border-red-500")}><SelectValue/></SelectTrigger><SelectContent>{timeOptions.map(t=><SelectItem key={"e"+t} value={t}>{t}</SelectItem>)}</SelectContent></Select></div>{timeError && <p className="text-red-600 col-span-2">{timeError}</p>}</div></div> 
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4"><div><Label htmlFor="state-m" className="font-semibold text-gray-800 flex items-center"><MapPin/>Estado*</Label><Select value={selectedState} onValueChange={setSelectedState}><SelectTrigger id="state-m"><SelectValue placeholder="UF..."/></SelectTrigger><SelectContent>{brazilianStates.map(s=><SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent></Select></div><div><Label htmlFor="city-m" className="font-semibold text-gray-800">Cidades*</Label><CitySelector selectedState={selectedState} availableCities={availableCities} selectedCities={selectedCities} onConfirm={setSelectedCities} /></div></div> 
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4"><div><Label htmlFor="serv-type-m" className="font-semibold text-gray-800 flex items-center"><Briefcase/>Tipo*</Label><Select value={selectedServiceType} onValueChange={setSelectedServiceType}><SelectTrigger id="serv-type-m"><SelectValue placeholder="Selecione..."/></SelectTrigger><SelectContent>{serviceTypesOptions.map(o=><SelectItem key={o.value} value={o.value}>{o.label} <span className="text-xs text-gray-500">({formatCurrency(o.rateExample)}/h)</span></SelectItem>)}</SelectContent></Select></div><div><Label htmlFor="rate-m" className="font-semibold text-gray-800 flex items-center"><DollarSign/>Valor/Hora (R$)*</Label><Input id="rate-m" type="number" min="1" step="any" placeholder="150.00" value={offeredRateInput} onChange={e=>setOfferedRateInput(e.target.value)}/></div><div><Label htmlFor="vac-m" className="font-semibold text-gray-800 flex items-center"><Users/>Profissionais*</Label><Input id="vac-m" type="number" min="1" step="1" placeholder="1" value={numberOfVacancies} onChange={e=>setNumberOfVacancies(e.target.value)}/></div></div> 
+            <div className="space-y-2"><Label className="font-semibold text-gray-800 flex items-center"><ClipboardList/>Especialidades (Opcional)</Label><Popover open={specialtyPopoverOpen} onOpenChange={setSpecialtyPopoverOpen}><PopoverTrigger asChild><Button variant="outline" className="w-full justify-start font-normal h-9">{requiredSpecialties.length?requiredSpecialties.join(', '):"Selecione..."}</Button></PopoverTrigger><PopoverContent className="w-[--radix-popover-trigger-width] p-0"><Command><CommandInput value={specialtySearchValue} onValueChange={setSpecialtySearchValue}/><CommandList><CommandEmpty>Nenhuma.</CommandEmpty><CommandGroup>{filteredSpecialties.map(s=>(<CommandItem key={s} value={s} onSelect={()=>handleSelectRequiredSpecialty(s)}>{s}</CommandItem>))}</CommandGroup></CommandList></Command></PopoverContent></Popover>{requiredSpecialties.length > 0 && ( <div className="flex flex-wrap gap-1.5 mt-2 pt-2 border-t">{requiredSpecialties.map((s: string)=>(<Badge key={s} variant="secondary">{s}<button type="button" onClick={()=>handleRemoveRequiredSpecialty(s)} className="ml-1.5"><X className="h-3 w-3"/></button></Badge>))}</div> )}</div> 
+            <div className="space-y-1.5"><Label htmlFor="notes-m" className="font-semibold text-gray-800 flex items-center"><Info/>Notas (Opcional)</Label><Textarea id="notes-m" placeholder="Detalhes adicionais..." value={notes} onChange={e=>setNotes(e.target.value)}/></div> 
         </div> 
-        <DialogFooter className="mt-2 pt-4 border-t bg-slate-50 -m-6 px-6 pb-4 rounded-b-lg"> 
-            <DialogClose asChild><Button type="button" variant="outline" disabled={isLoadingSubmit}>Cancelar</Button></DialogClose> 
-            <Button type="button" onClick={handleSubmitForm} disabled={isLoadingSubmit || (dates.length === 0 && !isEditing)} className="bg-blue-600 hover:bg-blue-700"> {isLoadingSubmit && <Loader2 className="mr-2 h-4 w-4 animate-spin" />} {isLoadingSubmit ? (isEditing ? "Salvando..." : "Publicando...") : (isEditing ? "Salvar Alterações" : `Publicar Demanda (${dates.length||0} Dia(s))`)} </Button> 
-        </DialogFooter> 
+        <DialogFooter className="mt-2 pt-4 border-t bg-slate-50 -m-6 px-6 pb-4 rounded-b-lg"><DialogClose asChild><Button type="button" variant="outline" disabled={isLoadingSubmit}>Cancelar</Button></DialogClose><Button type="button" onClick={handleSubmitForm} disabled={isLoadingSubmit || (dates.length === 0 && !isEditing)} className="bg-blue-600 hover:bg-blue-700">{isLoadingSubmit && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}{isLoadingSubmit ? (isEditing ? "Salvando..." : "Publicando...") : (isEditing ? "Salvar Alterações" : `Publicar Demanda (${dates.length||0} Dia(s))`)}</Button></DialogFooter> 
     </DialogContent>
   );
 };
@@ -218,13 +154,7 @@ interface ShiftListItemProps { shift: ShiftRequirement; actions?: { label: strin
 const ShiftListItem: React.FC<ShiftListItemProps> = React.memo(({ shift, actions }) => {
   const serviceTypeObj = serviceTypesOptions.find(opt => opt.value === shift.serviceType);
   const serviceTypeLabel = serviceTypeObj?.label || shift.serviceType;
-  const getDisplayDate = () => {
-    if (!shift.dates || shift.dates.length === 0) return "Datas não especificadas";
-    const firstDateObj = shift.dates[0] instanceof Timestamp ? shift.dates[0].toDate() : null;
-    let displayStr = firstDateObj ? firstDateObj.toLocaleDateString("pt-BR", { day: "2-digit", month: "short", year: "numeric" }) : "Data inválida";
-    if (shift.dates.length > 1) { displayStr += ` (e +${shift.dates.length - 1} outro(s) dia(s))`; }
-    return displayStr;
-  };
+  const getDisplayDate = () => { if (!shift.dates || shift.dates.length === 0) return "Datas não especificadas"; const firstDateObj = shift.dates[0] instanceof Timestamp ? shift.dates[0].toDate() : null; let displayStr = firstDateObj ? firstDateObj.toLocaleDateString("pt-BR", { day: "2-digit", month: "short", year: "numeric" }) : "Data inválida"; if (shift.dates.length > 1) { displayStr += ` (e +${shift.dates.length - 1} outro(s) dia(s))`; } return displayStr; };
   const statusLabel = (status?: string): string => { return status?.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()) || 'Desconhecido'; };
   const getStatusBadgeProps = (status?: ShiftRequirement['status']): { variant: BadgeProps["variant"], className: string } => {
     switch (status) {
@@ -244,66 +174,117 @@ ShiftListItem.displayName = 'ShiftListItem';
 
 export default function HospitalShiftsPage() {
   const { toast } = useToast();
-  const [kpiData, setKpiData] = useState<HospitalKPIs | null>(null);
+  const router = useRouter(); // Adicionado para navegação
   const [openShifts, setOpenShifts] = useState<ShiftRequirement[]>([]);
-  const [pendingActionShifts, setPendingActionShifts] = useState<ShiftRequirement[]>([]);
-  const [confirmedShiftsList, setConfirmedShiftsList] = useState<ShiftRequirement[]>([]);
-  const [pastShiftsList, setPastShiftsList] = useState<ShiftRequirement[]>([]);
+  const [pendingShifts, setPendingShifts] = useState<ShiftRequirement[]>([]);
+  const [confirmedShifts, setConfirmedShifts] = useState<ShiftRequirement[]>([]);
+  const [historyShifts, setHistoryShifts] = useState<ShiftRequirement[]>([]);
+  
   type ListStateType = { isLoading: boolean; error: string | null };
   const initialListState: ListStateType = { isLoading: true, error: null };
-  const [listStates, setListStates] = useState({ open: { ...initialListState }, pending: { ...initialListState }, confirmed: { ...initialListState }, history: { ...initialListState }, kpis: { ...initialListState }, });
+  const [listStates, setListStates] = useState({
+      open: { ...initialListState },
+      pending: { ...initialListState },
+      confirmed: { ...initialListState },
+      history: { ...initialListState },
+  });
   const [isAddShiftDialogOpen, setIsAddShiftDialogOpen] = useState(false);
   const [activeTab, setActiveTab] = useState("open");
   const [editingShift, setEditingShift] = useState<ShiftRequirement | null>(null);
-  const updateListState = (list: keyof typeof listStates, state: Partial<ListStateType>) => { setListStates((prev) => ({ ...prev, [list]: { ...prev[list], ...state } })); };
-  const fetchDashboardData = useCallback(async (currentOpenDemandCount?: number) => { updateListState('kpis', { isLoading: true, error: null }); try { console.log("[HospitalShiftsPage] fetchDashboardData: Buscando KPIs..."); await new Promise(res => setTimeout(res, 100)); const countOpen = currentOpenDemandCount ?? openShifts.length; const countPending = pendingActionShifts.length; const kpis: HospitalKPIs = { openShiftsCount: countOpen, pendingActionCount: countPending, totalDoctorsOnPlatform: 152, costLast30Days: 25780.50, fillRateLast30Days: 85.7, avgTimeToFillHours: 4.2, topSpecialtyDemand: 'Clínica Médica' }; setKpiData(kpis); updateListState('kpis', { isLoading: false }); } catch (error: any) { updateListState('kpis', { isLoading: false, error: error.message || "Erro ao buscar dados do painel."}); } }, [openShifts.length, pendingActionShifts.length]);
-  const fetchOpenShifts = useCallback(async (updateKPIData = true) => { console.log("[HospitalShiftsPage] fetchOpenShifts chamado. updateKPIData:", updateKPIData); updateListState('open', { isLoading: true, error: null }); let fetchedData: ShiftRequirement[] = []; try { fetchedData = await getHospitalShiftRequirements() || []; setOpenShifts(fetchedData.sort((a, b) => (a.dates?.[0]?.toDate().getTime()||0) - (b.dates?.[0]?.toDate().getTime()||0) || a.startTime.localeCompare(b.startTime))); updateListState('open', {isLoading: false}); if (updateKPIData) { fetchDashboardData(fetchedData.length); } } catch (error: any) { const errorMsg = error.message || "Erro ao carregar demandas abertas."; updateListState('open', {isLoading: false, error: errorMsg}); if (updateKPIData) updateListState('kpis', { isLoading: false, error: errorMsg}); } }, [fetchDashboardData]);
-  const fetchPendingActionShiftsCallback = useCallback(async () => { updateListState('pending', {isLoading: true, error: null}); try { const data = await getPendingActionShifts(); setPendingActionShifts(data); updateListState('pending', {isLoading:false}); } catch (e:any) { updateListState('pending',{isLoading:false, error: e.message}); }}, []);
-  const fetchConfirmedShiftsCallback = useCallback(async () => { updateListState('confirmed', {isLoading: true, error: null}); try { const data = await getConfirmedShiftsForHospital(); setConfirmedShiftsList(data); updateListState('confirmed', {isLoading:false});} catch (e:any) { updateListState('confirmed',{isLoading:false, error: e.message}); }}, []);
-  const fetchPastShiftsCallback = useCallback(async () => { updateListState('history', {isLoading: true, error: null}); try { const data = await getPastShiftsForHospital(); setPastShiftsList(data); updateListState('history', {isLoading:false});} catch (e:any) { updateListState('history',{isLoading:false, error: e.message}); }}, []);
-  useEffect(() => { console.log("[HospitalShiftsPage] Montagem inicial, chamando fetchOpenShifts e outras buscas."); fetchOpenShifts(true); fetchPendingActionShiftsCallback(); }, [fetchOpenShifts, fetchPendingActionShiftsCallback]);
-  const handleTabChange = (value: string) => { setActiveTab(value); if (value === 'confirmed' && !listStates.confirmed.isLoading && !listStates.confirmed.error && confirmedShiftsList.length === 0) { fetchConfirmedShiftsCallback(); } else if (value === 'history' && !listStates.history.isLoading && !listStates.history.error && pastShiftsList.length === 0) { fetchPastShiftsCallback(); } };
+
+  const updateListState = (list: keyof typeof listStates, state: Partial<ListStateType>) => {
+      setListStates((prev) => ({ ...prev, [list]: { ...prev[list], ...state } }));
+  };
+
+  const fetchShiftsByStatus = useCallback(async (
+      status: string | string[],
+      setter: React.Dispatch<React.SetStateAction<ShiftRequirement[]>>,
+      stateKey: keyof typeof listStates
+  ) => {
+      updateListState(stateKey, { isLoading: true, error: null });
+      const currentUser = auth.currentUser;
+      if (!currentUser) {
+          updateListState(stateKey, { isLoading: false, error: "Usuário não autenticado." });
+          return;
+      }
+
+      try {
+          const requirementsRef = collection(db, "shiftRequirements");
+          const statusClause = Array.isArray(status) ? where("status", "in", status) : where("status", "==", status);
+          const q = query(
+              requirementsRef, 
+              where("hospitalId", "==", currentUser.uid), 
+              statusClause, 
+              orderBy("dates", "asc")
+          );
+
+          const snapshot = await getDocs(q);
+          const data = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as ShiftRequirement));
+          setter(data);
+          updateListState(stateKey, { isLoading: false });
+      } catch (error: any) {
+          updateListState(stateKey, { isLoading: false, error: error.message || `Erro ao carregar demandas ${stateKey}.` });
+      }
+  }, []);
+  
+  useEffect(() => {
+      fetchShiftsByStatus('OPEN', setOpenShifts, 'open');
+  }, [fetchShiftsByStatus]);
+
+  const handleTabChange = (value: string) => {
+      setActiveTab(value);
+      if (value === 'confirmed' && confirmedShifts.length === 0) {
+          fetchShiftsByStatus('CONFIRMED', setConfirmedShifts, 'confirmed');
+      } else if (value === 'history' && historyShifts.length === 0) {
+          fetchShiftsByStatus(['COMPLETED', 'CANCELLED_BY_HOSPITAL', 'EXPIRED'], setHistoryShifts, 'history');
+      } else if (value === 'pending' && pendingShifts.length === 0) {
+          fetchShiftsByStatus(['PENDING_MATCH_REVIEW', 'PENDING_DOCTOR_ACCEPTANCE'], setPendingShifts, 'pending');
+      }
+  };
+  
   const handleOpenEditDialog = (shift: ShiftRequirement) => { setEditingShift(shift); setIsAddShiftDialogOpen(true); };
   const handleOpenAddDialog = () => { setEditingShift(null); setIsAddShiftDialogOpen(true); };
-  const handleCancelShift = async (shiftId: string | undefined) => { if (!shiftId) return; try { await deleteShiftRequirement(shiftId); toast({ title: "Demanda Cancelada" }); fetchOpenShifts(true); } catch (error: any) { toast({ title: "Erro ao Cancelar", description: error.message, variant: "destructive"}); } };
-  const onShiftSubmitted = () => { setIsAddShiftDialogOpen(false); setEditingShift(null); setActiveTab("open"); fetchOpenShifts(true); };
+  const handleCancelShift = async (shiftId: string | undefined) => { if (!shiftId) return; try { await deleteShiftRequirement(shiftId); toast({ title: "Demanda Cancelada" }); fetchShiftsByStatus('OPEN', setOpenShifts, 'open'); } catch (error: any) { toast({ title: "Erro ao Cancelar", description: error.message, variant: "destructive"}); } };
+  const onShiftSubmitted = () => { setIsAddShiftDialogOpen(false); setEditingShift(null); setActiveTab("open"); fetchShiftsByStatus('OPEN', setOpenShifts, 'open'); };
 
   return (
-    <div className="flex flex-col gap-6 md:gap-8 p-1">
-      <h1 className="text-2xl md:text-3xl font-bold tracking-tight text-gray-800">Painel de Gerenciamento de Plantões</h1>
-      {(listStates.kpis.error && (listStates.kpis.isLoading || listStates.open.isLoading)) && ( <ErrorState message={listStates.kpis.error || listStates.open.error || "Erro ao carregar dados iniciais."} onRetry={() => fetchOpenShifts(true)} /> )}
-      <section aria-labelledby="kpi-heading"> <h2 id="kpi-heading" className="sr-only">Visão Geral</h2> <div className="grid gap-3 sm:gap-4 grid-cols-2 md:grid-cols-4 lg:grid-cols-7">
-        <KPICard title="Demandas Abertas" value={kpiData?.openShiftsCount ?? '-'} icon={AlertCircle} isLoading={listStates.open.isLoading || listStates.kpis.isLoading} description="Aguardando médicos" />
-        <KPICard title="Pendentes Ação" value={kpiData?.pendingActionCount ?? '-'} icon={Hourglass} isLoading={listStates.pending.isLoading || listStates.kpis.isLoading} description="Matches/contratos" />
-        <KPICard title="Taxa Preenchim. (30d)" value={formatPercentage(kpiData?.fillRateLast30Days)} icon={Target} isLoading={listStates.kpis.isLoading} description="Eficiência" />
-        <KPICard title="Custo Estimado (30d)" value={formatCurrency(kpiData?.costLast30Days)} icon={WalletCards} isLoading={listStates.kpis.isLoading} description="Gasto com plantões" />
-        <KPICard title="Tempo Médio Preench." value={formatHours(kpiData?.avgTimeToFillHours)} icon={Clock} isLoading={listStates.kpis.isLoading} description="Agilidade (horas)" />
-        <KPICard title="Médicos na Plataforma" value={kpiData?.totalDoctorsOnPlatform ?? '-'} icon={Users} isLoading={listStates.kpis.isLoading} description="Total cadastrados" />
-        <KPICard title="Top Demanda (Espec.)" value={kpiData?.topSpecialtyDemand ?? '-'} icon={TrendingUp} isLoading={listStates.kpis.isLoading} description="Mais requisitada" />
-      </div> </section>
-      <section aria-labelledby="shifts-management-heading">
-        <h2 id="shifts-management-heading" className="text-xl font-semibold mb-4 mt-4 text-gray-700">Gerenciamento Detalhado de Demandas</h2>
-        <Tabs value={activeTab} onValueChange={handleTabChange} className="w-full">
-          <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-3 mb-4 border-b pb-3">
-            <TabsList className="grid w-full grid-cols-2 md:grid-cols-4 sm:w-auto shrink-0">
-              <TabsTrigger value="open">Abertas {listStates.open.isLoading && activeTab === 'open' ? <Loader2 className="h-3 w-3 animate-spin ml-1.5"/> : `(${openShifts.length})`}</TabsTrigger>
-              <TabsTrigger value="pending">Pendentes {listStates.pending.isLoading && activeTab === 'pending' ? <Loader2 className="h-3 w-3 animate-spin ml-1.5"/> : `(${pendingActionShifts.length})`}</TabsTrigger>
-              <TabsTrigger value="confirmed">Confirmados {listStates.confirmed.isLoading && activeTab === 'confirmed' ? <Loader2 className="h-3 w-3 animate-spin ml-1.5"/> : `(${confirmedShiftsList.length})`}</TabsTrigger>
-              <TabsTrigger value="history">Histórico {listStates.history.isLoading && activeTab === 'history' ? <Loader2 className="h-3 w-3 animate-spin ml-1.5"/> : `(${pastShiftsList.length})`}</TabsTrigger>
-            </TabsList>
-            <Dialog open={isAddShiftDialogOpen} onOpenChange={(isOpen: boolean) => { setIsAddShiftDialogOpen(isOpen); if (!isOpen) setEditingShift(null); }}>
-              <DialogTrigger
-                onClick={handleOpenAddDialog}
-                className={cn( buttonVariants({ variant: "default", size: "sm" }), "w-full sm:w-auto bg-blue-600 hover:bg-blue-700 text-white flex items-center" )}
-              > <Plus className="mr-1.5 h-4 w-4" /> Publicar Nova Demanda </DialogTrigger>
-              <AddShiftDialog key={editingShift ? `edit-${editingShift.id}` : 'new-shift'} onShiftSubmitted={onShiftSubmitted} initialData={editingShift} />
-            </Dialog>
-          </div>
-          <TabsContent value="open"> <Card> <CardHeader><CardTitle>Demandas em Aberto</CardTitle></CardHeader> <CardContent> {listStates.open.isLoading ? <LoadingState /> : listStates.open.error ? <ErrorState message={listStates.open.error} onRetry={() => fetchOpenShifts(false)}/> : openShifts.length === 0 ? <EmptyState message="Nenhuma demanda aberta." actionButton={<Button size="sm" onClick={handleOpenAddDialog} className="bg-blue-600 hover:bg-blue-700">Publicar Demanda</Button>} /> : <div className="space-y-3">{openShifts.map((req: ShiftRequirement) => (<ShiftListItem key={req.id} shift={req} actions={[{ label: "Editar", icon: FilePenLine, onClick: () => handleOpenEditDialog(req), disabled: req.status !== 'OPEN' },{ label: "Cancelar", icon: Trash2, onClick: () => handleCancelShift(req.id), disabled: req.status !== 'OPEN' }]}/>))}</div> } </CardContent> </Card> </TabsContent>
-          <TabsContent value="confirmed"> <Card> <CardHeader><CardTitle>Demandas Confirmadas</CardTitle></CardHeader> <CardContent> {listStates.confirmed.isLoading ? <LoadingState /> : listStates.confirmed.error ? <ErrorState message={listStates.confirmed.error} onRetry={fetchConfirmedShiftsCallback}/> : confirmedShiftsList.length === 0 ? <EmptyState message="Nenhuma demanda confirmada." /> : <div className="space-y-3">{confirmedShiftsList.map((req: ShiftRequirement) => (<ShiftListItem key={req.id} shift={req} actions={[{ label: "Detalhes", icon: Eye, onClick: () => {}},{ label: "Cancelar", icon: XCircle, onClick: () => handleCancelShift(req.id), disabled: true }]}/>))}</div> } </CardContent> </Card> </TabsContent>
-          <TabsContent value="history"> <Card> <CardHeader><CardTitle>Histórico de Demandas</CardTitle></CardHeader> <CardContent> {listStates.history.isLoading ? <LoadingState /> : listStates.history.error ? <ErrorState message={listStates.history.error} onRetry={fetchPastShiftsCallback}/> : pastShiftsList.length === 0 ? <EmptyState message="Nenhum histórico." /> : <div className="space-y-3">{pastShiftsList.map((req: ShiftRequirement) => (<ShiftListItem key={req.id} shift={req} />))}</div> } </CardContent> </Card> </TabsContent>
-        </Tabs>
-      </section>
-    </div>
+      <div className="flex flex-col gap-6 md:gap-8 p-1">
+          <h1 className="text-2xl md:text-3xl font-bold tracking-tight text-gray-800">Painel de Gerenciamento de Plantões</h1>
+          
+          <section aria-labelledby="kpi-heading"> <h2 id="kpi-heading" className="sr-only">Visão Geral</h2> <div className="grid gap-3 sm:gap-4 grid-cols-2 md:grid-cols-4 lg:grid-cols-7">
+            <KPICard title="Demandas Abertas" value={openShifts.length} icon={AlertCircle} isLoading={listStates.open.isLoading} description="Aguardando médicos" />
+            <KPICard title="Pendentes Ação" value={pendingShifts.length} icon={Hourglass} isLoading={listStates.pending.isLoading} description="Matches/contratos" />
+            <KPICard title="Taxa Preenchim. (30d)" value={formatPercentage(85.7)} icon={Target} isLoading={false} description="Eficiência" />
+            <KPICard title="Custo Estimado (30d)" value={formatCurrency(25780.50)} icon={WalletCards} isLoading={false} description="Gasto com plantões" />
+            <KPICard title="Tempo Médio Preench." value={formatHours(4.2)} icon={Clock} isLoading={false} description="Agilidade (horas)" />
+            <KPICard title="Médicos na Plataforma" value={152} icon={Users} isLoading={false} description="Total cadastrados" />
+            <KPICard title="Top Demanda (Espec.)" value={'Clínica Médica'} icon={TrendingUp} isLoading={false} description="Mais requisitada" />
+          </div> </section>
+
+          <section aria-labelledby="shifts-management-heading">
+              <h2 id="shifts-management-heading" className="text-xl font-semibold mb-4 mt-4 text-gray-700">Gerenciamento Detalhado de Demandas</h2>
+              <Tabs value={activeTab} onValueChange={handleTabChange} className="w-full">
+                  <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-3 mb-4 border-b pb-3">
+                      <TabsList className="grid w-full grid-cols-2 md:grid-cols-4 sm:w-auto shrink-0">
+                          <TabsTrigger value="open">Abertas {listStates.open.isLoading ? <Loader2 className="h-3 w-3 animate-spin ml-1.5"/> : `(${openShifts.length})`}</TabsTrigger>
+                          <TabsTrigger value="pending">Pendentes {listStates.pending.isLoading ? <Loader2 className="h-3 w-3 animate-spin ml-1.5"/> : `(${pendingShifts.length})`}</TabsTrigger>
+                          <TabsTrigger value="confirmed">Confirmados {listStates.confirmed.isLoading ? <Loader2 className="h-3 w-3 animate-spin ml-1.5"/> : `(${confirmedShifts.length})`}</TabsTrigger>
+                          <TabsTrigger value="history">Histórico {listStates.history.isLoading ? <Loader2 className="h-3 w-3 animate-spin ml-1.5"/> : `(${historyShifts.length})`}</TabsTrigger>
+                      </TabsList>
+                      <Dialog open={isAddShiftDialogOpen} onOpenChange={(isOpen: boolean) => { setIsAddShiftDialogOpen(isOpen); if (!isOpen) setEditingShift(null); }}>
+                          <DialogTrigger onClick={handleOpenAddDialog} className={cn(buttonVariants({ variant: "default", size: "sm" }), "w-full sm:w-auto bg-blue-600 hover:bg-blue-700 text-white flex items-center" )} >
+                              <Plus className="mr-1.5 h-4 w-4" /> Publicar Nova Demanda
+                          </DialogTrigger>
+                          <AddShiftDialog key={editingShift ? `edit-${editingShift.id}` : 'new-shift'} onShiftSubmitted={onShiftSubmitted} initialData={editingShift} />
+                      </Dialog>
+                  </div>
+                  
+                  <TabsContent value="open"> <Card> <CardHeader><CardTitle>Demandas em Aberto</CardTitle></CardHeader> <CardContent> {listStates.open.isLoading ? <LoadingState /> : listStates.open.error ? <ErrorState message={listStates.open.error} onRetry={() => fetchShiftsByStatus('OPEN', setOpenShifts, 'open')}/> : openShifts.length === 0 ? <EmptyState message="Nenhuma demanda aberta." actionButton={<Button size="sm" onClick={handleOpenAddDialog} className="bg-blue-600 hover:bg-blue-700">Publicar Demanda</Button>} /> : <div className="space-y-3">{openShifts.map((req: ShiftRequirement) => (<ShiftListItem key={req.id} shift={req} actions={[{ label: "Editar", icon: FilePenLine, onClick: () => handleOpenEditDialog(req), disabled: req.status !== 'OPEN' },{ label: "Cancelar", icon: Trash2, onClick: () => handleCancelShift(req.id), disabled: req.status !== 'OPEN' }]}/>))}</div> } </CardContent> </Card> </TabsContent>
+                  <TabsContent value="pending"> <Card> <CardHeader><CardTitle>Demandas Pendentes</CardTitle></CardHeader> <CardContent> {listStates.pending.isLoading ? <LoadingState /> : listStates.pending.error ? <ErrorState message={listStates.pending.error} onRetry={() => fetchShiftsByStatus(['PENDING_MATCH_REVIEW'], setPendingShifts, 'pending')}/> : pendingShifts.length === 0 ? <EmptyState message="Nenhuma demanda com pendências." /> : <div className="space-y-3">{pendingShifts.map((req: ShiftRequirement) => (<ShiftListItem key={req.id} shift={req} actions={[{ label: "Ver", icon: Eye, onClick: () => {} }]}/>))}</div> } </CardContent> </Card> </TabsContent>
+                  <TabsContent value="confirmed"> <Card> <CardHeader><CardTitle>Demandas Confirmadas</CardTitle></CardHeader> <CardContent> {listStates.confirmed.isLoading ? <LoadingState /> : listStates.confirmed.error ? <ErrorState message={listStates.confirmed.error} onRetry={() => fetchShiftsByStatus('CONFIRMED', setConfirmedShifts, 'confirmed')}/> : confirmedShifts.length === 0 ? <EmptyState message="Nenhuma demanda confirmada." /> : <div className="space-y-3">{confirmedShifts.map((req: ShiftRequirement) => (<ShiftListItem key={req.id} shift={req} actions={[{ label: "Ir para Agenda", icon: CalendarDays, onClick: () => router.push('/hospital/schedule'), className: "bg-blue-100 text-blue-700 hover:bg-blue-200" }]}/>))}</div> } </CardContent> </Card> </TabsContent>
+                  <TabsContent value="history"> <Card> <CardHeader><CardTitle>Histórico de Demandas</CardTitle></CardHeader> <CardContent> {listStates.history.isLoading ? <LoadingState /> : listStates.history.error ? <ErrorState message={listStates.history.error} onRetry={() => fetchShiftsByStatus(['COMPLETED'], setHistoryShifts, 'history')}/> : historyShifts.length === 0 ? <EmptyState message="Nenhum histórico." /> : <div className="space-y-3">{historyShifts.map((req: ShiftRequirement) => (<ShiftListItem key={req.id} shift={req} />))}</div> } </CardContent> </Card> </TabsContent>
+              </Tabs>
+          </section>
+      </div>
   );
 }
