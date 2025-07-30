@@ -74,10 +74,14 @@ export default function HospitalSchedulePage() {
             const doctorMatch = selectedDoctor === 'all' || contract.doctorId === selectedDoctor;
             const specialtyMatch = selectedSpecialty === 'all' || contract.specialties.includes(selectedSpecialty);
             
-            // CORREÇÃO DEFINITIVA: Lógica de filtro robusta e à prova de falhas.
-            const serviceTypeMatch = selectedServiceType === 'all' || 
-                (typeof contract.serviceType === 'string' && 
-                 contract.serviceType.trim().toLowerCase() === selectedServiceType.toLowerCase());
+            // CORREÇÃO DEFINITIVA: Implementa a nova regra de negócio.
+            let serviceTypeMatch = true; // Começa como verdadeiro por padrão
+            if (selectedServiceType === 'Telemedicina') {
+                serviceTypeMatch = contract.serviceType === 'Telemedicina';
+            } else if (selectedServiceType === 'Presencial') {
+                // Se o filtro for "Presencial", mostra tudo que NÃO é "Telemedicina".
+                serviceTypeMatch = contract.serviceType !== 'Telemedicina';
+            }
 
             return doctorMatch && specialtyMatch && serviceTypeMatch;
         });
@@ -100,7 +104,7 @@ export default function HospitalSchedulePage() {
                 <div><h1 className="text-2xl md:text-3xl font-bold">Agenda Hospitalar</h1><p className="text-muted-foreground">Visualize e gerencie seus plantões e consultas.</p></div>
             </div>
 
-            {/* PAINEL DE FILTROS (sem alterações visuais) */}
+            {/* PAINEL DE FILTROS */}
             <Card className="bg-muted/40">
                 <CardHeader><CardTitle className="flex items-center gap-2 text-md"><Filter size={18}/> Filtros da Agenda</CardTitle></CardHeader>
                 <CardContent className="flex flex-col sm:flex-row gap-4">
@@ -108,8 +112,15 @@ export default function HospitalSchedulePage() {
                         <Label>Tipo de Atendimento</Label>
                         <ToggleGroup type="single" value={selectedServiceType} onValueChange={(value: string) => value && setSelectedServiceType(value)} className="w-full sm:w-auto">
                             <ToggleGroupItem value="all" aria-label="Todos os tipos" className="data-[state=on]:bg-primary data-[state=on]:text-primary-foreground">Todos</ToggleGroupItem>
-                            <ToggleGroupItem value="Presencial" aria-label="Presencial" className="data-[state=on]:bg-primary data-[state=on]:text-primary-foreground"><Hospital className="h-4 w-4 mr-2"/>Presencial</ToggleGroupItem>
-                            <ToggleGroupItem value="Telemedicina" aria-label="Telemedicina" className="data-[state=on]:bg-primary data-[state=on]:text-primary-foreground"><Video className="h-4 w-4 mr-2"/>Telemedicina</ToggleGroupItem>
+                            
+                            {/* CORREÇÃO: Botão volta a ser "Presencial" */}
+                            <ToggleGroupItem value="Presencial" aria-label="Presencial" className="data-[state=on]:bg-primary data-[state=on]:text-primary-foreground">
+                                <Hospital className="h-4 w-4 mr-2"/>Presencial
+                            </ToggleGroupItem>
+                            
+                            <ToggleGroupItem value="Telemedicina" aria-label="Telemedicina" className="data-[state=on]:bg-primary data-[state=on]:text-primary-foreground">
+                                <Video className="h-4 w-4 mr-2"/>Telemedicina
+                            </ToggleGroupItem>
                         </ToggleGroup>
                     </div>
                      <div className="flex-1 space-y-2">
