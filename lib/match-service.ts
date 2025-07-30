@@ -59,6 +59,7 @@ export interface PotentialMatch {
   shiftState?: string;
   doctorTimeSlotNotes?: string;
   shiftCities?: string[];
+  matchScore?: number; // NOVO: Propriedade adicionada para resolver o erro de tipo.
 }
 
 export const getMatchesForBackofficeReview = async (): Promise<PotentialMatch[]> => {

@@ -77,6 +77,7 @@ interface PotentialMatchInput {
   updatedAt: FieldValue;
   shiftCities: string[];
   shiftState: string;
+  matchScore: number; // NOVO: Campo para a pontuação do match.
 }
 
 setGlobalOptions({ region: "us-central1", memory: "256MiB" });
@@ -116,7 +117,6 @@ export const findMatchesOnShiftRequirementWrite = onDocumentWritten({ document: 
       let timeSlotsQuery: Query = db.collection("doctorTimeSlots")
         .where("status", "==", "AVAILABLE")
         .where("state", "==", requirement.state)
-        // .where("serviceType", "==", requirement.serviceType) // CORREÇÃO: Linha removida para tornar a busca mais flexível
         .where("date", "in", requirement.dates);
 
       if (requirement.cities && requirement.cities.length > 0) {
@@ -167,12 +167,47 @@ export const findMatchesOnShiftRequirementWrite = onDocumentWritten({ document: 
         
         const matchSnap = await matchRef.get();
         if (matchSnap.exists) { continue; }
+
+        // ==================================================================
+        // LÓGICA DE CÁLCULO DO 'matchScore'
+        // ==================================================================
+        let score = 0;
         
+        // Critério 1: Especialidade (Peso: 5)
+        const doctorSpecialtiesSet = new Set(timeSlot.specialties || []);
+        const requiredSpecialtiesSet = new Set(requirement.specialtiesRequired || []);
+        const intersection = new Set([...doctorSpecialtiesSet].filter(x => requiredSpecialtiesSet.has(x)));
+        if (intersection.size > 0) {
+            score += 5; // Bônus base por ter pelo menos uma especialidade em comum.
+            if (intersection.size === requiredSpecialtiesSet.size) {
+                 score += 3; // Bônus extra se o médico atende a TODAS as especialidades pedidas.
+            }
+        }
+        
+        // Critério 2: Tipo de Serviço (Peso: 3)
+        if (requirement.serviceType === timeSlot.serviceType) {
+            score += 3;
+        }
+
+        // Critério 3: Custo (Peso: 4)
+        if (timeSlot.desiredHourlyRate <= requirement.offeredRate) {
+            score += 4;
+        }
+
+        // Critério 4: Localização (Cidade) (Peso: 2)
+        const doctorCities = new Set(timeSlot.cities || []);
+        const requirementCities = new Set(requirement.cities || []);
+        const cityIntersection = new Set([...doctorCities].filter(city => requirementCities.has(city)));
+        if (cityIntersection.size > 0) {
+            score += 2;
+        }
+        
+        // ==================================================================
+
         const newPotentialMatchData: PotentialMatchInput = {
           shiftRequirementId: event.params.requirementId, hospitalId: requirement.hospitalId, hospitalName: requirement.hospitalName || "",
           originalShiftRequirementDates: requirement.dates, matchedDate: matchedDate, shiftRequirementStartTime: requirement.startTime,
           shiftRequirementEndTime: requirement.endTime, shiftRequirementIsOvernight: requirement.isOvernight,
-          // CORREÇÃO: Guardamos o tipo de serviço de ambos os lados para o admin poder comparar
           shiftRequirementServiceType: requirement.serviceType,
           doctorServiceType: timeSlot.serviceType, 
           shiftRequirementSpecialties: requirement.specialtiesRequired || [], offeredRateByHospital: requirement.offeredRate,
@@ -185,6 +220,7 @@ export const findMatchesOnShiftRequirementWrite = onDocumentWritten({ document: 
           createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp(),
           shiftCities: requirement.cities,
           shiftState: requirement.state,
+          matchScore: score, // Adiciona o score calculado ao objeto.
         };
         batch.set(matchRef, newPotentialMatchData);
         matchesCreatedCount++;
@@ -302,7 +338,6 @@ export const createTelemedicineRoom = onCall(
         secrets: ["DAILY_APIKEY"] 
     }, 
     async (request: CallableRequest) => {
-        // Forçando o redeploy para atualizar permissões.
         if (!request.auth) {
             throw new HttpsError("unauthenticated", "A função só pode ser chamada por um utilizador autenticado.");
         }
@@ -379,7 +414,6 @@ export const correctServiceTypeCapitalization = onCall(
         const correctValue = "Telemedicina";
 
         try {
-            // 1. Corrigir a coleção 'contracts'
             const contractsQuery = db.collection("contracts").where("serviceType", "==", incorrectValue);
             const contractsSnapshot = await contractsQuery.get();
             contractsSnapshot.forEach(doc => {
@@ -388,7 +422,6 @@ export const correctServiceTypeCapitalization = onCall(
             });
             logger.info(`Encontrados ${updatedCount.contracts} documentos para corrigir em 'contracts'.`);
 
-            // 2. Corrigir a coleção 'shiftRequirements'
             const shiftsQuery = db.collection("shiftRequirements").where("serviceType", "==", incorrectValue);
             const shiftsSnapshot = await shiftsQuery.get();
             shiftsSnapshot.forEach(doc => {
@@ -397,7 +430,6 @@ export const correctServiceTypeCapitalization = onCall(
             });
             logger.info(`Encontrados ${updatedCount.shiftRequirements} documentos para corrigir em 'shiftRequirements'.`);
             
-            // 3. Corrigir a coleção 'doctorTimeSlots'
             const timeSlotsQuery = db.collection("doctorTimeSlots").where("serviceType", "==", incorrectValue);
             const timeSlotsSnapshot = await timeSlotsQuery.get();
             timeSlotsSnapshot.forEach(doc => {
@@ -406,7 +438,6 @@ export const correctServiceTypeCapitalization = onCall(
             });
             logger.info(`Encontrados ${updatedCount.doctorTimeSlots} documentos para corrigir em 'doctorTimeSlots'.`);
 
-            // Executar todas as atualizações de uma vez
             await batch.commit();
 
             const total = updatedCount.contracts + updatedCount.shiftRequirements + updatedCount.doctorTimeSlots;

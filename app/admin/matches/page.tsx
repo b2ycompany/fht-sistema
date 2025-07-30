@@ -4,7 +4,7 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import {
     ChevronDown, MoreHorizontal, ArrowUpDown, FileText, DollarSign, TrendingUp, CheckCircle, Clock, XCircle, Loader2, RotateCcw, ClipboardList, Users, Briefcase, CalendarDays, MapPinIcon, Info, Building, User, ShieldCheck,
-    MessageSquare, Send, AlertTriangle
+    MessageSquare, Send, AlertTriangle, Star // NOVO: Ícone para o score
 } from 'lucide-react';
 import { Timestamp, query, collection, where, onSnapshot, orderBy, type Unsubscribe } from "firebase/firestore";
 import { db } from '@/lib/firebase';
@@ -29,9 +29,11 @@ import { updateUserVerificationStatus, type UserProfile, type ProfileStatus } fr
 import { type Contract } from "@/lib/contract-service";
 
 
+// --- Componentes de estado (Loading, Empty) permanecem os mesmos ---
 const LoadingState = React.memo(({ message = "Carregando..." }: { message?: string }) => ( <div className="flex flex-col items-center justify-center py-10 min-h-[150px] w-full"><Loader2 className="h-8 w-8 animate-spin text-blue-600" /><p className="mt-3 text-sm text-gray-600">{message}</p></div> ));
 const EmptyState = React.memo(({ title, message }: { title: string, message: string; }) => ( <div className="text-center text-sm text-gray-500 py-10 min-h-[150px] flex flex-col items-center justify-center bg-gray-50/70 rounded-md border border-dashed"><ClipboardList className="w-12 h-12 text-gray-400 mb-4"/><p className="font-medium text-gray-600 mb-1">{title}</p><p>{message}</p></div> ));
 
+// --- UserVerificationCard e NegotiationChat permanecem os mesmos ---
 const UserVerificationCard: React.FC<{ user: UserProfile; onAction: (userId: string, status: ProfileStatus, notes: string, reasons?: Record<string, string>) => Promise<void>; }> = ({ user, onAction }) => {
     const [generalNotes, setGeneralNotes] = useState(user.adminVerificationNotes || "");
     const [isProcessing, setIsProcessing] = useState(false);
@@ -107,18 +109,17 @@ const NegotiationChat: React.FC<{ matchId: string, target: ChatTarget }> = ({ ma
     );
 };
 
+
 const MatchReviewCard: React.FC<{ match: PotentialMatch; onApproveMatch: (matchId: string, doctorRate: number, hospitalRate: number, margin: number, notes?: string) => Promise<void>; onRejectMatch: (matchId: string, notes: string) => Promise<void>; }> = ({ match, onApproveMatch, onRejectMatch }) => {
     const [notes, setNotes] = useState("");
     const [isProcessing, setIsProcessing] = useState(false);
     
-    // CORREÇÃO: Os estados agora guardam strings para evitar o bug do "0" fixo.
     const [negotiatedDoctorRate, setNegotiatedDoctorRate] = useState(String(match.doctorDesiredRate));
     const [negotiatedHospitalRate, setNegotiatedHospitalRate] = useState(String(match.offeredRateByHospital));
     
     const handleApprove = async () => {
         setIsProcessing(true);
         try {
-            // CORREÇÃO: Convertendo para número apenas no momento de enviar.
             const finalDoctorRate = parseFloat(negotiatedDoctorRate);
             const finalHospitalRate = parseFloat(negotiatedHospitalRate);
             await onApproveMatch(match.id, finalDoctorRate, finalHospitalRate, 10, notes);
@@ -129,18 +130,42 @@ const MatchReviewCard: React.FC<{ match: PotentialMatch; onApproveMatch: (matchI
     const handleReject = async () => { if (!notes.trim()) { alert("Para rejeitar, preencha as observações como motivo."); return; } setIsProcessing(true); try { await onRejectMatch(match.id, notes); } finally { setIsProcessing(false); } };
     
     const matchDate = match.matchedDate instanceof Timestamp ? match.matchedDate.toDate().toLocaleDateString('pt-BR') : 'Data inválida';
-    const location = `${match.shiftCities?.join(', ') || match.shiftCity || 'Cidade?'}, ${match.shiftState || 'Estado?'}`;
+    const location = `${match.shiftCities?.join(', ') || 'Cidade?'}, ${match.shiftState || 'Estado?'}`;
     const needsNegotiation = match.doctorDesiredRate > match.offeredRateByHospital;
+    
+    // NOVO: Função para determinar a cor do card com base na pontuação
+    const getScoreVariantClass = (score: number): string => {
+        if (score >= 10) return "border-green-500"; // Pontuação excelente
+        if (score >= 6) return "border-blue-500";   // Pontuação boa
+        return "border-gray-300";                   // Pontuação padrão
+    };
+
+    // NOVO: Lógica para determinar a cor da badge de score
+    const getScoreBadgeVariant = (score: number): "default" | "secondary" | "destructive" => {
+        if (score >= 10) return "default"; // Verde (padrão do ShadCN para "sucesso")
+        if (score >= 6) return "secondary";
+        return "destructive"; // Vermelho para scores baixos
+    }
+
+    // ALTERADO: A cor do card agora prioriza a negociação, depois a pontuação do match.
+    const cardBorderColor = needsNegotiation ? "border-red-500" : getScoreVariantClass(match.matchScore ?? 0);
 
     return (
-      <Card className={cn("border-l-4", needsNegotiation ? "border-red-500" : "border-blue-500")}>
+      <Card className={cn("border-l-4 transition-all duration-300", cardBorderColor)}>
         <CardHeader>
             <div className="flex justify-between items-start flex-wrap gap-y-2">
               <div>
                 <CardTitle className="text-lg">Match: {match.shiftRequirementSpecialties.join(", ")}</CardTitle>
                 <CardDescription>{match.hospitalName} &harr; {match.doctorName}</CardDescription>
               </div>
-              {needsNegotiation && (<Badge variant="destructive" className="flex items-center gap-1.5"><AlertTriangle size={14}/>Negociação Recomendada</Badge>)}
+              <div className="flex items-center gap-2">
+                {/* NOVO: Badge para exibir a pontuação do match */}
+                <Badge variant={getScoreBadgeVariant(match.matchScore ?? 0)} className="flex items-center gap-1.5 text-sm py-1 px-3">
+                    <Star size={14} />
+                    <span>Score: {match.matchScore ?? 0}</span>
+                </Badge>
+                {needsNegotiation && (<Badge variant="destructive" className="flex items-center gap-1.5"><AlertTriangle size={14}/>Negociação Recomendada</Badge>)}
+              </div>
             </div>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -157,12 +182,10 @@ const MatchReviewCard: React.FC<{ match: PotentialMatch; onApproveMatch: (matchI
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div>
                             <Label>Valor Final / Hora (Hospital)</Label>
-                            {/* CORREÇÃO: O onChange agora atualiza o estado de string */}
                             <Input type="number" value={negotiatedHospitalRate} onChange={e => setNegotiatedHospitalRate(e.target.value)} />
                         </div>
                         <div>
                             <Label>Valor Final / Hora (Médico)</Label>
-                            {/* CORREÇÃO: O onChange agora atualiza o estado de string */}
                             <Input type="number" value={negotiatedDoctorRate} onChange={e => setNegotiatedDoctorRate(e.target.value)} />
                         </div>
                     </div>
@@ -189,6 +212,7 @@ const MatchReviewCard: React.FC<{ match: PotentialMatch; onApproveMatch: (matchI
     );
 };
 
+
 export default function AdminUnifiedPage() {
     const { toast } = useToast();
     const [activeTab, setActiveTab] = useState("matches");
@@ -201,11 +225,33 @@ export default function AdminUnifiedPage() {
 
     useEffect(() => {
         const unsubUsers = onSnapshot(query(collection(db, "users"), where("documentVerificationStatus", "==", "PENDING_REVIEW")), (snapshot) => { setPendingUsers(snapshot.docs.map(doc => ({ uid: doc.id, ...doc.data() } as UserProfile))); setIsLoadingUsers(false); });
-        const unsubMatches = onSnapshot(query(collection(db, "potentialMatches"), where("status", "==", "PENDING_BACKOFFICE_REVIEW"), orderBy("createdAt", "desc")), (snapshot) => { setMatches(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as PotentialMatch))); setIsLoadingMatches(false); });
+        
+        // ALTERADO: A query agora ordena por 'matchScore' (maior primeiro) e depois por data de criação como critério de desempate.
+        const matchesQuery = query(
+            collection(db, "potentialMatches"), 
+            where("status", "==", "PENDING_BACKOFFICE_REVIEW"), 
+            orderBy("matchScore", "desc"),
+            orderBy("createdAt", "desc")
+        );
+        const unsubMatches = onSnapshot(matchesQuery, (snapshot) => { 
+            setMatches(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as PotentialMatch))); 
+            setIsLoadingMatches(false); 
+        }, (error) => {
+            // NOVO: Tratamento de erro para o caso do índice não existir.
+            console.error("Erro ao buscar matches (verifique o índice do Firestore):", error);
+            toast({
+                title: "Erro de Consulta",
+                description: "Falha ao buscar matches. Pode ser necessário criar um índice no Firestore. Verifique o console para o link.",
+                variant: "destructive",
+                duration: 10000,
+            });
+            setIsLoadingMatches(false);
+        });
+
         const unsubContracts = onSnapshot(query(collection(db, "contracts"), orderBy("createdAt", "desc")), (snapshot) => { setContracts(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Contract))); setIsLoadingContracts(false); });
         
         return () => { unsubUsers(); unsubMatches(); unsubContracts(); };
-    }, []);
+    }, [toast]); // NOVO: Adicionado toast como dependência do useEffect.
 
     const handleUserVerification = async (userId: string, status: ProfileStatus, notes: string, reasons?: Record<string, string>) => { try { await updateUserVerificationStatus(userId, status, notes, reasons); toast({ title: "Cadastro Atualizado!" }); } catch (e: any) { toast({ title: "Erro", description: e.message, variant: "destructive" }); }};
     const handleApproveMatch = async (matchId: string, doctorRate: number, hospitalRate: number, platformMargin: number, notes?: string) => {
