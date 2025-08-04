@@ -71,7 +71,7 @@ export default function CaravanDashboardPage() {
     return (
         <div className="space-y-6">
             <div>
-                <h1 className="text-3xl font-bold tracking-tight">Dashboard da Caravana</h1>
+                <h1 className="text-3xl font-bold tracking-tight">Dashboard do Multirão</h1>
                 <p className="text-muted-foreground">Visão geral dos atendimentos em tempo real.</p>
             </div>
 

@@ -90,7 +90,7 @@ export default function CaravanManagementPage() {
             };
             await addDoc(collection(db, "caravanEvents"), newEventData);
             
-            toast({ title: "Sucesso!", description: "O novo evento de caravana foi criado.", className: "bg-green-600 text-white" });
+            toast({ title: "Sucesso!", description: "O novo evento de multirão foi criado.", className: "bg-green-600 text-white" });
             setIsModalOpen(false);
             // Resetar formulário
             setEventName(''); setStartDate(undefined); setEndDate(undefined); setLocation('');
@@ -111,7 +111,7 @@ export default function CaravanManagementPage() {
         <div className="container mx-auto p-4 sm:p-6 space-y-6">
             <div className="flex items-center justify-between">
                 <div>
-                    <h1 className="text-3xl font-bold tracking-tight">Gestão de Caravanas</h1>
+                    <h1 className="text-3xl font-bold tracking-tight">Gestão Multirão</h1>
                     <p className="text-muted-foreground">Crie e gerencie os eventos de saúde.</p>
                 </div>
                 <Button onClick={() => setIsModalOpen(true)}>
@@ -156,7 +156,7 @@ export default function CaravanManagementPage() {
                                 ))
                             ) : (
                                 <TableRow>
-                                    <TableCell colSpan={5} className="h-24 text-center">Nenhum evento de caravana encontrado.</TableCell>
+                                    <TableCell colSpan={5} className="h-24 text-center">Nenhum evento de Multirão encontrado.</TableCell>
                                 </TableRow>
                             )}
                         </TableBody>
@@ -174,7 +174,7 @@ export default function CaravanManagementPage() {
                     <div className="grid gap-4 py-4">
                         <div className="space-y-1.5">
                             <Label htmlFor="eventName">Nome do Evento</Label>
-                            <Input id="eventName" value={eventName} onChange={(e) => setEventName(e.target.value)} placeholder="Ex: Caravana da Saúde - São Paulo" />
+                            <Input id="eventName" value={eventName} onChange={(e) => setEventName(e.target.value)} placeholder="Ex: Multirão da Saúde - São Paulo" />
                         </div>
                         <div className="grid grid-cols-2 gap-4">
                             <div className="space-y-1.5">

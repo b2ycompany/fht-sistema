@@ -70,7 +70,7 @@ const NewStaffForm: React.FC<{ hospitalId: string; onStaffAdded: () => void }> =
                     <SelectContent>
                         <SelectItem value="receptionist">Recepcionista</SelectItem>
                         <SelectItem value="triage_nurse">Enfermeiro(a) de Triagem</SelectItem>
-                        <SelectItem value="caravan_admin">Administrativo da Caravana</SelectItem>
+                        <SelectItem value="caravan_admin">Administrativo do Multirão</SelectItem>
                     </SelectContent>
                 </Select>
             </div>

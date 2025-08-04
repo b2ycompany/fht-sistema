@@ -78,7 +78,7 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
   
   // --- NOVA LISTA DE ITENS DE MENU PARA PROJETOS ---
   const projectNavItems: Array<{ href: string; label: string; icon: React.ReactElement }> = [
-    { href: "/admin/caravanas", label: "Gestão de Caravanas", icon: <Truck className="h-5 w-5" /> }
+    { href: "/admin/caravanas", label: "Gestão Multirão", icon: <Truck className="h-5 w-5" /> }
   ];
 
 

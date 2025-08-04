@@ -32,7 +32,7 @@ export default function CaravanLoginPage() {
       
       const authorizedRoles = ["doctor", "receptionist", "triage_nurse", "caravan_admin", "admin"];
       if (profile && authorizedRoles.includes(profile.userType)) { // <-- CORRIGIDO AQUI
-        toast({ title: "Login bem-sucedido!", description: `Bem-vindo(a) ao Portal da Caravana, ${profile.displayName}!`});
+        toast({ title: "Login bem-sucedido!", description: `Bem-vindo(a) ao Portal do Multirão, ${profile.displayName}!`});
         router.push('/caravan/portal'); 
       } else {
         setError("Este acesso é restrito a profissionais autorizados para este projeto.");
@@ -57,7 +57,7 @@ export default function CaravanLoginPage() {
             <Link href="/" className="inline-block mb-6">
                 <Image src={LogoPath} alt="FHT Sistemas Logo" width={180} height={40} priority className="mx-auto h-auto" />
             </Link>
-            <CardTitle className="text-2xl font-bold tracking-tight text-gray-900">Portal da Caravana da Saúde</CardTitle>
+            <CardTitle className="text-2xl font-bold tracking-tight text-gray-900">Portal da Saúde</CardTitle>
             <CardDescription className="text-gray-600">Acesso para Profissionais</CardDescription>
             </CardHeader>
             <CardContent>

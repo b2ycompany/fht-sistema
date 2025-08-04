@@ -209,7 +209,7 @@ export default function CaravanReceptionPage() {
     return (
         <div className="flex flex-col items-center justify-center h-[calc(100vh-8rem)]">
             <div className="text-center">
-                <h1 className="text-4xl font-bold tracking-tight">Recepção da Caravana</h1>
+                <h1 className="text-4xl font-bold tracking-tight">Recepção do Multirão</h1>
                 <p className="text-lg text-muted-foreground mt-2">Clique abaixo para iniciar um novo atendimento.</p>
             </div>
             <Button size="lg" className="mt-8 text-lg py-8 px-10" onClick={handleOpenModal}>

@@ -16,7 +16,7 @@ import { getContractsForDoctor, type Contract } from '@/lib/contract-service';
 import { getTimeSlots, type TimeSlot } from '@/lib/availability-service';
 import { useAuth } from '@/components/auth-provider';
 import { useToast } from "@/hooks/use-toast";
-import { getCurrentUserData, type DoctorProfile } from '@/lib/auth-service'; 
+import { getCurrentUserData, type DoctorProfile, UserProfile } from '@/lib/auth-service'; 
 import ProfileStatusAlert, { type ProfileStatus } from '@/components/ui/ProfileStatusAlert'; 
 
 // Componentes de Estado (Loading, Empty, Error)
@@ -64,7 +64,8 @@ export default function DashboardPage() {
         getCurrentUserData() 
       ]);
 
-      if (currentProfileData?.role === 'doctor') {
+      // --- CORREÇÃO: Verifica 'userType' em vez de 'role' ---
+      if (currentProfileData?.userType === 'doctor') {
         setDoctorProfile(currentProfileData as DoctorProfile);
       }
 
@@ -145,7 +146,6 @@ export default function DashboardPage() {
         </Card>
       )}
 
-      {/* --- NOVA SEÇÃO PARA PROJETOS DA SAÚDE --- */}
       <div>
         <h2 className="text-2xl font-semibold text-gray-700 mb-4">Projetos da Saúde</h2>
         <div className="grid gap-6 md:grid-cols-2">
@@ -165,7 +165,6 @@ export default function DashboardPage() {
                     </Button>
                 </CardFooter>
             </Card>
-            {/* Futuros cards de outros projetos podem ser adicionados aqui */}
         </div>
       </div>
 

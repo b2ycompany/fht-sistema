@@ -899,7 +899,7 @@ export default function RegisterPage() {
                             <Label htmlFor="objective-caravan" className={cn("flex flex-col items-center justify-center p-6 border rounded-lg cursor-pointer transition-colors hover:bg-blue-50 hover:border-blue-400", doctorObjective === 'caravan' ? "bg-blue-50 border-blue-500 ring-2 ring-blue-500" : "bg-white border-gray-300")}>
                                 <RadioGroupItem value="caravan" id="objective-caravan" className="sr-only" />
                                 <HeartPulse className={cn("h-10 w-10 mb-3", doctorObjective === 'caravan' ? "text-blue-700" : "text-gray-500")} />
-                                <span className={cn("font-medium text-center", doctorObjective === 'caravan' ? "text-blue-800" : "text-gray-700")}>Participar de projetos (Caravana)</span>
+                                <span className={cn("font-medium text-center", doctorObjective === 'caravan' ? "text-blue-800" : "text-gray-700")}>Participar de projetos da Saúde</span>
                                 <span className="text-xs text-gray-500 mt-1">Cadastro rápido e focado.</span>
                             </Label>
                             <Label htmlFor="objective-match" className={cn("flex flex-col items-center justify-center p-6 border rounded-lg cursor-pointer transition-colors hover:bg-blue-50 hover:border-blue-400", doctorObjective === 'match' ? "bg-blue-50 border-blue-500 ring-2 ring-blue-500" : "bg-white border-gray-300")}>

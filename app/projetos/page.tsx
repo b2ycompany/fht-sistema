@@ -11,7 +11,7 @@ export default function ProjectsPage() {
   const projects = [
     {
       id: 'caravana-da-saude-sp',
-      title: 'Caravana da Saúde',
+      title: 'Multirão da Saúde',
       description: 'Um projeto de telemedicina focado em levar atendimento de diversas especialidades para comunidades.',
       status: 'Ativo',
       href: '/projetos/caravana/login' // Link para o login específico da caravana

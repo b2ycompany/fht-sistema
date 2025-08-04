@@ -102,7 +102,7 @@ export default function Home() {
                                     <div className="bg-blue-100 p-3 rounded-full">
                                         <Truck className="h-8 w-8 text-blue-600" />
                                     </div>
-                                    <h3 className="text-2xl font-bold text-gray-800 text-left">Caravana da Saúde</h3>
+                                    <h3 className="text-2xl font-bold text-gray-800 text-left">Multirão da Saúde</h3>
                                 </div>
                                 <p className="text-gray-600 text-left mb-6">
                                     Um projeto de telemedicina focado em levar atendimento de diversas especialidades para comunidades.
