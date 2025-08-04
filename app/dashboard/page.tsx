@@ -6,31 +6,28 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter }
 import { Button } from "@/components/ui/button";
 import Link from 'next/link';
 import { 
-    ArrowRight, CalendarCheck, FileClock, BellDot, Briefcase, Clock, MapPinIcon, 
-    FileSignature, Users, AlertTriangle as LucideAlertTriangle, ClipboardList, Loader2, RotateCcw, 
+    ArrowRight, CalendarCheck, FileClock, Briefcase, Clock, MapPinIcon, 
+    FileSignature, Truck, ClipboardList, Loader2, RotateCcw, 
     CalendarDays
 } from 'lucide-react';
 import { Timestamp } from 'firebase/firestore';
 
-// MUDANÇA: A importação de 'ShiftProposal' e seu serviço não são mais necessários aqui.
 import { getContractsForDoctor, type Contract } from '@/lib/contract-service';
 import { getTimeSlots, type TimeSlot } from '@/lib/availability-service';
 import { useAuth } from '@/components/auth-provider';
-import { cn } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
 import { getCurrentUserData, type DoctorProfile } from '@/lib/auth-service'; 
 import ProfileStatusAlert, { type ProfileStatus } from '@/components/ui/ProfileStatusAlert'; 
 
-// Componentes de Estado (Loading, Empty, Error) - Sem alterações
+// Componentes de Estado (Loading, Empty, Error)
 const LoadingState = React.memo(({ message = "Carregando..." }: { message?: string }) => ( <div className="flex items-center justify-center py-10 text-sm text-gray-500"><Loader2 className="h-6 w-6 animate-spin mr-2"/>{message}</div> ));
 LoadingState.displayName = 'LoadingState';
 const EmptyState = React.memo(({ message }: { message: string }) => ( <div className="text-center py-10"><ClipboardList className="mx-auto h-12 w-12 text-gray-400"/><h3 className="mt-2 text-sm font-semibold text-gray-900">{message}</h3></div> ));
 EmptyState.displayName = 'EmptyState';
-const ErrorState = React.memo(({ message, onRetry }: { message: string; onRetry?: () => void; }) => ( <div className="text-center py-10 bg-red-50 p-4 rounded-md border border-red-200"><LucideAlertTriangle className="mx-auto h-10 w-10 text-red-400"/><h3 className="mt-2 text-sm font-semibold text-red-700">{message}</h3>{onRetry && <Button variant="destructive" onClick={onRetry} size="sm" className="mt-3"><RotateCcw className="mr-2 h-4 w-4"/>Tentar Novamente</Button>}</div> ));
+const ErrorState = React.memo(({ message, onRetry }: { message: string; onRetry?: () => void; }) => ( <div className="text-center py-10 bg-red-50 p-4 rounded-md border border-red-200"><RotateCcw className="mx-auto h-10 w-10 text-red-400"/><h3 className="mt-2 text-sm font-semibold text-red-700">{message}</h3>{onRetry && <Button variant="destructive" onClick={onRetry} size="sm" className="mt-3"><RotateCcw className="mr-2 h-4 w-4"/>Tentar Novamente</Button>}</div> ));
 ErrorState.displayName = 'ErrorState';
 
 interface DashboardStats {
-  // MUDANÇA: 'pendingProposalsCount' foi substituído por 'pendingSignatureContractsCount'
   pendingSignatureContractsCount: number;
   upcomingShiftsCount: number;
   totalAvailabilitySlotsCount: number;
@@ -47,11 +44,8 @@ export default function DashboardPage() {
 
   const [stats, setStats] = useState<DashboardStats>({ pendingSignatureContractsCount: 0, upcomingShiftsCount: 0, totalAvailabilitySlotsCount: 0 });
   const [upcomingShifts, setUpcomingShifts] = useState<UpcomingShiftDisplayItem[]>([]);
-  // NOVO: Estado para os contratos pendentes de assinatura do médico
   const [pendingSignatureContracts, setPendingSignatureContracts] = useState<Contract[]>([]);
-  
   const [doctorProfile, setDoctorProfile] = useState<DoctorProfile | null>(null);
-  
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -62,33 +56,26 @@ export default function DashboardPage() {
     }
     setIsLoading(true);
     setError(null);
-    console.log("[DashboardPage] Fetching dashboard data for user:", user.uid);
     try {
-      // MUDANÇA: Buscas de dados refeitas para o fluxo de Contrato
       const [pendingContractsData, activeContractsData, availabilitiesData, currentProfileData] = await Promise.all([
-        getContractsForDoctor(['PENDING_DOCTOR_SIGNATURE']), // Busca os novos contratos para assinar
-        getContractsForDoctor(['ACTIVE_SIGNED']), // Busca os plantões já confirmados
+        getContractsForDoctor(['PENDING_DOCTOR_SIGNATURE']),
+        getContractsForDoctor(['ACTIVE_SIGNED']),
         getTimeSlots(),
         getCurrentUserData() 
       ]);
-
-      console.log("[DashboardPage] Data fetched - Pending Contracts:", pendingContractsData.length, "Active Contracts:", activeContractsData.length, "Availabilities:", availabilitiesData.length, "Profile:", currentProfileData ? 'Loaded' : 'Not loaded');
 
       if (currentProfileData?.role === 'doctor') {
         setDoctorProfile(currentProfileData as DoctorProfile);
       }
 
-      // MUDANÇA: Atualiza as estatísticas com os novos dados
       setStats({
         pendingSignatureContractsCount: pendingContractsData.length,
         upcomingShiftsCount: activeContractsData.length,
         totalAvailabilitySlotsCount: availabilitiesData.length,
       });
 
-      // NOVO: Seta o estado dos contratos pendentes de assinatura
       setPendingSignatureContracts(pendingContractsData);
 
-      // Lógica dos próximos plantões agora usa 'activeContractsData'
       const formattedUpcomingShifts: UpcomingShiftDisplayItem[] = activeContractsData
         .sort((a, b) => (a.shiftDates?.[0]?.toDate()?.getTime() || 0) - (b.shiftDates?.[0]?.toDate()?.getTime() || 0))
         .slice(0, 3)
@@ -99,10 +86,7 @@ export default function DashboardPage() {
         }));
       setUpcomingShifts(formattedUpcomingShifts);
 
-      console.log("[DashboardPage] Dashboard data processed and states updated.");
-
     } catch (err: any) {
-      console.error("[DashboardPage] Error fetching dashboard data:", err);
       setError("Falha ao carregar dados do dashboard.");
       toast({ title: "Erro no Dashboard", description: err.message || "Não foi possível buscar os dados.", variant: "destructive" });
     } finally {
@@ -110,22 +94,15 @@ export default function DashboardPage() {
     }
   }, [user, toast]); 
 
-  // O useEffect permanece funcionalmente o mesmo.
   useEffect(() => {
     if (authLoading) {
         setIsLoading(true);
         return;
     }
     if (user) {
-        console.log("[DashboardPage] User detected, calling fetchDashboardData.");
         fetchDashboardData();
     } else {
-        console.log("[DashboardPage] No user after auth check.");
         setIsLoading(false);
-        setDoctorProfile(null);
-        setStats({ pendingSignatureContractsCount: 0, upcomingShiftsCount: 0, totalAvailabilitySlotsCount: 0 });
-        setUpcomingShifts([]);
-        setPendingSignatureContracts([]);
     }
   }, [user, authLoading, fetchDashboardData]);
 
@@ -137,14 +114,10 @@ export default function DashboardPage() {
     return <div className="p-6"><ErrorState message={error} onRetry={fetchDashboardData} /></div>;
   }
   
-  if (!user && !authLoading) {
-    return <div className="p-6"><LoadingState message="Aguardando autenticação..." /></div>;
-  }
-  
   const doctorEditProfileLink = "/dashboard/profile/edit"; 
 
   return (
-    <div className="container mx-auto p-4 sm:p-6 space-y-6">
+    <div className="container mx-auto p-4 sm:p-6 space-y-8">
       <h1 className="text-3xl font-bold text-gray-800">Bem-vindo(a) de volta, {doctorProfile?.displayName || 'Doutor(a)'}!</h1>
 
       {doctorProfile && (
@@ -156,7 +129,6 @@ export default function DashboardPage() {
         />
       )}
 
-      {/* NOVO: Cartão de notificação para Contratos Pendentes */}
       {pendingSignatureContracts.length > 0 && (
         <Card className="bg-indigo-50 border-indigo-200 shadow-lg">
           <CardHeader>
@@ -173,7 +145,31 @@ export default function DashboardPage() {
         </Card>
       )}
 
-      {/* MUDANÇA: Os cards de estatísticas agora usam 'pendingSignatureContractsCount' */}
+      {/* --- NOVA SEÇÃO PARA PROJETOS DA SAÚDE --- */}
+      <div>
+        <h2 className="text-2xl font-semibold text-gray-700 mb-4">Projetos da Saúde</h2>
+        <div className="grid gap-6 md:grid-cols-2">
+            <Card className="flex flex-col">
+                <CardHeader>
+                    <CardTitle className="flex items-center gap-2"><Truck size={22}/> Caravana da Saúde</CardTitle>
+                    <CardDescription>Acesse a fila de atendimentos de telemedicina para o projeto da caravana.</CardDescription>
+                </CardHeader>
+                <CardContent className="flex-grow">
+                    <p className="text-sm text-muted-foreground">Clique no botão abaixo para visualizar os pacientes que aguardam por você e iniciar os atendimentos.</p>
+                </CardContent>
+                <CardFooter>
+                     <Button asChild className="w-full sm:w-auto">
+                        <Link href="/dashboard/fila">
+                            <ArrowRight className="mr-2 h-4 w-4" /> Acessar Fila de Atendimento
+                        </Link>
+                    </Button>
+                </CardFooter>
+            </Card>
+            {/* Futuros cards de outros projetos podem ser adicionados aqui */}
+        </div>
+      </div>
+
+
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
@@ -207,12 +203,11 @@ export default function DashboardPage() {
         </Card>
       </div>
 
-      {/* MUDANÇA: A seção de "Propostas" foi removida para dar lugar a um fluxo único de "Contratos". */}
       <div className="grid gap-6">
         <Card>
           <CardHeader>
             <CardTitle>Seus Próximos Plantões</CardTitle>
-            <CardDescription>Estes são seus plantões já confirmados e agendados. Prepare-se!</CardDescription>
+            <CardDescription>Estes são seus plantões já confirmados e agendados.</CardDescription>
           </CardHeader>
           <CardContent>
             {isLoading ? <LoadingState/> : upcomingShifts.length > 0 ? (

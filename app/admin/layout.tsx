@@ -4,8 +4,8 @@
 import React, { useEffect, useState, type ReactNode, type FC, type SVGProps } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-// CORREÇÃO: Adicionado o ícone 'DollarSign' para o novo item de menu
-import { ShieldCheck, Users, LogOut, Menu, X as IconX, Settings, LayoutDashboard, Loader2, FileText, DollarSign } from "lucide-react";
+// --- ÍCONE ADICIONADO ---
+import { ShieldCheck, Users, LogOut, Menu, X as IconX, Settings, LayoutDashboard, Loader2, FileText, DollarSign, Truck } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/components/auth-provider";
 import { logoutUser, getCurrentUserData, type UserProfile, type AdminProfile } from "@/lib/auth-service";
@@ -13,6 +13,7 @@ import Image from "next/image";
 import Logo from "@/public/logo-fht.svg";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { Separator } from "@/components/ui/separator"; // Para a separação visual
 
 const useIsMobileHook = (breakpoint = 768) => {
   const [isMobileView, setIsMobileView] = useState(false);
@@ -48,7 +49,9 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
         setProfileLoading(true);
         getCurrentUserData()
           .then(profile => {
-            if (profile && (profile.role === 'admin' || profile.role === 'backoffice')) {
+            // Adaptado para usar userType, mas mantendo a lógica de role para retrocompatibilidade
+            const userRole = (profile as any)?.userType || (profile as any)?.role;
+            if (profile && (userRole === 'admin' || userRole === 'backoffice')) {
               setUserProfile(profile as AdminProfile);
               setAccessDenied(false);
             } else {
@@ -65,15 +68,19 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
 
   const handleLogout = async () => { try { await logoutUser(); toast({ title: "Logout!" }); router.push('/login'); } catch (e:any) { toast({ title: "Erro Logout", description: e.message, variant: "destructive" });}};
   
-  // ATUALIZADO: Adicionado o novo link para a página de Faturamento
-  const navItems: Array<{ href: string; label: string; icon: React.ReactElement<SVGProps<SVGSVGElement> & {className?: string; size?: number}> }> = [
+  const mainNavItems: Array<{ href: string; label: string; icon: React.ReactElement }> = [
     { href: "/admin/dashboard", label: "Dashboard", icon: <LayoutDashboard className="h-5 w-5" /> },
     { href: "/admin/matches", label: "Painel de Revisão", icon: <ShieldCheck className="h-5 w-5" /> },
     { href: "/admin/contracts", label: "Contratos", icon: <FileText className="h-5 w-5" /> },
     { href: "/admin/users", label: "Utilizadores", icon: <Users className="h-5 w-5" /> },
-    // NOVO ITEM ADICIONADO
     { href: "/admin/billing", label: "Faturamento", icon: <DollarSign className="h-5 w-5" /> },
   ];
+  
+  // --- NOVA LISTA DE ITENS DE MENU PARA PROJETOS ---
+  const projectNavItems: Array<{ href: string; label: string; icon: React.ReactElement }> = [
+    { href: "/admin/caravanas", label: "Gestão de Caravanas", icon: <Truck className="h-5 w-5" /> }
+  ];
+
 
   if (authLoading || profileLoading) { return ( <div className="flex min-h-screen items-center justify-center bg-gray-100"> <Loader2 className="h-12 w-12 animate-spin text-blue-600" /> <p className="ml-3">Verificando acesso...</p></div> ); }
   if (accessDenied || !userProfile) { return null; }
@@ -84,20 +91,39 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
       <aside className={cn("bg-slate-800 text-slate-100 fixed inset-y-0 left-0 z-40 w-60 lg:w-64 transition-transform duration-300 ease-in-out md:static md:translate-x-0", isMobile && !isMobileMenuOpen ? "-translate-x-full" : "translate-x-0" )}>
         <div className="p-5 border-b border-slate-700 flex justify-center"><Link href="/admin/dashboard" onClick={() => isMobile && setIsMobileMenuOpen(false)}><Image src={Logo} alt="FHT Admin Panel" width={130} priority /></Link></div>
         <div className="p-3 mt-2 text-center text-sm"><p>Bem-vindo(a),</p><p className="font-semibold">{userProfile.displayName}</p></div>
+        
+        {/* --- ESTRUTURA DE NAVEGAÇÃO ATUALIZADA --- */}
         <nav className="px-3 py-4 flex-1">
+          {/* Seção Principal */}
           <ul className="space-y-1.5">
-            {navItems.map((item) => {
-              return (
-                <li key={item.href}>
-                  <Link href={item.href} className={cn( "flex items-center gap-3 px-3 py-2.5 rounded-md text-sm font-medium transition-all", pathname === item.href ? "bg-blue-600 text-white" : "hover:bg-slate-700 hover:text-blue-300" )} onClick={() => isMobile && setIsMobileMenuOpen(false)}>
-                    {React.cloneElement(item.icon, { className: cn("h-5 w-5", item.icon.props.className) })}
-                    <span>{item.label}</span>
-                  </Link>
-                </li>
-              );
-            })}
+            {mainNavItems.map((item) => (
+              <li key={item.href}>
+                <Link href={item.href} className={cn( "flex items-center gap-3 px-3 py-2.5 rounded-md text-sm font-medium transition-all", pathname === item.href ? "bg-blue-600 text-white" : "hover:bg-slate-700 hover:text-blue-300" )} onClick={() => isMobile && setIsMobileMenuOpen(false)}>
+                  {item.icon}
+                  <span>{item.label}</span>
+                </Link>
+              </li>
+            ))}
+          </ul>
+
+          {/* Seção de Projetos Sociais */}
+          <div className="my-6">
+            <Separator className="bg-slate-600" />
+            <h4 className="px-3 pt-4 pb-2 text-xs font-semibold text-slate-400 uppercase tracking-wider">Projetos Sociais</h4>
+          </div>
+
+          <ul className="space-y-1.5">
+            {projectNavItems.map((item) => (
+               <li key={item.href}>
+                <Link href={item.href} className={cn( "flex items-center gap-3 px-3 py-2.5 rounded-md text-sm font-medium transition-all", pathname.startsWith(item.href) ? "bg-blue-600 text-white" : "hover:bg-slate-700 hover:text-blue-300" )} onClick={() => isMobile && setIsMobileMenuOpen(false)}>
+                  {item.icon}
+                  <span>{item.label}</span>
+                </Link>
+              </li>
+            ))}
           </ul>
         </nav>
+        
         <div className="p-3 border-t border-slate-700"><Button variant="ghost" onClick={handleLogout} className="w-full justify-start text-slate-300 hover:bg-slate-700 hover:text-white"><LogOut className="mr-2 h-4 w-4" /> Sair</Button></div>
       </aside>
       {isMobile && isMobileMenuOpen && (<div className="fixed inset-0 bg-black/50 z-30 md:hidden" onClick={() => setIsMobileMenuOpen(false)} /> )}

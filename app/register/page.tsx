@@ -32,73 +32,41 @@ import {
   type SpecialistDocumentsRef,
   type HospitalDocumentsRef,
   type LegalRepDocumentsRef
-} from "@/lib/auth-service"; // Verifique se os paths estão corretos
-import { uploadFileToStorage } from "@/lib/storage-service"; // Verifique se os paths estão corretos
+} from "@/lib/auth-service";
+import { uploadFileToStorage } from "@/lib/storage-service";
 import { FirebaseError } from "firebase/app";
-import { cn } from "@/lib/utils"; // Verifique se os paths estão corretos
-import { auth } from "@/lib/firebase"; // Verifique se os paths estão corretos
+import { cn } from "@/lib/utils";
+import { auth } from "@/lib/firebase";
 import {
   Loader2, Check, AlertTriangle, Info, Stethoscope, Building,
-  FileUp, XCircleIcon, ExternalLink, CheckCircle
+  FileUp, XCircleIcon, ExternalLink, CheckCircle, HeartPulse, Briefcase
 } from "lucide-react";
-import { useAuth as useAuthHook } from "@/components/auth-provider"; // Verifique se os paths estão corretos
+import { useAuth as useAuthHook } from "@/components/auth-provider";
+import { Checkbox } from "@/components/ui/checkbox";
 
-interface Credentials {
-  password: string;
-  confirmPassword: string;
-}
-interface HospitalInfo {
-  companyName: string;
-  cnpj: string;
-  stateRegistration?: string;
-  phone: string;
-  email: string;
-}
+// --- NOVA: Lista de Especialidades ---
+const availableSpecialties = ["Clínica Geral", "Cardiologia", "Pediatria", "Ginecologia", "Oftalmologia", "Dermatologia", "Ortopedia"];
 
-interface FileWithProgress {
-  file: File | null;
-  name: string;
-  url?: string;
-  progress: number;
-  isUploading: boolean;
-  error?: string;
-}
-
-const initialFileState: FileWithProgress = {
-  file: null,
-  name: "",
-  url: undefined,
-  progress: 0,
-  isUploading: false,
-  error: undefined,
-};
-
+// Interfaces e constantes
+interface Credentials { password: string; confirmPassword: string; }
+interface HospitalInfo { companyName: string; cnpj: string; stateRegistration?: string; phone: string; email: string; }
+interface FileWithProgress { file: File | null; name: string; url?: string; progress: number; isUploading: boolean; error?: string; }
+const initialFileState: FileWithProgress = { file: null, name: "", url: undefined, progress: 0, isUploading: false, error: undefined, };
 const DOCUMENT_LABELS = { personalRg: "RG Pessoal*", personalCpf: "CPF Pessoal*", professionalCrm: "Carteira Profissional (CRM)*", photo3x4: "Foto 3x4 Recente*", addressProof: "Comprovante de Residência Pessoal*", graduationCertificate: "Certificado de Graduação*", criminalRecordCert: "Certidão Negativa Criminal*", ethicalCert: "Certidão Negativa Ético-Profissional*", debtCert: "Certidão Negativa de Débitos CRM*", cv: "Currículo Vitae (CV)*", rqe: "Registro de Qualificação de Especialista (RQE)*", postGradCert: "Certificado de Pós-Graduação/Residência*", specialistTitle: "Título de Especialista*", recommendationLetter: "Carta de Recomendação (Opcional)", socialContract: "Contrato Social*", cnpjCard: "Cartão CNPJ*", companyAddressProof: "Comprovante de Endereço da Empresa*", repRg: "RG do Responsável*", repCpf: "CPF do Responsável*", repAddressProof: "Comprovante de Residência do Responsável*", } as const;
-
 type AllDocumentKeys = keyof typeof DOCUMENT_LABELS;
-
 type DoctorDocKeys = "personalRg" | "personalCpf" | "professionalCrm" | "photo3x4" | "addressProof" | "graduationCertificate" | "criminalRecordCert" | "ethicalCert" | "debtCert" | "cv";
 type SpecialistDocKeys = "rqe" | "postGradCert" | "specialistTitle" | "recommendationLetter";
 type HospitalDocKeys = "socialContract" | "cnpjCard" | "companyAddressProof";
 type LegalRepDocKeys = "repRg" | "repCpf" | "repAddressProof";
-
 const doctorDocKeysArray: DoctorDocKeys[] = ["personalRg", "personalCpf", "professionalCrm", "photo3x4", "addressProof", "graduationCertificate", "criminalRecordCert", "ethicalCert", "debtCert", "cv"];
 const specialistDocKeysArray: SpecialistDocKeys[] = ["rqe", "postGradCert", "specialistTitle", "recommendationLetter"];
 const hospitalDocKeysArray: HospitalDocKeys[] = ["socialContract", "cnpjCard", "companyAddressProof"];
 const legalRepDocKeysArray: LegalRepDocKeys[] = ["repRg", "repCpf", "repAddressProof"];
-
 type DoctorDocumentsState = Record<DoctorDocKeys, FileWithProgress>;
 type SpecialistDocumentsState = Record<SpecialistDocKeys, FileWithProgress>;
 type HospitalDocumentsState = Record<HospitalDocKeys, FileWithProgress>;
 type LegalRepDocumentsState = Record<LegalRepDocKeys, FileWithProgress>;
-
-const createInitialDocState = <T extends string>(keys: readonly T[], labels: Record<T, string>): Record<T, FileWithProgress> => {
-  return keys.reduce((acc, key) => {
-    acc[key] = { ...initialFileState, name: labels[key].replace('*', '') };
-    return acc;
-  }, {} as Record<T, FileWithProgress>);
-};
-
+const createInitialDocState = <T extends string>(keys: readonly T[], labels: Record<T, string>): Record<T, FileWithProgress> => { return keys.reduce((acc, key) => { acc[key] = { ...initialFileState, name: labels[key].replace('*', '') }; return acc; }, {} as Record<T, FileWithProgress>); };
 const initialDoctorDocsStateValue: DoctorDocumentsState = createInitialDocState(doctorDocKeysArray, DOCUMENT_LABELS as any);
 const initialSpecialistDocsStateValue: SpecialistDocumentsState = createInitialDocState(specialistDocKeysArray, DOCUMENT_LABELS as any);
 const initialHospitalDocsStateValue: HospitalDocumentsState = createInitialDocState(hospitalDocKeysArray, DOCUMENT_LABELS as any);
@@ -330,6 +298,7 @@ const InputWithIMask: React.FC<InputWithIMaskProps> = ({ maskOptions, onAccept, 
     return <Input ref={ref as React.RefObject<HTMLInputElement>} id={id} defaultValue={defaultValue} {...rest} />;
 };
 
+
 export default function RegisterPage() {
     const [registrationComplete, setRegistrationComplete] = useState(false);
     const [targetDashboardPath, setTargetDashboardPath] = useState<string | null>(null);
@@ -338,9 +307,11 @@ export default function RegisterPage() {
     const [isLoading, setIsLoading] = useState(false);
     const router = useRouter();
     const { toast } = useToast();
-    const { user: authUser, loading: authLoading } = useAuthHook(); // authUser é do tipo firebase.User | null
-    const [initialRedirectPath, setInitialRedirectPath] = useState<string | null>(null);
-    const [checkingInitialAuth, setCheckingInitialAuth] = useState(true);
+    const { user: authUser, loading: authLoading } = useAuthHook();
+
+    // --- NOVOS ESTADOS PARA O CADASTRO INTELIGENTE ---
+    const [doctorObjective, setDoctorObjective] = useState<'caravan' | 'match' | null>(null);
+    const [selectedSpecialties, setSelectedSpecialties] = useState<string[]>([]);
 
     const [personalInfo, setPersonalInfo] = useState<PersonalInfo>({ name: "", dob: "", rg: "", cpf: "", phone: "", email: "" });
     const [addressInfo, setAddressInfo] = useState<AddressInfo>({ cep: "", street: "", number: "", complement: "", neighborhood: "", city: "", state: "" });
@@ -349,66 +320,55 @@ export default function RegisterPage() {
     const [hospitalAddressInfo, setHospitalAddressInfo] = useState<AddressInfo>({ cep: "", street: "", number: "", complement: "", neighborhood: "", city: "", state: "" });
     const [legalRepresentativeInfo, setLegalRepresentativeInfo] = useState<LegalRepresentativeInfo>({ name: "", dob: "", rg: "", cpf: "", phone: "", email: "", position: "" });
     const [credentials, setCredentials] = useState<Credentials>({ password: "", confirmPassword: "" });
-
     const [doctorDocuments, setDoctorDocuments] = useState<DoctorDocumentsState>(initialDoctorDocsStateValue);
     const [specialistDocuments, setSpecialistDocuments] = useState<SpecialistDocumentsState>(initialSpecialistDocsStateValue);
     const [hospitalDocuments, setHospitalDocuments] = useState<HospitalDocumentsState>(initialHospitalDocsStateValue);
     const [legalRepDocuments, setLegalRepDocuments] = useState<LegalRepDocumentsState>(initialLegalRepDocsStateValue);
-
     const [isCepLoading, setIsCepLoading] = useState(false);
     const [isHospitalCepLoading, setIsHospitalCepLoading] = useState(false);
 
+    // --- CORREÇÃO: Lógica de redirecionamento para usuário já logado ---
+    // Se a autenticação já carregou e existe um usuário, não mostramos o formulário.
+    // Em vez disso, redirecionamos para evitar o erro "Cannot update a component while rendering".
     useEffect(() => {
-        if (authLoading) {
-            setCheckingInitialAuth(true);
-            return;
+        if (!authLoading && authUser) {
+            // Apenas redireciona se estiver na página de registro e já logado.
+            // O ideal é que um layout superior gerencie isso, mas um push para a home resolve.
+            router.push('/');  
         }
-    
-        if (authUser) {
-            setCheckingInitialAuth(true);
-            // Para acessar custom claims (como 'role'), use getIdTokenResult()
-            // O objeto 'authUser' (do tipo firebase.User) não tem 'customClaims' diretamente.
-            authUser.getIdTokenResult()
-                .then((idTokenResult) => {
-                    // idTokenResult.claims contém os custom claims
-                    const userRole = idTokenResult.claims.role as UserType; 
-                    const path = userRole === 'doctor' ? '/dashboard/availability' :
-                                 userRole === 'hospital' ? '/hospital/dashboard' :
-                                 '/';
-                    setInitialRedirectPath(path);
-                })
-                .catch(error => {
-                    console.error("Erro ao obter ID token para redirecionamento inicial:", error);
-                    setInitialRedirectPath('/');
-                })
-                .finally(() => {
-                    setCheckingInitialAuth(false);
-                });
-        } else {
-            setCheckingInitialAuth(false);
-            setInitialRedirectPath(null);
-        }
-    }, [authUser, authLoading, router]);
+    }, [authLoading, authUser, router]);
 
+    // --- LÓGICA DE ETAPAS ATUALIZADA ---
     const stepsConfig = useMemo(() => {
         if (!role) return [{ id: 'role', label: 'Tipo' }];
-        if (role === 'hospital') {
-            return [
-                { id: 'role', label: 'Tipo' }, { id: 'hospitalInfo', label: 'Dados Empresa' },
-                { id: 'hospitalAddress', label: 'Endereço Empresa' }, { id: 'hospitalDocs', label: 'Docs Empresa' },
-                { id: 'legalRepInfo', label: 'Responsável' }, { id: 'legalRepDocs', label: 'Docs Responsável' },
-                { id: 'credentials', label: 'Senha' }, { id: 'summary', label: 'Revisão' }
+        
+        if (role === 'doctor') {
+            // Se o objetivo ainda não foi definido, mostra a tela de seleção de objetivo
+            if (!doctorObjective) {
+                return [{ id: 'role', label: 'Tipo' }, { id: 'doctorObjective', label: 'Objetivo' }];
+            }
+
+            const baseSteps = [
+                { id: 'role', label: 'Tipo' },
+                { id: 'doctorObjective', label: 'Objetivo' },
+                { id: 'personalInfo', label: 'Dados Pessoais' },
+                { id: 'specialties', label: 'Especialidades' }
             ];
+
+            // Se for o fluxo rápido da caravana, pula para a senha
+            if (doctorObjective === 'caravan') {
+                return [...baseSteps, { id: 'credentials', label: 'Senha' }, { id: 'summary', label: 'Revisão' }];
+            }
+
+            // Se for o fluxo completo de match
+            const fullMatchSteps = [ ...baseSteps, { id: 'addressInfo', label: 'Endereço' }, { id: 'essentialDocs', label: 'Docs Essenciais' }, { id: 'certsAndCvDocs', label: 'Certidões/CV' }, { id: 'isSpecialist', label: 'Especialidade?' } ];
+            const specialistStep = isSpecialist ? [{ id: 'specialistDocs', label: 'Docs Especialista' }] : [];
+            return [...fullMatchSteps, ...specialistStep, { id: 'credentials', label: 'Senha' }, { id: 'summary', label: 'Revisão' }];
         }
-        const doctorBaseSteps = [
-            { id: 'role', label: 'Tipo' }, { id: 'personalInfo', label: 'Dados Pessoais' },
-            { id: 'addressInfo', label: 'Endereço' }, { id: 'essentialDocs', label: 'Docs Essenciais' },
-            { id: 'certsAndCvDocs', label: 'Certidões/CV' }, { id: 'isSpecialist', label: 'Especialidade?' }
-        ];
-        const specialistStep = isSpecialist ? [{ id: 'specialistDocs', label: 'Docs Especialista' }] : [];
-        const finalSteps = [ { id: 'credentials', label: 'Senha' }, { id: 'summary', label: 'Revisão' } ];
-        return [...doctorBaseSteps, ...specialistStep, ...finalSteps];
-    }, [role, isSpecialist]);
+        
+        // Etapas do hospital não mudam
+        return [ { id: 'role', label: 'Tipo' }, { id: 'hospitalInfo', label: 'Dados Empresa' }, { id: 'hospitalAddress', label: 'Endereço Empresa' }, { id: 'hospitalDocs', label: 'Docs Empresa' }, { id: 'legalRepInfo', label: 'Responsável' }, { id: 'legalRepDocs', label: 'Docs Responsável' }, { id: 'credentials', label: 'Senha' }, { id: 'summary', label: 'Revisão' } ];
+    }, [role, doctorObjective, isSpecialist]);
 
     const currentStepIndex = step;
     const currentStepConfig = stepsConfig[currentStepIndex];
@@ -417,7 +377,7 @@ export default function RegisterPage() {
     useEffect(() => {
         console.log(`[RegisterPage] Step Changed. Index: ${currentStepIndex}, ID: ${currentStepConfig?.id}`);
     }, [currentStepIndex, currentStepConfig]);
-
+    
     const isValidEmail = (email: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
     const isValidCPF = (cpf: string) => /^\d{11}$/.test(cpf.replace(/[^\d]/g, ""));
     const isValidCNPJ = (cnpj: string) => /^\d{14}$/.test(cnpj.replace(/[^\d]/g, ""));
@@ -427,9 +387,8 @@ export default function RegisterPage() {
     const isValidDate = (date: string) => /^\d{4}-\d{2}-\d{2}$/.test(date) && !isNaN(Date.parse(date)) && new Date(date) < new Date();
     const isValidPassword = (password: string) => password.length >= 6;
     const isNotEmpty = (value: string | undefined | null) => !!value && value.trim().length > 0;
-    
     const isFileStatePresent = (fileState: FileWithProgress | null | undefined) => !!fileState && (!!fileState.url || !!fileState.file);
-
+    
     const handleInputChangeCallback = useCallback((setState: React.Dispatch<React.SetStateAction<any>>, field: string) =>
         (e: ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
             setState((prev: any) => ({ ...prev, [field]: e.target.value }));
@@ -718,9 +677,23 @@ export default function RegisterPage() {
                     errorTitle = "Senhas Divergentes";
                 }
                 break;
+            case 'doctorObjective':
+                validate(!!doctorObjective, "Você precisa selecionar um objetivo para continuar.");
+                break;
+            case 'specialties':
+                validate(selectedSpecialties.length > 0, "Selecione pelo menos uma especialidade.");
+                break;
         }
 
         if (isValid) {
+            if (role === 'doctor' && doctorObjective === 'caravan' && currentStepConfig?.id === 'specialties') {
+                const credentialsStepIndex = stepsConfig.findIndex(s => s.id === 'credentials');
+                if (credentialsStepIndex !== -1) {
+                    setStep(credentialsStepIndex);
+                    window.scrollTo(0, 0);
+                    return;
+                }
+            }
             if (step < totalSteps - 1) {
                 setStep(s => s + 1);
                 window.scrollTo(0, 0);
@@ -728,9 +701,17 @@ export default function RegisterPage() {
         } else {
             toast({ variant: "destructive", title: errorTitle, description: errorDescription });
         }
-    }, [step, totalSteps, currentStepConfig, role, personalInfo, addressInfo, doctorDocuments, isSpecialist, specialistDocuments, hospitalInfo, hospitalAddressInfo, hospitalDocuments, legalRepresentativeInfo, legalRepDocuments, credentials, toast]);
+    }, [step, totalSteps, currentStepConfig, role, personalInfo, addressInfo, doctorDocuments, isSpecialist, specialistDocuments, hospitalInfo, hospitalAddressInfo, hospitalDocuments, legalRepresentativeInfo, legalRepDocuments, credentials, toast, doctorObjective, selectedSpecialties, stepsConfig]);
 
     const handlePrevStep = () => {
+        if (role === 'doctor' && doctorObjective === 'caravan' && currentStepConfig?.id === 'credentials') {
+             const specialtiesStepIndex = stepsConfig.findIndex(s => s.id === 'specialties');
+             if (specialtiesStepIndex !== -1) {
+                 setStep(specialtiesStepIndex);
+                 window.scrollTo(0,0);
+                 return;
+             }
+        }
         if (step > 0) {
             setStep(s => s - 1);
             window.scrollTo(0, 0);
@@ -760,7 +741,7 @@ export default function RegisterPage() {
 
             const filesToProcess: { docKey: AllDocumentKeys, fileState: FileWithProgress, typePathFragment: string, subFolder?: string }[] = [];
 
-            if (role === 'doctor') {
+            if (role === 'doctor' && doctorObjective === 'match') {
                 doctorDocKeysArray.forEach(key => {
                     if (doctorDocuments[key].file) filesToProcess.push({ docKey: key, fileState: doctorDocuments[key], typePathFragment: "doctor_documents" });
                     else if (doctorDocuments[key].url) (finalDocRefs.documents as any)[key] = doctorDocuments[key].url;
@@ -771,7 +752,7 @@ export default function RegisterPage() {
                         else if (specialistDocuments[key].url) (finalDocRefs.specialistDocuments as any)[key] = specialistDocuments[key].url;
                     });
                 }
-            } else {
+            } else if (role === 'hospital') {
                 hospitalDocKeysArray.forEach(key => {
                     if (hospitalDocuments[key].file) filesToProcess.push({ docKey: key, fileState: hospitalDocuments[key], typePathFragment: "hospital_documents" });
                     else if (hospitalDocuments[key].url) (finalDocRefs.hospitalDocs as any)[key] = hospitalDocuments[key].url;
@@ -826,25 +807,37 @@ export default function RegisterPage() {
 
             toast({ title: "Etapa 3/3: Finalizando cadastro...", duration: 3000 });
             let registrationData: DoctorRegistrationPayload | HospitalRegistrationPayload;
+
             if (role === 'doctor') {
                 const { name: _pName, email: _pEmail, ...personalDetails } = personalInfo;
-                registrationData = {
+                
+                const doctorData: DoctorRegistrationPayload = {
                     ...personalDetails,
-                    address: { ...addressInfo, cep: addressInfo.cep.replace(/\D/g, "") },
+                    professionalCrm: personalInfo.rg,
+                    specialties: selectedSpecialties,
                     isSpecialist: isSpecialist,
-                    documents: finalDocRefs.documents as DoctorDocumentsRef,
-                    specialistDocuments: isSpecialist ? finalDocRefs.specialistDocuments as SpecialistDocumentsRef : {},
+                    documents: finalDocRefs.documents,
+                    specialistDocuments: isSpecialist ? finalDocRefs.specialistDocuments : {},
+                    registrationObjective: doctorObjective || 'match',
                 };
-            } else {
+
+                if (doctorObjective === 'match') {
+                    doctorData.address = { ...addressInfo, cep: addressInfo.cep.replace(/\D/g, "") };
+                }
+                
+                registrationData = doctorData;
+
+            } else { // Hospital
                 const { companyName: _cName, email: _hEmail, ...hospitalDetails } = hospitalInfo;
                 registrationData = {
                     ...hospitalDetails,
                     address: { ...hospitalAddressInfo, cep: hospitalAddressInfo.cep.replace(/\D/g, "") },
                     legalRepresentativeInfo: legalRepresentativeInfo,
-                    hospitalDocs: finalDocRefs.hospitalDocs as HospitalDocumentsRef,
-                    legalRepDocuments: finalDocRefs.legalRepDocuments as LegalRepDocumentsRef,
+                    hospitalDocs: finalDocRefs.hospitalDocs,
+                    legalRepDocuments: finalDocRefs.legalRepDocuments,
                 };
             }
+            
             await completeUserRegistration(userId, loginEmail, displayName, role, registrationData);
             
             setRegistrationComplete(true);
@@ -861,8 +854,6 @@ export default function RegisterPage() {
                     case 'auth/email-already-in-use': title = "Email já Cadastrado"; description = "Este email já está em uso."; break;
                 }
             }
-            // Se o erro nas linhas 1069, 1070 for aqui, certifique-se de que qualquer acesso a authUser (ou firebaseUser)
-            // para obter custom claims use .getIdTokenResult().then(idTokenResult => idTokenResult.claims.seuClaim)
             toast({ variant: "destructive", title: title, description: description, duration: 7000 });
         } finally {
             setIsLoading(false);
@@ -900,6 +891,26 @@ export default function RegisterPage() {
                         {!role && step === 0 && <p className="text-sm text-red-600 pt-4 text-center">Selecione uma opção para iniciar.</p>}
                     </div>
                 );
+            case 'doctorObjective':
+                return (
+                     <div className="space-y-4 animate-fade-in">
+                        <Label className="text-base font-semibold block text-center mb-6">Qual seu objetivo principal na plataforma?</Label>
+                        <RadioGroup value={doctorObjective ?? ""} onValueChange={(value) => setDoctorObjective(value as 'caravan' | 'match')} className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <Label htmlFor="objective-caravan" className={cn("flex flex-col items-center justify-center p-6 border rounded-lg cursor-pointer transition-colors hover:bg-blue-50 hover:border-blue-400", doctorObjective === 'caravan' ? "bg-blue-50 border-blue-500 ring-2 ring-blue-500" : "bg-white border-gray-300")}>
+                                <RadioGroupItem value="caravan" id="objective-caravan" className="sr-only" />
+                                <HeartPulse className={cn("h-10 w-10 mb-3", doctorObjective === 'caravan' ? "text-blue-700" : "text-gray-500")} />
+                                <span className={cn("font-medium text-center", doctorObjective === 'caravan' ? "text-blue-800" : "text-gray-700")}>Participar de projetos (Caravana)</span>
+                                <span className="text-xs text-gray-500 mt-1">Cadastro rápido e focado.</span>
+                            </Label>
+                            <Label htmlFor="objective-match" className={cn("flex flex-col items-center justify-center p-6 border rounded-lg cursor-pointer transition-colors hover:bg-blue-50 hover:border-blue-400", doctorObjective === 'match' ? "bg-blue-50 border-blue-500 ring-2 ring-blue-500" : "bg-white border-gray-300")}>
+                                <RadioGroupItem value="match" id="objective-match" className="sr-only" />
+                                <Briefcase className={cn("h-10 w-10 mb-3", doctorObjective === 'match' ? "text-blue-700" : "text-gray-500")} />
+                                <span className={cn("font-medium text-center", doctorObjective === 'match' ? "text-blue-800" : "text-gray-700")}>Buscar oportunidades de plantão</span>
+                                <span className="text-xs text-gray-500 mt-1">Cadastro completo para verificação.</span>
+                            </Label>
+                        </RadioGroup>
+                    </div>
+                );
             case 'personalInfo':
                 return (
                     <form autoComplete="off" onSubmit={(e) => {e.preventDefault(); handleNextStep();}} className="space-y-4 animate-fade-in">
@@ -913,6 +924,24 @@ export default function RegisterPage() {
                             <div className="space-y-1"><Label htmlFor="email">Email (Login)*</Label><Input id="email" type="email" value={personalInfo.email} onChange={handleInputChangeCallback(setPersonalInfo, 'email')} required /></div>
                         </div>
                     </form>
+                );
+            case 'specialties':
+                const handleSpecialtyChange = (specialty: string, checked: boolean) => {
+                    setSelectedSpecialties(prev => checked ? [...prev, specialty] : prev.filter(s => s !== specialty));
+                };
+                return (
+                    <div className="space-y-4 animate-fade-in">
+                        <h3 className="text-lg font-semibold border-b pb-2 mb-4">Selecione suas especialidades*</h3>
+                        <p className="text-sm text-gray-500">Marque todas as áreas em que você atua. Isto é fundamental para o direcionamento dos pacientes.</p>
+                        <div className="grid grid-cols-2 md:grid-cols-3 gap-4 pt-4">
+                            {availableSpecialties.map(spec => (
+                                <div key={spec} className="flex items-center space-x-2">
+                                    <Checkbox id={`spec-${spec}`} checked={selectedSpecialties.includes(spec)} onCheckedChange={(checked) => handleSpecialtyChange(spec, !!checked)} />
+                                    <Label htmlFor={`spec-${spec}`} className="font-normal cursor-pointer">{spec}</Label>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
                 );
             case 'addressInfo':
                  return (
@@ -1079,13 +1108,11 @@ export default function RegisterPage() {
         }
     };
 
-    if (authLoading || (checkingInitialAuth && !authLoading)) {
-        return <LoadingPage message={authLoading ? "Verificando autenticação..." : "Verificando sua sessão..."} />;
-    }
-
-    if (initialRedirectPath && !isLoading && !checkingInitialAuth && step === 0 ) {
-        router.replace(initialRedirectPath);
-        return <LoadingPage message="Redirecionando..." />;
+    // --- CORREÇÃO: Nova lógica de carregamento e guarda ---
+    // Mostra uma tela de carregamento enquanto a autenticação está sendo verificada
+    // ou se um usuário já estiver logado (aguardando o redirecionamento do useEffect).
+    if (authLoading || authUser) {
+        return <LoadingPage message="Verificando sessão..." />;
     }
 
     return (
@@ -1133,7 +1160,7 @@ export default function RegisterPage() {
                  ) : (
                      <Button
                          onClick={handleNextStep}
-                         disabled={ (currentStepConfig?.id === 'role' && !role) || isLoading || isCepLoading || isHospitalCepLoading }
+                         disabled={ (currentStepConfig?.id === 'role' && !role) || (currentStepConfig?.id === 'doctorObjective' && !doctorObjective) || isLoading || isCepLoading || isHospitalCepLoading }
                          className="w-full sm:w-auto px-6 py-3 text-sm sm:text-base bg-blue-600 hover:bg-blue-700 text-white"
                      >
                          Próximo

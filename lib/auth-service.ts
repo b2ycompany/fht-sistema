@@ -23,7 +23,7 @@ import {
 } from "firebase/firestore";
 import { auth, db } from "./firebase";
 
-export type UserType = "doctor" | "hospital" | "admin" | "backoffice";
+export type UserType = "doctor" | "hospital" | "admin" | "backoffice" | "receptionist" | "triage_nurse" | "caravan_admin";
 export type ProfileStatus = "PENDING_REVIEW" | "APPROVED" | "REJECTED_NEEDS_RESUBMISSION";
 
 export interface PersonalInfo {
@@ -86,10 +86,11 @@ export interface DoctorRegistrationPayload
   extends Omit<PersonalInfo, "email" | "name"> {
   professionalCrm: string;
   specialties: string[];    
-  address: AddressInfo;
+  address?: AddressInfo; // Mantivemos a correção anterior para o endereço ser opcional
   isSpecialist: boolean;
   documents: Partial<DoctorDocumentsRef>; 
-  specialistDocuments: Partial<SpecialistDocumentsRef>; 
+  specialistDocuments: Partial<SpecialistDocumentsRef>;
+  registrationObjective?: 'caravan' | 'match'; 
 }
 export interface HospitalRegistrationPayload {
   cnpj: string;
@@ -105,20 +106,21 @@ export interface UserProfileBase {
   uid: string;
   email: string;
   displayName: string;
-  role: UserType;
+  userType: UserType;
   createdAt: Timestamp;
   updatedAt: Timestamp;
   adminVerificationNotes?: string;
   documentRejectionReasons?: Record<string, string>;
+  hospitalId?: string; // <-- NOVO CAMPO ADICIONADO
 }
 
 export interface DoctorProfile extends UserProfileBase, DoctorRegistrationPayload {
-  role: "doctor";
+  userType: "doctor";
   documentVerificationStatus?: ProfileStatus;
 }
 
 export interface HospitalProfile extends UserProfileBase {
-  role: "hospital";
+  userType: "hospital";
   companyInfo: {
     cnpj: string;
     stateRegistration?: string;
@@ -131,7 +133,7 @@ export interface HospitalProfile extends UserProfileBase {
   documentVerificationStatus?: ProfileStatus;
 }
 export interface AdminProfile extends UserProfileBase {
-  role: "admin" | "backoffice";
+  userType: "admin" | "backoffice" | "receptionist" | "triage_nurse" | "caravan_admin";
   permissions?: string[];
 }
 
@@ -174,12 +176,12 @@ export const completeUserRegistration = async (
   userId: string,
   email: string,
   displayName: string,
-  role: UserType,
+  userType: UserType,
   registrationData: DoctorRegistrationPayload | HospitalRegistrationPayload,
 ): Promise<void> => {
   let userProfileDataSpecific: any = {};
 
-  if (role === "doctor") {
+  if (userType === "doctor") {
     const { documents, specialistDocuments, ...doctorDetails } = registrationData as DoctorRegistrationPayload;
     userProfileDataSpecific = {
       ...doctorDetails,
@@ -188,7 +190,7 @@ export const completeUserRegistration = async (
       documentVerificationStatus: "PENDING_REVIEW",
       adminVerificationNotes: "",
     };
-  } else if (role === "hospital") {
+  } else if (userType === "hospital") {
     const { hospitalDocs, legalRepDocuments, ...hospitalDetails } = registrationData as HospitalRegistrationPayload;
     userProfileDataSpecific = {
       companyInfo: {
@@ -203,6 +205,8 @@ export const completeUserRegistration = async (
       documentVerificationStatus: "PENDING_REVIEW",
       adminVerificationNotes: "",
     };
+  } else if (["receptionist", "triage_nurse", "caravan_admin", "admin", "backoffice"].includes(userType)) {
+    userProfileDataSpecific = {};
   } else {
     throw new Error("Tipo de perfil de registro inválido.");
   }
@@ -211,14 +215,14 @@ export const completeUserRegistration = async (
     uid: userId,
     email,
     displayName,
-    role,
+    userType: userType,
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
     ...userProfileDataSpecific
   };
 
   await setDoc(doc(db, "users", userId), finalProfileData);
-  console.log(`[AuthService] Perfil ${role} salvo para UID: ${userId}`);
+  console.log(`[AuthService] Perfil ${userType} salvo para UID: ${userId}`);
 };
 
 export const loginUser = async (email: string, password: string): Promise<FirebaseUser> => {
@@ -230,6 +234,7 @@ export const loginUser = async (email: string, password: string): Promise<Fireba
     throw e;
   }
 };
+
 export const logoutUser = async (): Promise<void> => { try { await signOut(auth); } catch (e) { console.error("[AuthService] Logout error:", e); throw e; }};
 export const resetPassword = async (email: string): Promise<void> => { try { await sendPasswordResetEmail(auth, email); } catch (e) { console.error("[AuthService] Reset error:", e); throw e; }};
 
@@ -254,7 +259,7 @@ export const getDoctorProfileForAdmin = async (doctorId: string): Promise<Doctor
   try {
     const docRef = doc(db, "users", doctorId);
     const docSnap = await getDoc(docRef);
-    if (docSnap.exists() && docSnap.data().role === "doctor") {
+    if (docSnap.exists() && docSnap.data().userType === "doctor") {
       return { uid: docSnap.id, ...docSnap.data() } as DoctorProfile;
     }
     return null;
@@ -312,8 +317,8 @@ export const updateDoctorProfileData = async (
 
   try {
     const docSnap = await getDoc(doctorDocRef);
-    if (!docSnap.exists() || docSnap.data()?.role !== 'doctor') {
-        throw new Error("Perfil de doutor não encontrado ou tipo de usuário incorreto para atualização.");
+    if (!docSnap.exists() || docSnap.data()?.userType !== 'doctor') {
+      throw new Error("Perfil de doutor não encontrado ou tipo de usuário incorreto para atualização.");
     }
 
     await updateDoc(doctorDocRef, updatePayload);

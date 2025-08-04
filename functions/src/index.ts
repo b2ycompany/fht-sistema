@@ -13,6 +13,7 @@ import fetch from "node-fetch";
 if (admin.apps.length === 0) { admin.initializeApp(); }
 const db = getFirestore();
 const storage = getStorage();
+const auth = admin.auth();
 
 // Interfaces
 interface ShiftRequirementData {
@@ -80,7 +81,6 @@ interface PotentialMatchInput {
   matchScore: number;
 }
 
-// MODIFICADO: A interface do ponto agora pode ter campos de check-out e status atualizado
 interface TimeRecord {
     contractId: string;
     doctorId: string;
@@ -88,7 +88,7 @@ interface TimeRecord {
     checkInTime: FieldValue;
     checkInLocation: GeoPoint;
     checkInPhotoUrl: string;
-    status: 'IN_PROGRESS' | 'COMPLETED'; // Status pode ser alterado
+    status: 'IN_PROGRESS' | 'COMPLETED';
     checkOutTime?: FieldValue;
     checkOutLocation?: GeoPoint;
     checkOutPhotoUrl?: string;
@@ -127,7 +127,7 @@ export const findMatchesOnShiftRequirementWrite = onDocumentWritten({ document: 
     }
     const requirement = dataAfter;
     logger.info(`INICIANDO BUSCA DE MATCHES para a Demanda: ${event.params.requirementId}`);
-    
+
     try {
       let timeSlotsQuery: Query = db.collection("doctorTimeSlots")
         .where("status", "==", "AVAILABLE")
@@ -137,14 +137,14 @@ export const findMatchesOnShiftRequirementWrite = onDocumentWritten({ document: 
       if (requirement.cities && requirement.cities.length > 0) {
         timeSlotsQuery = timeSlotsQuery.where('cities', 'array-contains-any', requirement.cities);
       }
-      
+
       const timeSlotsSnapshot = await timeSlotsQuery.get();
-      
+
       if (timeSlotsSnapshot.empty) {
         logger.info(`Nenhum TimeSlot encontrado para os critérios básicos (local, data, etc).`);
         return;
       }
-      
+
       const specialtiesRequired = requirement.specialtiesRequired;
       const finalCandidates = timeSlotsSnapshot.docs.filter(doc => {
         if (!specialtiesRequired || specialtiesRequired.length === 0) {
@@ -161,25 +161,25 @@ export const findMatchesOnShiftRequirementWrite = onDocumentWritten({ document: 
         logger.info(`Nenhum candidato final após o filtro de especialidades.`);
         return;
       }
-      
+
       logger.info(`[MATCHING] Encontrados ${finalCandidates.length} candidatos finais para a Req ${event.params.requirementId}.`);
-      
+
       const batch = db.batch();
       let matchesCreatedCount = 0;
-      
+
       for (const timeSlotDoc of finalCandidates) {
         const timeSlot = timeSlotDoc.data() as TimeSlotData;
 
         if (!doIntervalsOverlap(timeToMinutes(timeSlot.startTime), timeToMinutes(timeSlot.endTime), timeSlot.isOvernight, timeToMinutes(requirement.startTime), timeToMinutes(requirement.endTime), requirement.isOvernight)) {
           continue;
         }
-        
+
         const matchedDate = requirement.dates.find((reqDate) => reqDate.isEqual(timeSlot.date))!;
         if (!matchedDate) continue;
 
         const deterministicMatchId = `${event.params.requirementId}_${timeSlotDoc.id}_${matchedDate.seconds}`;
         const matchRef = db.collection("potentialMatches").doc(deterministicMatchId);
-        
+
         const matchSnap = await matchRef.get();
         if (matchSnap.exists) { continue; }
 
@@ -205,17 +205,17 @@ export const findMatchesOnShiftRequirementWrite = onDocumentWritten({ document: 
         if (cityIntersection.size > 0) {
             score += 2;
         }
-        
+
         const newPotentialMatchData: PotentialMatchInput = {
           shiftRequirementId: event.params.requirementId, hospitalId: requirement.hospitalId, hospitalName: requirement.hospitalName || "",
           originalShiftRequirementDates: requirement.dates, matchedDate: matchedDate, shiftRequirementStartTime: requirement.startTime,
           shiftRequirementEndTime: requirement.endTime, shiftRequirementIsOvernight: requirement.isOvernight,
           shiftRequirementServiceType: requirement.serviceType,
-          doctorServiceType: timeSlot.serviceType, 
+          doctorServiceType: timeSlot.serviceType,
           shiftRequirementSpecialties: requirement.specialtiesRequired || [], offeredRateByHospital: requirement.offeredRate,
           shiftRequirementNotes: requirement.notes || "", numberOfVacanciesInRequirement: requirement.numberOfVacancies,
           timeSlotId: timeSlotDoc.id, doctorId: timeSlot.doctorId,
-          doctorName: timeSlot.doctorName ?? "", 
+          doctorName: timeSlot.doctorName ?? "",
           timeSlotStartTime: timeSlot.startTime, timeSlotEndTime: timeSlot.endTime, timeSlotIsOvernight: timeSlot.isOvernight,
           doctorTimeSlotNotes: timeSlot.notes || "", doctorDesiredRate: timeSlot.desiredHourlyRate, doctorSpecialties: timeSlot.specialties || [],
           status: "PENDING_BACKOFFICE_REVIEW",
@@ -227,7 +227,7 @@ export const findMatchesOnShiftRequirementWrite = onDocumentWritten({ document: 
         batch.set(matchRef, newPotentialMatchData);
         matchesCreatedCount++;
       }
-      
+
       if (matchesCreatedCount > 0) {
         await batch.commit();
         logger.info(`[SUCESSO] ${matchesCreatedCount} novo(s) PotentialMatch(es) criado(s).`);
@@ -645,7 +645,7 @@ export const generateDocumentPdf = onCall({ cors: true }, async (request: Callab
         const bucket = storage.bucket();
         const filePath = `documents/${documentsRef.id}.pdf`;
         const file = bucket.file(filePath);
-        await file.save(Buffer.from(pdfBytes), { metadata: { contentType: "application/pdf" } });
+        await file.save(Buffer.from(pdfBytes), { metadata: { contentType: "application/pdf" }, });
         const [url] = await file.getSignedUrl({ action: 'read', expires: '03-09-2491' });
 
         await documentsRef.set({
@@ -730,7 +730,6 @@ export const registerTimeRecord = onCall({ cors: true }, async (request: Callabl
         const hospitalId = contractSnap.data()?.hospitalId;
         const recordId = `${contractId}_${doctorId}`; // ID determinístico
 
-        // 1. Salvar a foto no Cloud Storage
         const bucket = storage.bucket();
         const filePath = `timeRecords/${recordId}_checkin.jpg`;
         const file = bucket.file(filePath);
@@ -741,7 +740,6 @@ export const registerTimeRecord = onCall({ cors: true }, async (request: Callabl
         
         logger.info(`Foto de check-in salva em: ${photoUrl}`);
 
-        // 2. Criar o documento de registro de ponto
         const timeRecordRef = db.collection("timeRecords").doc(recordId);
         const newRecordData: TimeRecord = {
             contractId,
@@ -754,9 +752,8 @@ export const registerTimeRecord = onCall({ cors: true }, async (request: Callabl
         };
 
         const batch = db.batch();
-        batch.set(timeRecordRef, newRecordData, { merge: true }); // Usar `set` com `merge` para permitir check-out futuro
+        batch.set(timeRecordRef, newRecordData, { merge: true }); 
 
-        // 3. Atualizar o status do contrato
         batch.update(contractRef, { status: "IN_PROGRESS", updatedAt: FieldValue.serverTimestamp() });
 
         await batch.commit();
@@ -771,7 +768,6 @@ export const registerTimeRecord = onCall({ cors: true }, async (request: Callabl
     }
 });
 
-// --- NOVO ---: Função para registrar o Check-out
 export const registerCheckout = onCall({ cors: true }, async (request: CallableRequest) => {
     if (!request.auth) {
         throw new HttpsError("unauthenticated", "A função só pode ser chamada por um usuário autenticado.");
@@ -786,7 +782,6 @@ export const registerCheckout = onCall({ cors: true }, async (request: CallableR
     logger.info(`Médico ${doctorId} iniciando check-out para o contrato ${contractId}.`);
 
     try {
-        // 1. Validar o registro de ponto existente
         const recordId = `${contractId}_${doctorId}`;
         const timeRecordRef = db.collection("timeRecords").doc(recordId);
         const recordSnap = await timeRecordRef.get();
@@ -795,7 +790,6 @@ export const registerCheckout = onCall({ cors: true }, async (request: CallableR
             throw new HttpsError("failed-precondition", "Nenhum check-in em andamento foi encontrado para este plantão.");
         }
 
-        // 2. Salvar a foto de check-out no Cloud Storage
         const bucket = storage.bucket();
         const filePath = `timeRecords/${recordId}_checkout.jpg`;
         const file = bucket.file(filePath);
@@ -805,20 +799,18 @@ export const registerCheckout = onCall({ cors: true }, async (request: CallableR
         const [photoUrl] = await file.getSignedUrl({ action: 'read', expires: '03-09-2491' });
         logger.info(`Foto de check-out salva em: ${photoUrl}`);
 
-        // 3. Preparar a atualização dos dados
         const checkoutData = {
             checkOutTime: FieldValue.serverTimestamp(),
             checkOutLocation: new GeoPoint(latitude, longitude),
             checkOutPhotoUrl: photoUrl,
-            status: 'COMPLETED' as const, // Finaliza o registro de ponto
+            status: 'COMPLETED' as const,
         };
 
         const contractRef = db.collection("contracts").doc(contractId);
 
-        // 4. Usar um batch para garantir que tudo seja atualizado junto
         const batch = db.batch();
         batch.update(timeRecordRef, checkoutData);
-        batch.update(contractRef, { status: "COMPLETED", updatedAt: FieldValue.serverTimestamp() }); // Finaliza o contrato
+        batch.update(contractRef, { status: "COMPLETED", updatedAt: FieldValue.serverTimestamp() });
         
         await batch.commit();
 
@@ -829,5 +821,162 @@ export const registerCheckout = onCall({ cors: true }, async (request: CallableR
         logger.error(`Falha ao registrar check-out para o contrato ${contractId}:`, error);
         if (error instanceof HttpsError) throw error;
         throw new HttpsError("internal", "Ocorreu um erro inesperado ao registrar o check-out.");
+    }
+});
+
+export const setAdminClaim = onCall({
+    region: "us-central1",
+    cors: ["http://localhost:3000", "https://fht-sistema.web.app", "https://fht-sistema.firebaseapp.com"]
+}, async (request: CallableRequest) => {
+
+    const { email } = request.data;
+    if (!email) {
+        throw new HttpsError("invalid-argument", "O email do usuário é obrigatório.");
+    }
+
+    try {
+        const user = await auth.getUserByEmail(email);
+        await auth.setCustomUserClaims(user.uid, { admin: true });
+        
+        logger.info(`Sucesso! O usuário ${email} (UID: ${user.uid}) agora é um administrador.`);
+        return { message: `Sucesso! ${email} agora é um administrador.` };
+
+    } catch (error: any) {
+        logger.error("Erro ao definir custom claim de admin:", error);
+        throw new HttpsError("internal", error.message);
+    }
+});
+
+export const createStaffUser = onCall({
+    cors: ["http://localhost:3000", "https://fht-sistema.web.app", "https://fht-sistema.firebaseapp.com"]
+}, async (request: CallableRequest) => {
+    if (!request.auth) {
+        throw new HttpsError("unauthenticated", "Apenas usuários autenticados podem adicionar membros à equipe.");
+    }
+    const adminUid = request.auth.uid;
+    const adminDoc = await db.collection("users").doc(adminUid).get();
+    const adminProfile = adminDoc.data();
+
+    const adminRole = (adminProfile as any)?.userType || (adminProfile as any)?.role;
+    if (adminRole !== 'admin' && adminRole !== 'hospital') {
+        throw new HttpsError("permission-denied", "Você não tem permissão para realizar esta ação.");
+    }
+
+    const { name, email, userType, hospitalId } = request.data;
+    if (!name || !email || !userType) {
+        throw new HttpsError("invalid-argument", "Nome, email e papel são obrigatórios.");
+    }
+    
+    if (adminRole === 'hospital' && hospitalId !== adminUid) {
+        throw new HttpsError("permission-denied", "Você só pode adicionar membros à sua própria instituição.");
+    }
+
+    logger.info(`Administrador ${adminUid} está criando um novo profissional '${name}' com o papel '${userType}'`);
+
+    try {
+        const tempPassword = Math.random().toString(36).slice(-8);
+        
+        const userRecord = await auth.createUser({
+            email: email,
+            emailVerified: false,
+            password: tempPassword,
+            displayName: name,
+            disabled: false,
+        });
+
+        logger.info(`Usuário de autenticação criado com sucesso para ${email} com UID: ${userRecord.uid}`);
+
+        const userProfile = {
+            uid: userRecord.uid,
+            displayName: name,
+            email: email,
+            userType: userType,
+            hospitalId: hospitalId || null,
+            createdAt: FieldValue.serverTimestamp(),
+            updatedAt: FieldValue.serverTimestamp(),
+        };
+
+        await db.collection("users").doc(userRecord.uid).set(userProfile);
+        
+        logger.info(`TODO: Enviar email de boas-vindas para ${email} com a senha temporária: ${tempPassword}`);
+
+        return { success: true, user: userProfile };
+
+    } catch (error: any) {
+        logger.error("Falha ao criar profissional:", error);
+        if (error.code === 'auth/email-already-exists') {
+            throw new HttpsError("already-exists", "Este endereço de e-mail já está em uso.");
+        }
+        throw new HttpsError("internal", "Ocorreu um erro inesperado ao criar o profissional.");
+    }
+});
+
+
+export const createConsultationRoom = onCall({ cors: ["http://localhost:3000", "https://fht-sistema.web.app", "https://fht-sistema.firebaseapp.com"], secrets: ["DAILY_APIKEY"] }, async (request: CallableRequest) => {
+    if (!request.auth) {
+        throw new HttpsError("unauthenticated", "A função só pode ser chamada por um usuário autenticado.");
+    }
+
+    const { consultationId } = request.data;
+    if (!consultationId) {
+        throw new HttpsError("invalid-argument", "O ID da consulta é obrigatório.");
+    }
+    logger.info(`Criando sala de telemedicina para a consulta: ${consultationId}`);
+
+    const consultationRef = db.collection("consultations").doc(consultationId);
+    const consultationSnap = await consultationRef.get();
+    
+    if (!consultationSnap.exists) {
+        throw new HttpsError("not-found", "Consulta não encontrada.");
+    }
+
+    const DAILY_API_KEY = process.env.DAILY_APIKEY;
+    if (!DAILY_API_KEY) {
+        logger.error("A API Key do Daily.co não está configurada nos Secrets do Firebase.");
+        throw new HttpsError("internal", "Configuração do servidor incompleta.");
+    }
+
+    const DAILY_API_URL = "https://api.daily.co/v1/rooms";
+    const twelveHoursFromNow = Math.floor(Date.now() / 1000) + (12 * 60 * 60);
+    
+    const roomOptions = {
+        properties: {
+            exp: twelveHoursFromNow,
+            enable_chat: true,
+            enable_screenshare: true,
+        },
+    };
+
+    try {
+        const apiResponse = await fetch(DAILY_API_URL, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${DAILY_API_KEY}`,
+            },
+            body: JSON.stringify(roomOptions),
+        });
+
+        if (!apiResponse.ok) {
+            const errorBody = await apiResponse.json();
+            logger.error("Erro da API do Daily.co:", errorBody);
+            throw new HttpsError("internal", `Falha ao criar a sala de videochamada. Status: ${apiResponse.status}`);
+        }
+
+        const roomData: any = await apiResponse.json();
+        const roomUrl = roomData.url;
+        logger.info(`Sala criada com sucesso para a consulta ${consultationId}. URL: ${roomUrl}`);
+
+        await consultationRef.update({
+            telemedicineLink: roomUrl,
+            updatedAt: FieldValue.serverTimestamp(),
+        });
+
+        return { success: true, roomUrl: roomUrl };
+
+    } catch (error) {
+        logger.error(`Falha crítica ao criar sala para a consulta ${consultationId}:`, error);
+        if (error instanceof HttpsError) { throw error; }
+        throw new HttpsError("internal", "Ocorreu um erro inesperado ao criar a sala de telemedicina.");
     }
 });

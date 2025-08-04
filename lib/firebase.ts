@@ -3,7 +3,6 @@ import { initializeApp, getApps, getApp } from "firebase/app";
 import { getAuth } from "firebase/auth";
 import { getFirestore } from "firebase/firestore";
 import { getStorage } from "firebase/storage";
-// MUDANÇA: Importar a função getFunctions
 import { getFunctions } from "firebase/functions";
 
 // A sua configuração original do Firebase
@@ -23,8 +22,8 @@ const auth = getAuth(app);
 const db = getFirestore(app);
 const storage = getStorage(app);
 
-// MUDANÇA: Inicializando o serviço de Functions e especificando a região correta
-const functions = getFunctions(app, "southamerica-east1");
+// --- CORREÇÃO FINAL: Alinhando a região do frontend com a região REAL do backend ---
+const functions = getFunctions(app, "us-central1");
 
-// MUDANÇA: Exportando o 'functions' para que o resto da aplicação possa usá-lo
+// Exportando 'functions' para que o resto da aplicação possa usá-lo
 export { app, auth, db, storage, functions };
