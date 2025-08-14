@@ -309,10 +309,6 @@ const InputWithIMask: React.FC<InputWithIMaskProps> = ({ maskOptions, onAccept, 
 
 
 export default function RegisterPage() {
-    // --- ALTERAÇÃO APLICADA: Estados de controle de redirecionamento removidos ---
-    // const [registrationComplete, setRegistrationComplete] = useState(false);
-    // const [targetDashboardPath, setTargetDashboardPath] = useState<string | null>(null);
-
     const [step, setStep] = useState(0);
     const [role, setRole] = useState<UserType | null>(null);
     const [isLoading, setIsLoading] = useState(false);
@@ -868,7 +864,11 @@ export default function RegisterPage() {
             
             await completeUserRegistration(userId, loginEmail, displayName, role, registrationData);
             
-            // --- ALTERAÇÃO APLICADA: Redirecionamento direto ---
+            // --- MELHORIA APLICADA ---
+            // Força a atualização do token do utilizador para obter os novos Custom Claims (role).
+            // Isto é crucial para que o redirecionamento e a proteção de rotas funcionem corretamente.
+            await firebaseUser.getIdToken(true);
+            
             toast({
                 variant: "default",
                 title: "Cadastro Realizado com Sucesso!",
@@ -891,19 +891,10 @@ export default function RegisterPage() {
                 }
             }
             toast({ variant: "destructive", title: title, description: description, duration: 7000 });
-            // --- CORREÇÃO: setIsLoading(false) movido para o bloco finally ---
         } finally {
             setIsLoading(false);
         }
     };
-
-    // --- ALTERAÇÃO APLICADA: useEffect para redirecionamento removido ---
-    // useEffect(() => {
-    //     if (registrationComplete && targetDashboardPath) {
-    //         router.push(targetDashboardPath);
-    //     }
-    // }, [registrationComplete, targetDashboardPath, router]);
-
 
     const renderCurrentStep = () => {
         if (!currentStepConfig) {
