@@ -1,4 +1,4 @@
-// app/hospital/dashboard/equipe/page.tsx
+// app/hospital/dashboard/Equipa/page.tsx
 "use client";
 
 import React, { useState, useEffect, useCallback } from 'react';
@@ -85,7 +85,7 @@ const NewStaffForm: React.FC<{ hospitalId: string; onStaffAdded: () => void }> =
 };
 
 
-// Componente Principal da Página de Equipe
+// Componente Principal da Página de Equipa
 export default function TeamManagementPage() {
     const { user } = useAuth();
     const [staffList, setStaffList] = useState<UserProfile[]>([]);
@@ -131,12 +131,12 @@ export default function TeamManagementPage() {
         <div className="container mx-auto p-4 sm:p-6 space-y-6">
             <div className="flex items-center justify-between">
                 <div>
-                    <h1 className="text-3xl font-bold tracking-tight">Gestão de Equipe</h1>
+                    <h1 className="text-3xl font-bold tracking-tight">Gestão de Equipa</h1>
                     <p className="text-muted-foreground">Adicione e gerencie os profissionais da sua unidade.</p>
                 </div>
                 <Button onClick={() => setIsModalOpen(true)}>
                     <PlusCircle className="mr-2 h-4 w-4" />
-                    Adicionar Membro da Equipe
+                    Adicionar Membro da Equipa
                 </Button>
             </div>
             

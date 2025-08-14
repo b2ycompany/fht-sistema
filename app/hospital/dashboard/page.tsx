@@ -50,7 +50,7 @@ const NewStaffForm: React.FC<{ hospitalId: string; onStaffAdded: () => void }> =
         setIsSubmitting(true);
         try {
             await createStaffMember({ hospitalId, name, email, userType });
-            toast({ title: "Sucesso!", description: `${name} foi adicionado(a) à equipa. Um email com instruções será enviado.`, className: "bg-green-600 text-white" });
+            toast({ title: "Sucesso!", description: `${name} foi adicionado(a) à Equipa. Um email com instruções será enviado.`, className: "bg-green-600 text-white" });
             onStaffAdded();
         } catch (error: any) {
             toast({ title: "Erro ao criar profissional", description: error.message, variant: "destructive" });
@@ -108,7 +108,7 @@ export default function HospitalDashboardPage() {
             const list = snapshot.docs.map(doc => ({ uid: doc.id, ...doc.data() } as UserProfile));
             setStaffList(list);
         }, (err) => {
-            setError("Falha ao carregar a equipa em tempo real.");
+            setError("Falha ao carregar a Equipa em tempo real.");
         });
         return () => unsubscribe();
     }, [user]);
@@ -134,14 +134,14 @@ export default function HospitalDashboardPage() {
                 <TabsList className="grid w-full grid-cols-3">
                     <TabsTrigger value="overview">Visão Geral</TabsTrigger>
                     <TabsTrigger value="contracts">Contratos Pendentes<Badge variant={pendingContracts.length > 0 ? "destructive" : "secondary"} className="ml-2">{isLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : pendingContracts.length}</Badge></TabsTrigger>
-                    <TabsTrigger value="equipe">Gestão de Equipa<Badge variant="secondary" className="ml-2">{staffList.length}</Badge></TabsTrigger>
+                    <TabsTrigger value="Equipa">Gestão de Equipa<Badge variant="secondary" className="ml-2">{staffList.length}</Badge></TabsTrigger>
                 </TabsList>
                 
                 <TabsContent value="overview" className="mt-4">{/* ... Conteúdo da sua aba "Visão Geral" permanece o mesmo ... */}</TabsContent>
 
                 <TabsContent value="contracts" className="mt-4">{/* ... Conteúdo da sua aba "Contratos" permanece o mesmo ... */}</TabsContent>
 
-                <TabsContent value="equipe" className="mt-4">
+                <TabsContent value="Equipa" className="mt-4">
                      <Card>
                         <CardHeader className="flex flex-row items-center justify-between">
                             <div>

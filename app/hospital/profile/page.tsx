@@ -99,7 +99,7 @@ export default function HospitalProfilePage() {
                     <Alert className="bg-blue-50 border-blue-200 text-blue-800">
                         <Clock className="h-4 w-4" />
                         <AlertTitle>Cadastro em Análise</AlertTitle>
-                        <AlertDescription>Seus dados e documentos estão sendo verificados pela nossa equipe.</AlertDescription>
+                        <AlertDescription>Seus dados e documentos estão sendo verificados pela nossa Equipa.</AlertDescription>
                     </Alert>
                 );
             case 'REJECTED_NEEDS_RESUBMISSION':

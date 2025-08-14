@@ -134,11 +134,6 @@ interface CreateTelemedicineAppointmentPayload {
 
 setGlobalOptions({ region: "us-central1", memory: "512MiB" });
 
-// ===================================================================
-// FUNÇÃO AUTOMÁTICA PARA DEFINIR PERMISSÕES (CUSTOM CLAIMS)
-// Esta função está corretamente implementada e é acionada sempre que
-// um NOVO documento é criado na coleção 'users'.
-// ===================================================================
 export const onUserCreatedSetClaims = onDocumentCreated("users/{userId}", async (event) => {
     const userSnap = event.data;
     if (!userSnap) {
@@ -147,8 +142,6 @@ export const onUserCreatedSetClaims = onDocumentCreated("users/{userId}", async 
     }
     const userData = userSnap.data();
     const userId = event.params.userId;
-
-    // Obtém o 'userType' e 'hospitalId' do documento recém-criado
     const userType = userData.userType;
     const hospitalId = userData.hospitalId || null;
 
@@ -158,12 +151,8 @@ export const onUserCreatedSetClaims = onDocumentCreated("users/{userId}", async 
     }
 
     try {
-        // Prepara os 'claims' (carimbos) para serem aplicados
         const claims = { role: userType, hospitalId: hospitalId };
-        
-        // Define os claims para o usuário correspondente no Firebase Auth
         await auth.setCustomUserClaims(userId, claims);
-        
         logger.info(`Claims definidos com sucesso para o utilizador ${userId}:`, claims);
     } catch (error) {
         logger.error(`Falha ao definir claims para o utilizador ${userId}:`, error);
@@ -182,9 +171,6 @@ const doIntervalsOverlap = (startA: number, endA: number, isOvernightA: boolean,
   const effectiveEndB = isOvernightB && endB <= startB ? endB + 1440 : endB;
   return startA < effectiveEndB && startB < effectiveEndA;
 };
-
-// SUAS OUTRAS FUNÇÕES EXISTENTES CONTINUAM ABAIXO
-// ...
 
 export const findMatchesOnShiftRequirementWrite = onDocumentWritten({ document: "shiftRequirements/{requirementId}" },
   async (event: FirestoreEvent<Change<DocumentSnapshot> | undefined, { requirementId: string }>): Promise<void> => {
@@ -895,31 +881,37 @@ export const setAdminClaim = onCall({
     }
 });
 
+// --- FUNÇÃO CORRIGIDA ---
 export const createStaffUser = onCall({
-    cors: ["http://localhost:3000", "https://fht-sistema.web.app", "https://fht-sistema.firebaseapp.com"]
+    cors: [
+        /fhtgestao\.com\.br$/, 
+        "https://fht-sistema.web.app", 
+        "http://localhost:3000"
+    ]
 }, async (request: CallableRequest) => {
     if (!request.auth) {
-        throw new HttpsError("unauthenticated", "Apenas usuários autenticados podem adicionar membros à equipe.");
+        throw new HttpsError("unauthenticated", "Apenas gestores autenticados podem adicionar membros à equipa.");
     }
-    const adminUid = request.auth.uid;
-    const adminDoc = await db.collection("users").doc(adminUid).get();
-    const adminProfile = adminDoc.data();
+    
+    const managerUid = request.auth.uid;
+    const managerDoc = await db.collection("users").doc(managerUid).get();
+    const managerProfile = managerDoc.data();
 
-    const adminRole = (adminProfile as any)?.userType || (adminProfile as any)?.role;
-    if (adminRole !== 'admin' && adminRole !== 'hospital') {
+    if (managerProfile?.userType !== 'hospital') {
         throw new HttpsError("permission-denied", "Você não tem permissão para realizar esta ação.");
     }
 
-    const { name, email, userType, hospitalId } = request.data;
+    const { name, email, userType } = request.data;
     if (!name || !email || !userType) {
-        throw new HttpsError("invalid-argument", "Nome, email e papel são obrigatórios.");
-    }
-    
-    if (adminRole === 'hospital' && hospitalId !== adminUid) {
-        throw new HttpsError("permission-denied", "Você só pode adicionar membros à sua própria instituição.");
+        throw new HttpsError("invalid-argument", "Nome, email e função são obrigatórios.");
     }
 
-    logger.info(`Administrador ${adminUid} está criando um novo profissional '${name}' com o papel '${userType}'`);
+    const validStaffRoles = ['receptionist', 'triage_nurse', 'caravan_admin'];
+    if(!validStaffRoles.includes(userType)) {
+        throw new HttpsError("invalid-argument", "Função de utilizador inválida.");
+    }
+
+    logger.info(`Gestor ${managerUid} está a criar um novo profissional '${name}' com a função '${userType}'`);
 
     try {
         const tempPassword = Math.random().toString(36).slice(-8);
@@ -932,19 +924,18 @@ export const createStaffUser = onCall({
             disabled: false,
         });
 
-        logger.info(`Usuário de autenticação criado com sucesso para ${email} com UID: ${userRecord.uid}`);
+        logger.info(`Utilizador de autenticação criado para ${email} com UID: ${userRecord.uid}`);
 
         const userProfile = {
             uid: userRecord.uid,
             displayName: name,
             email: email,
             userType: userType,
-            hospitalId: hospitalId || null,
+            hospitalId: managerUid,
             createdAt: FieldValue.serverTimestamp(),
             updatedAt: FieldValue.serverTimestamp(),
         };
 
-        // Esta linha irá disparar a função 'onUserCreatedSetClaims' automaticamente
         await db.collection("users").doc(userRecord.uid).set(userProfile);
         
         logger.info(`TODO: Enviar email de boas-vindas para ${email} com a senha temporária: ${tempPassword}`);

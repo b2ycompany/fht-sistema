@@ -36,7 +36,7 @@ export interface CaravanEvent {
     }[];
 }
 
-// --- SUBCOMPONENTE: Formulário para CRIAR nova equipe ---
+// --- SUBCOMPONENTE: Formulário para CRIAR nova Equipa ---
 const NewStaffForm: React.FC<{ onStaffCreated: (user: UserProfile) => void, onCancel: () => void }> = ({ onStaffCreated, onCancel }) => {
     const { toast } = useToast();
     const [name, setName] = useState('');
@@ -76,7 +76,7 @@ const NewStaffForm: React.FC<{ onStaffCreated: (user: UserProfile) => void, onCa
         <DialogContent>
             <DialogHeader>
                 <DialogTitle>Cadastrar Novo Profissional</DialogTitle>
-                <DialogDescription>Crie uma conta para um novo membro da equipe. Ele será adicionado automaticamente a este evento.</DialogDescription>
+                <DialogDescription>Crie uma conta para um novo membro da Equipa. Ele será adicionado automaticamente a este evento.</DialogDescription>
             </DialogHeader>
             <div className="grid gap-4 py-4">
                  <div className="space-y-1.5"><Label htmlFor="name-new">Nome Completo</Label><Input id="name-new" value={name} onChange={(e) => setName(e.target.value)} /></div>
@@ -94,7 +94,7 @@ const NewStaffForm: React.FC<{ onStaffCreated: (user: UserProfile) => void, onCa
     );
 };
 
-// --- COMPONENTE PARA ADICIONAR MEMBROS DA EQUIPE (FLUXO COMPLETO) ---
+// --- COMPONENTE PARA ADICIONAR MEMBROS DA Equipa (FLUXO COMPLETO) ---
 const AddStaffModal: React.FC<{
     allUsers: UserProfile[];
     enrolledStaffIds: string[];
@@ -215,7 +215,7 @@ export default function CaravanEventDetailPage() {
                     userType: user.userType,
                 })
             });
-            toast({ title: "Sucesso!", description: `${user.displayName} foi adicionado(a) à equipe.`, className: "bg-green-600 text-white" });
+            toast({ title: "Sucesso!", description: `${user.displayName} foi adicionado(a) à Equipa.`, className: "bg-green-600 text-white" });
         } catch (error) {
             toast({ title: "Erro", description: "Não foi possível adicionar o membro.", variant: "destructive" });
         }
@@ -227,7 +227,7 @@ export default function CaravanEventDetailPage() {
             await updateDoc(eventRef, {
                 enrolledStaff: arrayRemove(staffMember)
             });
-            toast({ title: "Removido", description: `${staffMember.displayName} foi removido(a) da equipe.` });
+            toast({ title: "Removido", description: `${staffMember.displayName} foi removido(a) da Equipa.` });
         } catch (error) {
             toast({ title: "Erro", description: "Não foi possível remover o membro.", variant: "destructive" });
         }
@@ -247,21 +247,21 @@ export default function CaravanEventDetailPage() {
                 <p className="text-muted-foreground">{event.location}</p>
             </div>
             
-            <Tabs defaultValue="equipe">
+            <Tabs defaultValue="Equipa">
                 <TabsList>
                     <TabsTrigger value="detalhes"><Info className="mr-2 h-4 w-4" /> Detalhes</TabsTrigger>
-                    <TabsTrigger value="equipe"><Users className="mr-2 h-4 w-4" /> Equipe do Evento</TabsTrigger>
+                    <TabsTrigger value="Equipa"><Users className="mr-2 h-4 w-4" /> Equipa do Evento</TabsTrigger>
                 </TabsList>
                 
                 <TabsContent value="detalhes" className="mt-4">
                     <Card><CardContent className="p-6">Detalhes e configurações do evento aparecerão aqui.</CardContent></Card>
                 </TabsContent>
                 
-                <TabsContent value="equipe" className="mt-4">
+                <TabsContent value="Equipa" className="mt-4">
                     <Card>
                         <CardHeader className="flex flex-row items-center justify-between">
                             <div>
-                                <CardTitle>Equipe Alocada</CardTitle>
+                                <CardTitle>Equipa Alocada</CardTitle>
                                 <CardDescription>Profissionais que terão acesso ao portal deste evento.</CardDescription>
                             </div>
                             <Button onClick={() => setIsModalOpen(true)}><UserPlus className="mr-2 h-4 w-4" /> Adicionar Membro</Button>

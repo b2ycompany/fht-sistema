@@ -174,7 +174,7 @@ export default function HospitalContractsPage() {
         setIsSigning(true);
         try {
             await signContractByHospital(selectedContract.id);
-            toast({ title: "Contrato Assinado!", description: `O(A) Dr(a). ${selectedContract.doctorName} foi adicionado(a) à sua equipe.`});
+            toast({ title: "Contrato Assinado!", description: `O(A) Dr(a). ${selectedContract.doctorName} foi adicionado(a) à sua Equipa.`});
             setSelectedContract(null);
             await fetchAllData();
             setActiveTab('active');

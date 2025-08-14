@@ -165,8 +165,8 @@ export interface StaffCreationPayload {
 const createStaffUserCallable = httpsCallable<Omit<StaffCreationPayload, 'hospitalId'>, { success: boolean, user: UserProfile }>(functions, 'createStaffUser');
 
 /**
- * Chama a Firebase Function para criar um novo membro da equipe.
- * @param payload Os dados do novo membro da equipe.
+ * Chama a Firebase Function para criar um novo membro da Equipa.
+ * @param payload Os dados do novo membro da Equipa.
  * @returns O perfil do usuário criado.
  */
 export const createStaffMember = async (payload: StaffCreationPayload) => {
@@ -180,14 +180,14 @@ export const createStaffMember = async (payload: StaffCreationPayload) => {
     } catch (error: any) {
         // Captura erros de rede ou os erros lançados acima
         console.error("[AuthService] Erro ao chamar a função createStaffUser:", error);
-        throw new Error(error.message || "Não foi possível adicionar o membro à equipa.");
+        throw new Error(error.message || "Não foi possível adicionar o membro à Equipa.");
     }
 };
 
 /**
- * Busca todos os perfis de usuários (equipe) associados a um ID de hospital.
+ * Busca todos os perfis de usuários (Equipa) associados a um ID de hospital.
  * @param hospitalId O ID do hospital.
- * @returns Uma promessa que resolve para um array de perfis de usuário da equipe.
+ * @returns Uma promessa que resolve para um array de perfis de usuário da Equipa.
  */
 export const getStaffForHospital = async (hospitalId: string): Promise<UserProfile[]> => {
     try {
@@ -206,8 +206,8 @@ export const getStaffForHospital = async (hospitalId: string): Promise<UserProfi
         return staffList.filter(staff => staff.uid !== hospitalId);
 
     } catch (error) {
-        console.error(`[AuthService] Erro ao buscar a equipe para o hospital ${hospitalId}:`, error);
-        throw new Error("Não foi possível carregar a lista da equipa.");
+        console.error(`[AuthService] Erro ao buscar a Equipa para o hospital ${hospitalId}:`, error);
+        throw new Error("Não foi possível carregar a lista da Equipa.");
     }
 };
 
