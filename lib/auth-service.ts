@@ -86,7 +86,7 @@ export interface DoctorRegistrationPayload
   extends Omit<PersonalInfo, "email" | "name"> {
   professionalCrm: string;
   specialties: string[];    
-  address?: AddressInfo; // Mantivemos a correção anterior para o endereço ser opcional
+  address?: AddressInfo;
   isSpecialist: boolean;
   documents: Partial<DoctorDocumentsRef>; 
   specialistDocuments: Partial<SpecialistDocumentsRef>;
@@ -111,7 +111,7 @@ export interface UserProfileBase {
   updatedAt: Timestamp;
   adminVerificationNotes?: string;
   documentRejectionReasons?: Record<string, string>;
-  hospitalId?: string; // <-- NOVO CAMPO ADICIONADO
+  hospitalId?: string;
 }
 
 export interface DoctorProfile extends UserProfileBase, DoctorRegistrationPayload {
@@ -344,6 +344,43 @@ export const getUsersForVerification = async (): Promise<UserProfile[]> => {
       console.error("Erro ao buscar usuários para verificação:", error);
       throw new Error("Não foi possível buscar os cadastros pendentes.");
     }
+};
+
+// ===================================================================
+// NOVA FUNÇÃO ADICIONADA AQUI
+// ===================================================================
+/**
+ * Busca perfis de médicos que correspondem a uma especialidade específica e estão aprovados.
+ * @param specialty A especialidade a ser procurada.
+ * @returns Uma promessa que resolve para um array de perfis de médicos.
+ */
+export const getDoctorsBySpecialty = async (specialty: string): Promise<DoctorProfile[]> => {
+  try {
+    const usersRef = collection(db, "users");
+    // Cria uma query para buscar documentos na coleção 'users' onde:
+    // 1. O userType é 'doctor'.
+    // 2. O array 'specialties' contém a especialidade fornecida.
+    // 3. O status de verificação é 'APPROVED'.
+    const q = query(
+      usersRef,
+      where("userType", "==", "doctor"),
+      where("specialties", "array-contains", specialty),
+      where("documentVerificationStatus", "==", "APPROVED")
+    );
+
+    const querySnapshot = await getDocs(q);
+
+    if (querySnapshot.empty) {
+      console.log(`[AuthService] Nenhum médico aprovado encontrado para a especialidade: ${specialty}`);
+      return [];
+    }
+
+    // Mapeia os resultados para o tipo DoctorProfile.
+    return querySnapshot.docs.map(d => ({ uid: d.id, ...d.data() } as DoctorProfile));
+  } catch (error) {
+    console.error(`[AuthService] Erro ao buscar médicos pela especialidade "${specialty}":`, error);
+    throw new Error("Não foi possível buscar os médicos disponíveis para esta especialidade.");
+  }
 };
   
 export const updateUserVerificationStatus = async (

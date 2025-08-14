@@ -1,11 +1,10 @@
-// app/layout.tsx
 import type { Metadata } from "next";
 import { Inter as FontSans } from "next/font/google";
 import "./globals.css";
 import { cn } from "@/lib/utils";
 import { ThemeProvider } from "@/components/theme-provider";
 import { Toaster } from "@/components/ui/toaster";
-import { AuthProvider } from "@/components/auth-provider"; // <<< 1. IMPORTE O AuthProvider
+import { AuthProvider } from "@/components/auth-provider";
 
 const fontSans = FontSans({
   subsets: ["latin"],
@@ -15,6 +14,9 @@ const fontSans = FontSans({
 export const metadata: Metadata = {
   title: "FHT Sistemas",
   description: "Plataforma de Gestão de Plantões Médicos",
+  icons: {
+    icon: "/icon.svg",
+  },
 };
 
 export default function RootLayout({
@@ -22,7 +24,6 @@ export default function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  console.log("[RootLayout] Rendering RootLayout"); // Adicione este log
   return (
     <html lang="pt-BR" suppressHydrationWarning>
       <body
@@ -31,8 +32,7 @@ export default function RootLayout({
           fontSans.variable
         )}
       >
-        {/* Envolva o ThemeProvider (e consequentemente os children) com AuthProvider */}
-        <AuthProvider> {/* <<< 2. ADICIONE O AuthProvider AQUI */}
+        <AuthProvider>
           <ThemeProvider
             attribute="class"
             defaultTheme="system"
@@ -42,7 +42,7 @@ export default function RootLayout({
             {children}
             <Toaster />
           </ThemeProvider>
-        </AuthProvider> {/* <<< 2. FECHE O AuthProvider AQUI */}
+        </AuthProvider>
       </body>
     </html>
   );

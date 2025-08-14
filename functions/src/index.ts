@@ -980,3 +980,100 @@ export const createConsultationRoom = onCall({ cors: ["http://localhost:3000", "
         throw new HttpsError("internal", "Ocorreu um erro inesperado ao criar a sala de telemedicina.");
     }
 });
+
+interface CreateTelemedicineAppointmentPayload {
+  patientName: string;
+  doctorId: string;
+  doctorName: string;
+  specialty: string;
+  appointmentDate: string; // Receber como string ISO (ex: "2025-12-31T14:00:00.000Z")
+}
+
+export const createTelemedicineAppointment = onCall(
+    { 
+        cors: true, // Permite ser chamada pelo seu app web
+        secrets: ["DAILY_APIKEY"] // Usa o mesmo segredo que você já configurou
+    },
+    async (request: CallableRequest<CreateTelemedicineAppointmentPayload>) => {
+        if (!request.auth) {
+            throw new HttpsError("unauthenticated", "A função só pode ser chamada por um utilizador autenticado.");
+        }
+        
+        const createdByUid = request.auth.uid; // UID de quem está a agendar (admin/recepcionista)
+        const { patientName, doctorId, doctorName, specialty, appointmentDate } = request.data;
+        
+        if (!patientName || !doctorId || !doctorName || !specialty || !appointmentDate) {
+            throw new HttpsError("invalid-argument", "Dados para o agendamento estão incompletos.");
+        }
+        
+        logger.info(`Iniciando criação de agendamento para Dr(a). ${doctorName} com paciente ${patientName}`);
+
+        const DAILY_API_KEY = process.env.DAILY_APIKEY;
+        if (!DAILY_API_KEY) {
+            logger.error("A API Key do Daily.co não está configurada nos Secrets do Firebase.");
+            throw new HttpsError("internal", "Configuração do servidor de vídeo incompleta.");
+        }
+
+        try {
+            // Passo 1: Criar a sala de vídeo na Daily.co
+            const expirationDate = new Date(appointmentDate);
+            // Adiciona 2 horas de margem de segurança para a expiração da sala
+            const expirationTimestamp = Math.round((expirationDate.getTime() + 2 * 60 * 60 * 1000) / 1000);
+
+            const roomOptions = {
+                properties: {
+                    exp: expirationTimestamp,
+                    enable_chat: true,
+                    enable_screenshare: true,
+                    start_video_off: true,
+                    start_audio_off: true,
+                },
+            };
+
+            const apiResponse = await fetch("https://api.daily.co/v1/rooms", {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${DAILY_API_KEY}`,
+                },
+                body: JSON.stringify(roomOptions),
+            });
+
+            if (!apiResponse.ok) {
+                const errorBody = await apiResponse.json();
+                logger.error("Erro da API do Daily.co ao criar sala:", errorBody);
+                throw new HttpsError("internal", "Falha ao criar a sala de videochamada.");
+            }
+
+            const roomData: any = await apiResponse.json();
+            const roomUrl = roomData.url;
+            logger.info(`Sala de vídeo criada com sucesso: ${roomUrl}`);
+
+            // Passo 2: Salvar o agendamento no Firestore
+            const appointmentData = {
+                patientName,
+                doctorId,
+                doctorName,
+                specialty,
+                appointmentDate: admin.firestore.Timestamp.fromDate(new Date(appointmentDate)),
+                status: "SCHEDULED",
+                telemedicineRoomUrl: roomUrl,
+                createdAt: FieldValue.serverTimestamp(),
+                updatedAt: FieldValue.serverTimestamp(),
+                createdBy: createdByUid,
+            };
+
+            const docRef = await db.collection("telemedicineAppointments").add(appointmentData);
+            logger.info(`Agendamento ${docRef.id} salvo com sucesso no Firestore.`);
+
+            return { success: true, appointmentId: docRef.id, roomUrl: roomUrl };
+
+        } catch (error) {
+            logger.error(`Falha crítica ao criar agendamento de telemedicina:`, error);
+            if (error instanceof HttpsError) {
+                throw error;
+            }
+            throw new HttpsError("internal", "Ocorreu um erro inesperado durante o agendamento.");
+        }
+    }
+);

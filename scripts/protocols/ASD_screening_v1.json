@@ -1,0 +1,37 @@
+{
+    "title": "Protocolo de Triagem de Espectro Autista (TEA)",
+    "description": "Baseado em perguntas de observação comportamental para apoiar a triagem inicial.",
+    "version": "1.0",
+    "questions": [
+        {
+            "id": "q1_eye_contact",
+            "text": "A criança mantém contato visual consistente com o interlocutor?",
+            "type": "multiple_choice",
+            "options": ["Sim, consistentemente", "Às vezes, de forma inconstante", "Raramente ou nunca"]
+        },
+        {
+            "id": "q2_responds_to_name",
+            "text": "A criança responde quando chamada pelo nome?",
+            "type": "multiple_choice",
+            "options": ["Sim, quase sempre", "Às vezes, requer repetição", "Raramente ou não responde"]
+        },
+        {
+            "id": "q3_shared_interest",
+            "text": "A criança tenta compartilhar interesse em objetos ou eventos (ex: aponta para mostrar algo)?",
+            "type": "multiple_choice",
+            "options": ["Sim, frequentemente", "Ocasionalmente", "Não demonstra este comportamento"]
+        },
+        {
+            "id": "q4_repetitive_movements",
+            "text": "A criança apresenta movimentos corporais repetitivos (ex: balançar as mãos, o corpo)?",
+            "type": "multiple_choice",
+            "options": ["Não observado", "Sim, de forma leve ou ocasional", "Sim, de forma frequente ou intensa"]
+        },
+        {
+            "id": "q5_speech_patterns",
+            "text": "Como é o padrão de fala da criança (se aplicável)?",
+            "type": "text_input",
+            "placeholder": "Descreva a fala, se há repetições (ecolalia), tom, etc."
+        }
+    ]
+}

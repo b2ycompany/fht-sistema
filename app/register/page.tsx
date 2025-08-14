@@ -44,8 +44,8 @@ import {
 import { useAuth as useAuthHook } from "@/components/auth-provider";
 import { Checkbox } from "@/components/ui/checkbox";
 
-// --- NOVA: Lista de Especialidades ---
-const availableSpecialties = ["Clínica Geral", "Cardiologia", "Pediatria", "Ginecologia", "Oftalmologia", "Dermatologia", "Ortopedia"];
+import { getSpecialtiesList, type Specialty } from "@/lib/specialty-service";
+
 
 // Interfaces e constantes
 interface Credentials { password: string; confirmPassword: string; }
@@ -309,9 +309,13 @@ export default function RegisterPage() {
     const { toast } = useToast();
     const { user: authUser, loading: authLoading } = useAuthHook();
 
-    // --- NOVOS ESTADOS PARA O CADASTRO INTELIGENTE ---
     const [doctorObjective, setDoctorObjective] = useState<'caravan' | 'match' | null>(null);
+    
+    // --- ALTERAÇÃO APLICADA: Estados para especialidades conforme seu novo código ---
+    const [availableSpecialties, setAvailableSpecialties] = useState<Specialty[]>([]);
     const [selectedSpecialties, setSelectedSpecialties] = useState<string[]>([]);
+    const [isLoadingSpecialties, setIsLoadingSpecialties] = useState(true);
+    const [specialtiesError, setSpecialtiesError] = useState<string | null>(null);
 
     const [personalInfo, setPersonalInfo] = useState<PersonalInfo>({ name: "", dob: "", rg: "", cpf: "", phone: "", email: "" });
     const [addressInfo, setAddressInfo] = useState<AddressInfo>({ cep: "", street: "", number: "", complement: "", neighborhood: "", city: "", state: "" });
@@ -320,30 +324,48 @@ export default function RegisterPage() {
     const [hospitalAddressInfo, setHospitalAddressInfo] = useState<AddressInfo>({ cep: "", street: "", number: "", complement: "", neighborhood: "", city: "", state: "" });
     const [legalRepresentativeInfo, setLegalRepresentativeInfo] = useState<LegalRepresentativeInfo>({ name: "", dob: "", rg: "", cpf: "", phone: "", email: "", position: "" });
     const [credentials, setCredentials] = useState<Credentials>({ password: "", confirmPassword: "" });
+    
+    // Mantendo a inicialização de estado de documentos robusta do seu código original
     const [doctorDocuments, setDoctorDocuments] = useState<DoctorDocumentsState>(initialDoctorDocsStateValue);
     const [specialistDocuments, setSpecialistDocuments] = useState<SpecialistDocumentsState>(initialSpecialistDocsStateValue);
     const [hospitalDocuments, setHospitalDocuments] = useState<HospitalDocumentsState>(initialHospitalDocsStateValue);
     const [legalRepDocuments, setLegalRepDocuments] = useState<LegalRepDocumentsState>(initialLegalRepDocsStateValue);
+
     const [isCepLoading, setIsCepLoading] = useState(false);
     const [isHospitalCepLoading, setIsHospitalCepLoading] = useState(false);
 
-    // --- CORREÇÃO: Lógica de redirecionamento para usuário já logado ---
-    // Se a autenticação já carregou e existe um usuário, não mostramos o formulário.
-    // Em vez disso, redirecionamos para evitar o erro "Cannot update a component while rendering".
     useEffect(() => {
         if (!authLoading && authUser) {
-            // Apenas redireciona se estiver na página de registro e já logado.
-            // O ideal é que um layout superior gerencie isso, mas um push para a home resolve.
             router.push('/');  
         }
     }, [authLoading, authUser, router]);
 
-    // --- LÓGICA DE ETAPAS ATUALIZADA ---
+    // --- ALTERAÇÃO APLICADA: Novo hook para buscar as especialidades do Firestore ---
+    useEffect(() => {
+        const fetchSpecialties = async () => {
+            setIsLoadingSpecialties(true);
+            setSpecialtiesError(null);
+            try {
+                const specialties = await getSpecialtiesList();
+                console.log('[RegisterPage] Especialidades buscadas do Firestore:', specialties); // LINHA DE DEPURAÇÃO
+                if (specialties.length === 0) {
+                    setSpecialtiesError("Nenhuma especialidade encontrada no banco de dados.");
+                }
+                setAvailableSpecialties(specialties);
+            } catch (error: any) {
+                console.error("Falha ao buscar especialidades:", error);
+                setSpecialtiesError("Falha ao carregar especialidades. Verifique as regras de segurança do Firestore.");
+            } finally {
+                setIsLoadingSpecialties(false);
+            }
+        };
+        fetchSpecialties();
+    }, []); // Array de dependências vazio para executar apenas uma vez na montagem.
+
     const stepsConfig = useMemo(() => {
         if (!role) return [{ id: 'role', label: 'Tipo' }];
         
         if (role === 'doctor') {
-            // Se o objetivo ainda não foi definido, mostra a tela de seleção de objetivo
             if (!doctorObjective) {
                 return [{ id: 'role', label: 'Tipo' }, { id: 'doctorObjective', label: 'Objetivo' }];
             }
@@ -355,18 +377,15 @@ export default function RegisterPage() {
                 { id: 'specialties', label: 'Especialidades' }
             ];
 
-            // Se for o fluxo rápido da caravana, pula para a senha
             if (doctorObjective === 'caravan') {
                 return [...baseSteps, { id: 'credentials', label: 'Senha' }, { id: 'summary', label: 'Revisão' }];
             }
 
-            // Se for o fluxo completo de match
             const fullMatchSteps = [ ...baseSteps, { id: 'addressInfo', label: 'Endereço' }, { id: 'essentialDocs', label: 'Docs Essenciais' }, { id: 'certsAndCvDocs', label: 'Certidões/CV' }, { id: 'isSpecialist', label: 'Especialidade?' } ];
             const specialistStep = isSpecialist ? [{ id: 'specialistDocs', label: 'Docs Especialista' }] : [];
             return [...fullMatchSteps, ...specialistStep, { id: 'credentials', label: 'Senha' }, { id: 'summary', label: 'Revisão' }];
         }
         
-        // Etapas do hospital não mudam
         return [ { id: 'role', label: 'Tipo' }, { id: 'hospitalInfo', label: 'Dados Empresa' }, { id: 'hospitalAddress', label: 'Endereço Empresa' }, { id: 'hospitalDocs', label: 'Docs Empresa' }, { id: 'legalRepInfo', label: 'Responsável' }, { id: 'legalRepDocs', label: 'Docs Responsável' }, { id: 'credentials', label: 'Senha' }, { id: 'summary', label: 'Revisão' } ];
     }, [role, doctorObjective, isSpecialist]);
 
@@ -926,18 +945,42 @@ export default function RegisterPage() {
                     </form>
                 );
             case 'specialties':
-                const handleSpecialtyChange = (specialty: string, checked: boolean) => {
-                    setSelectedSpecialties(prev => checked ? [...prev, specialty] : prev.filter(s => s !== specialty));
+                const handleSpecialtyChange = (specialtyName: string, checked: boolean) => {
+                    setSelectedSpecialties(prev => checked ? [...prev, specialtyName] : prev.filter(s => s !== specialtyName));
                 };
+
+                // --- ALTERAÇÃO APLICADA: Lógica de renderização usando os novos estados ---
+                if (isLoadingSpecialties) {
+                    return (
+                        <div className="flex flex-col items-center justify-center min-h-[200px] text-gray-500">
+                            <Loader2 className="h-8 w-8 animate-spin mb-3" />
+                            <p className="font-medium">Carregando especialidades...</p>
+                        </div>
+                    );
+                }
+
+                if (specialtiesError) {
+                    return (
+                        <div className="flex flex-col items-center justify-center min-h-[200px] text-red-600 bg-red-50 p-4 rounded-md">
+                            <AlertTriangle className="h-8 w-8 mb-3" />
+                            <p className="font-semibold text-center">{specialtiesError}</p>
+                        </div>
+                    );
+                }
+
                 return (
                     <div className="space-y-4 animate-fade-in">
                         <h3 className="text-lg font-semibold border-b pb-2 mb-4">Selecione suas especialidades*</h3>
                         <p className="text-sm text-gray-500">Marque todas as áreas em que você atua. Isto é fundamental para o direcionamento dos pacientes.</p>
                         <div className="grid grid-cols-2 md:grid-cols-3 gap-4 pt-4">
                             {availableSpecialties.map(spec => (
-                                <div key={spec} className="flex items-center space-x-2">
-                                    <Checkbox id={`spec-${spec}`} checked={selectedSpecialties.includes(spec)} onCheckedChange={(checked) => handleSpecialtyChange(spec, !!checked)} />
-                                    <Label htmlFor={`spec-${spec}`} className="font-normal cursor-pointer">{spec}</Label>
+                                <div key={spec.id} className="flex items-center space-x-2">
+                                    <Checkbox 
+                                        id={`spec-${spec.id}`} 
+                                        checked={selectedSpecialties.includes(spec.name)} 
+                                        onCheckedChange={(checked) => handleSpecialtyChange(spec.name, !!checked)} 
+                                    />
+                                    <Label htmlFor={`spec-${spec.id}`} className="font-normal cursor-pointer">{spec.name}</Label>
                                 </div>
                             ))}
                         </div>
@@ -1108,9 +1151,6 @@ export default function RegisterPage() {
         }
     };
 
-    // --- CORREÇÃO: Nova lógica de carregamento e guarda ---
-    // Mostra uma tela de carregamento enquanto a autenticação está sendo verificada
-    // ou se um usuário já estiver logado (aguardando o redirecionamento do useEffect).
     if (authLoading || authUser) {
         return <LoadingPage message="Verificando sessão..." />;
     }
@@ -1160,7 +1200,7 @@ export default function RegisterPage() {
                  ) : (
                      <Button
                          onClick={handleNextStep}
-                         disabled={ (currentStepConfig?.id === 'role' && !role) || (currentStepConfig?.id === 'doctorObjective' && !doctorObjective) || isLoading || isCepLoading || isHospitalCepLoading }
+                         disabled={ (currentStepConfig?.id === 'role' && !role) || (currentStepConfig?.id === 'doctorObjective' && !doctorObjective) || isLoading || isCepLoading || isHospitalCepLoading || isLoadingSpecialties }
                          className="w-full sm:w-auto px-6 py-3 text-sm sm:text-base bg-blue-600 hover:bg-blue-700 text-white"
                      >
                          Próximo

@@ -8,7 +8,7 @@ import Link from 'next/link';
 import { 
     ArrowRight, CalendarCheck, FileClock, Briefcase, Clock, MapPinIcon, 
     FileSignature, Truck, ClipboardList, Loader2, RotateCcw, 
-    CalendarDays
+    CalendarDays, CalendarPlus // Ícone adicionado
 } from 'lucide-react';
 import { Timestamp } from 'firebase/firestore';
 
@@ -64,7 +64,6 @@ export default function DashboardPage() {
         getCurrentUserData() 
       ]);
 
-      // --- CORREÇÃO: Verifica 'userType' em vez de 'role' ---
       if (currentProfileData?.userType === 'doctor') {
         setDoctorProfile(currentProfileData as DoctorProfile);
       }
@@ -146,9 +145,11 @@ export default function DashboardPage() {
         </Card>
       )}
 
+      {/* SEÇÃO MODIFICADA ABAIXO */}
       <div>
-        <h2 className="text-2xl font-semibold text-gray-700 mb-4">Projetos da Saúde</h2>
+        <h2 className="text-2xl font-semibold text-gray-700 mb-4">Módulos da Plataforma</h2>
         <div className="grid gap-6 md:grid-cols-2">
+            {/* Card Existente */}
             <Card className="flex flex-col">
                 <CardHeader>
                     <CardTitle className="flex items-center gap-2"><Truck size={22}/> Caravana da Saúde</CardTitle>
@@ -160,13 +161,32 @@ export default function DashboardPage() {
                 <CardFooter>
                      <Button asChild className="w-full sm:w-auto">
                         <Link href="/dashboard/fila">
-                            <ArrowRight className="mr-2 h-4 w-4" /> Acessar Fila de Atendimento
+                            Acessar Fila de Atendimento
+                        </Link>
+                    </Button>
+                </CardFooter>
+            </Card>
+
+            {/* --- NOVO CARD ADICIONADO AQUI --- */}
+            <Card className="flex flex-col">
+                <CardHeader>
+                    <CardTitle className="flex items-center gap-2"><CalendarPlus size={22}/> Agendamento de Telemedicina</CardTitle>
+                    <CardDescription>Crie e gira novos agendamentos de teleconsultas para os médicos da plataforma.</CardDescription>
+                </CardHeader>
+                <CardContent className="flex-grow">
+                    <p className="text-sm text-muted-foreground">Aceda à tela de agendamento para marcar novas consultas online para os pacientes com os especialistas disponíveis.</p>
+                </CardContent>
+                <CardFooter>
+                     <Button asChild className="w-full sm:w-auto">
+                        <Link href="/dashboard/agendamento">
+                           Agendar Nova Consulta
                         </Link>
                     </Button>
                 </CardFooter>
             </Card>
         </div>
       </div>
+      {/* FIM DA SEÇÃO MODIFICADA */}
 
 
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
