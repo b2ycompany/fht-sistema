@@ -39,12 +39,14 @@ import { cn } from "@/lib/utils";
 import { auth } from "@/lib/firebase";
 import {
   Loader2, Check, AlertTriangle, Info, Stethoscope, Building,
-  FileUp, XCircleIcon, ExternalLink, CheckCircle, HeartPulse, Briefcase
+  FileUp, XCircleIcon, ExternalLink, CheckCircle, HeartPulse, Briefcase, Search, X
 } from "lucide-react";
 import { useAuth as useAuthHook } from "@/components/auth-provider";
 import { Checkbox } from "@/components/ui/checkbox";
-
 import { getSpecialtiesList, type Specialty } from "@/lib/specialty-service";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
+import { Badge } from "@/components/ui/badge";
 
 
 // Interfaces e constantes
@@ -122,6 +124,7 @@ type SummaryData = {
     legalRepresentativeInfo?: LegalRepresentativeInfo;
     legalRepDocuments?: LegalRepDocumentsState;
     credentials?: Partial<Credentials>;
+    registrationObjective?: 'caravan' | 'match' | null;
 };
 
 interface RegistrationSummaryProps {
@@ -197,7 +200,7 @@ const RegistrationSummary: React.FC<RegistrationSummaryProps> = ({ role, data, o
     return (
         <div className="space-y-4 bg-gray-50 p-4 sm:p-6 rounded-lg animate-fade-in">
             <h2 className="text-xl sm:text-2xl font-bold text-center text-gray-800 mb-4 sm:mb-6">Revise seus Dados</h2>
-            {role === 'doctor' && data.personalInfo && data.addressInfo && data.doctorDocuments && data.credentials && (
+            {role === 'doctor' && data.personalInfo && data.doctorDocuments && data.credentials && (
                 <>
                     {renderSection("Dados Pessoais", "personalInfo", (<>
                         <SummaryField label="Nome" value={data.personalInfo.name} />
@@ -207,7 +210,7 @@ const RegistrationSummary: React.FC<RegistrationSummaryProps> = ({ role, data, o
                         <SummaryField label="Telefone" value={formatDoc(data.personalInfo.phone, 'phone')} />
                         <SummaryField label="Email (Login)" value={data.personalInfo.email} />
                     </>))}
-                    {renderSection("Endereço Pessoal", "addressInfo", (<>
+                    {data.registrationObjective === 'match' && data.addressInfo && renderSection("Endereço Pessoal", "addressInfo", (<>
                         <SummaryField label="CEP" value={formatDoc(data.addressInfo.cep, 'cep')} />
                         <SummaryField label="Rua" value={data.addressInfo.street} />
                         <SummaryField label="Número" value={data.addressInfo.number} />
@@ -216,20 +219,25 @@ const RegistrationSummary: React.FC<RegistrationSummaryProps> = ({ role, data, o
                         <SummaryField label="Cidade" value={data.addressInfo.city} />
                         <SummaryField label="Estado" value={data.addressInfo.state} />
                     </>))}
-                    {data.doctorDocuments && renderSection("Documentos Essenciais", "essentialDocs", (<>
+                    {data.doctorDocuments && data.registrationObjective === 'caravan' && renderSection("Documentos Essenciais", "essentialDocsCaravan", (<>
+                        {(['personalRg', 'personalCpf', 'professionalCrm'] as DoctorDocKeys[]).map(key => (
+                            <SummaryFileField key={key} label={DOCUMENT_LABELS[key]} fileProgress={data.doctorDocuments![key]} />
+                        ))}
+                    </>))}
+                    {data.doctorDocuments && data.registrationObjective === 'match' && renderSection("Documentos Essenciais", "essentialDocs", (<>
                         {(Object.keys(data.doctorDocuments) as DoctorDocKeys[]).filter(k => DOCUMENT_LABELS[k].includes('*') && ['personalRg','personalCpf','professionalCrm','addressProof','graduationCertificate','photo3x4'].includes(k)).map(key => (
                             <SummaryFileField key={key} label={DOCUMENT_LABELS[key]} fileProgress={data.doctorDocuments![key]} />
                         ))}
                     </>))}
-                     {data.doctorDocuments && renderSection("Certidões e CV", "certsAndCvDocs", (<>
+                     {data.doctorDocuments && data.registrationObjective === 'match' && renderSection("Certidões e CV", "certsAndCvDocs", (<>
                         {(Object.keys(data.doctorDocuments) as DoctorDocKeys[]).filter(k => ['criminalRecordCert','ethicalCert','debtCert','cv'].includes(k)).map(key => (
                             <SummaryFileField key={key} label={DOCUMENT_LABELS[key]} fileProgress={data.doctorDocuments![key]} />
                         ))}
                     </>))}
-                    {renderSection("Especialidade", "isSpecialist", (
+                    {data.registrationObjective === 'match' && renderSection("Especialidade", "isSpecialist", (
                         <p className="text-sm"><strong className="font-medium">É especialista com RQE?</strong> <span className="ml-1">{data.isSpecialist ? "Sim" : "Não"}</span></p>
                     ))}
-                    {data.isSpecialist && data.specialistDocuments && renderSection("Docs Especialista", "specialistDocs", (<>
+                    {data.registrationObjective === 'match' && data.isSpecialist && data.specialistDocuments && renderSection("Docs Especialista", "specialistDocs", (<>
                         {(Object.keys(data.specialistDocuments) as SpecialistDocKeys[]).map(key => (
                             <SummaryFileField key={key} label={DOCUMENT_LABELS[key]} fileProgress={data.specialistDocuments![key]} />
                         ))}
@@ -288,6 +296,7 @@ const RegistrationSummary: React.FC<RegistrationSummaryProps> = ({ role, data, o
     );
 };
 
+
 interface InputWithIMaskProps extends Omit<React.InputHTMLAttributes<HTMLInputElement>, 'onAccept' | 'value' | 'defaultValue'> {
     maskOptions: any;
     onAccept: (value: string, maskRef: any) => void;
@@ -308,14 +317,14 @@ export default function RegisterPage() {
     const router = useRouter();
     const { toast } = useToast();
     const { user: authUser, loading: authLoading } = useAuthHook();
-
     const [doctorObjective, setDoctorObjective] = useState<'caravan' | 'match' | null>(null);
     
-    // --- ALTERAÇÃO APLICADA: Estados para especialidades conforme seu novo código ---
+    // Estados para especialidades
     const [availableSpecialties, setAvailableSpecialties] = useState<Specialty[]>([]);
     const [selectedSpecialties, setSelectedSpecialties] = useState<string[]>([]);
     const [isLoadingSpecialties, setIsLoadingSpecialties] = useState(true);
     const [specialtiesError, setSpecialtiesError] = useState<string | null>(null);
+    const [openSpecialtySearch, setOpenSpecialtySearch] = useState(false);
 
     const [personalInfo, setPersonalInfo] = useState<PersonalInfo>({ name: "", dob: "", rg: "", cpf: "", phone: "", email: "" });
     const [addressInfo, setAddressInfo] = useState<AddressInfo>({ cep: "", street: "", number: "", complement: "", neighborhood: "", city: "", state: "" });
@@ -325,7 +334,6 @@ export default function RegisterPage() {
     const [legalRepresentativeInfo, setLegalRepresentativeInfo] = useState<LegalRepresentativeInfo>({ name: "", dob: "", rg: "", cpf: "", phone: "", email: "", position: "" });
     const [credentials, setCredentials] = useState<Credentials>({ password: "", confirmPassword: "" });
     
-    // Mantendo a inicialização de estado de documentos robusta do seu código original
     const [doctorDocuments, setDoctorDocuments] = useState<DoctorDocumentsState>(initialDoctorDocsStateValue);
     const [specialistDocuments, setSpecialistDocuments] = useState<SpecialistDocumentsState>(initialSpecialistDocsStateValue);
     const [hospitalDocuments, setHospitalDocuments] = useState<HospitalDocumentsState>(initialHospitalDocsStateValue);
@@ -340,27 +348,25 @@ export default function RegisterPage() {
         }
     }, [authLoading, authUser, router]);
 
-    // --- ALTERAÇÃO APLICADA: Novo hook para buscar as especialidades do Firestore ---
     useEffect(() => {
         const fetchSpecialties = async () => {
             setIsLoadingSpecialties(true);
             setSpecialtiesError(null);
             try {
                 const specialties = await getSpecialtiesList();
-                console.log('[RegisterPage] Especialidades buscadas do Firestore:', specialties); // LINHA DE DEPURAÇÃO
                 if (specialties.length === 0) {
-                    setSpecialtiesError("Nenhuma especialidade encontrada no banco de dados.");
+                    setSpecialtiesError("Nenhuma especialidade encontrada.");
                 }
                 setAvailableSpecialties(specialties);
             } catch (error: any) {
                 console.error("Falha ao buscar especialidades:", error);
-                setSpecialtiesError("Falha ao carregar especialidades. Verifique as regras de segurança do Firestore.");
+                setSpecialtiesError("Falha ao carregar especialidades.");
             } finally {
                 setIsLoadingSpecialties(false);
             }
         };
         fetchSpecialties();
-    }, []); // Array de dependências vazio para executar apenas uma vez na montagem.
+    }, []);
 
     const stepsConfig = useMemo(() => {
         if (!role) return [{ id: 'role', label: 'Tipo' }];
@@ -374,16 +380,24 @@ export default function RegisterPage() {
                 { id: 'role', label: 'Tipo' },
                 { id: 'doctorObjective', label: 'Objetivo' },
                 { id: 'personalInfo', label: 'Dados Pessoais' },
-                { id: 'specialties', label: 'Especialidades' }
             ];
-
+            
+            // --- ALTERAÇÃO APLICADA: Novo fluxo para 'caravan' ---
             if (doctorObjective === 'caravan') {
-                return [...baseSteps, { id: 'credentials', label: 'Senha' }, { id: 'summary', label: 'Revisão' }];
+                return [
+                    ...baseSteps,
+                    { id: 'essentialDocsCaravan', label: 'Documentos' },
+                    { id: 'specialties', label: 'Especialidades' },
+                    { id: 'credentials', label: 'Senha' },
+                    { id: 'summary', label: 'Revisão' }
+                ];
             }
 
+            // Fluxo 'match' (completo)
             const fullMatchSteps = [ ...baseSteps, { id: 'addressInfo', label: 'Endereço' }, { id: 'essentialDocs', label: 'Docs Essenciais' }, { id: 'certsAndCvDocs', label: 'Certidões/CV' }, { id: 'isSpecialist', label: 'Especialidade?' } ];
             const specialistStep = isSpecialist ? [{ id: 'specialistDocs', label: 'Docs Especialista' }] : [];
-            return [...fullMatchSteps, ...specialistStep, { id: 'credentials', label: 'Senha' }, { id: 'summary', label: 'Revisão' }];
+            // --- ALTERAÇÃO APLICADA: Adição da etapa de especialidades também no fluxo 'match' ---
+            return [...fullMatchSteps, ...specialistStep, { id: 'specialties', label: 'Especialidades' }, { id: 'credentials', label: 'Senha' }, { id: 'summary', label: 'Revisão' }];
         }
         
         return [ { id: 'role', label: 'Tipo' }, { id: 'hospitalInfo', label: 'Dados Empresa' }, { id: 'hospitalAddress', label: 'Endereço Empresa' }, { id: 'hospitalDocs', label: 'Docs Empresa' }, { id: 'legalRepInfo', label: 'Responsável' }, { id: 'legalRepDocs', label: 'Docs Responsável' }, { id: 'credentials', label: 'Senha' }, { id: 'summary', label: 'Revisão' } ];
@@ -392,10 +406,6 @@ export default function RegisterPage() {
     const currentStepIndex = step;
     const currentStepConfig = stepsConfig[currentStepIndex];
     const totalSteps = stepsConfig.length;
-
-    useEffect(() => {
-        console.log(`[RegisterPage] Step Changed. Index: ${currentStepIndex}, ID: ${currentStepConfig?.id}`);
-    }, [currentStepIndex, currentStepConfig]);
     
     const isValidEmail = (email: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
     const isValidCPF = (cpf: string) => /^\d{11}$/.test(cpf.replace(/[^\d]/g, ""));
@@ -631,6 +641,14 @@ export default function RegisterPage() {
                     "Todos os documentos essenciais (marcados com *) são obrigatórios."
                 );
                 break;
+            // --- ALTERAÇÃO APLICADA: Nova validação para 'caravan' ---
+            case 'essentialDocsCaravan':
+                const caravanKeys: DoctorDocKeys[] = ['personalRg', 'personalCpf', 'professionalCrm'];
+                validate(
+                    !caravanKeys.some(key => !isFileStatePresent(doctorDocuments[key])),
+                    "RG, CPF e CRM são obrigatórios."
+                );
+                break;
             case 'certsAndCvDocs':
                 const certKeys: DoctorDocKeys[] = ['criminalRecordCert', 'ethicalCert', 'debtCert', 'cv'];
                 validate(
@@ -705,14 +723,7 @@ export default function RegisterPage() {
         }
 
         if (isValid) {
-            if (role === 'doctor' && doctorObjective === 'caravan' && currentStepConfig?.id === 'specialties') {
-                const credentialsStepIndex = stepsConfig.findIndex(s => s.id === 'credentials');
-                if (credentialsStepIndex !== -1) {
-                    setStep(credentialsStepIndex);
-                    window.scrollTo(0, 0);
-                    return;
-                }
-            }
+            // Lógica para pular etapas foi removida para simplificar, pois agora 'specialties' é comum
             if (step < totalSteps - 1) {
                 setStep(s => s + 1);
                 window.scrollTo(0, 0);
@@ -723,14 +734,7 @@ export default function RegisterPage() {
     }, [step, totalSteps, currentStepConfig, role, personalInfo, addressInfo, doctorDocuments, isSpecialist, specialistDocuments, hospitalInfo, hospitalAddressInfo, hospitalDocuments, legalRepresentativeInfo, legalRepDocuments, credentials, toast, doctorObjective, selectedSpecialties, stepsConfig]);
 
     const handlePrevStep = () => {
-        if (role === 'doctor' && doctorObjective === 'caravan' && currentStepConfig?.id === 'credentials') {
-             const specialtiesStepIndex = stepsConfig.findIndex(s => s.id === 'specialties');
-             if (specialtiesStepIndex !== -1) {
-                 setStep(specialtiesStepIndex);
-                 window.scrollTo(0,0);
-                 return;
-             }
-        }
+        // Lógica para voltar etapas foi simplificada
         if (step > 0) {
             setStep(s => s - 1);
             window.scrollTo(0, 0);
@@ -760,16 +764,28 @@ export default function RegisterPage() {
 
             const filesToProcess: { docKey: AllDocumentKeys, fileState: FileWithProgress, typePathFragment: string, subFolder?: string }[] = [];
 
-            if (role === 'doctor' && doctorObjective === 'match') {
-                doctorDocKeysArray.forEach(key => {
-                    if (doctorDocuments[key].file) filesToProcess.push({ docKey: key, fileState: doctorDocuments[key], typePathFragment: "doctor_documents" });
-                    else if (doctorDocuments[key].url) (finalDocRefs.documents as any)[key] = doctorDocuments[key].url;
-                });
-                if (isSpecialist) {
-                    specialistDocKeysArray.forEach(key => {
-                        if (specialistDocuments[key].file) filesToProcess.push({ docKey: key, fileState: specialistDocuments[key], typePathFragment: "doctor_documents", subFolder: "specialist" });
-                        else if (specialistDocuments[key].url) (finalDocRefs.specialistDocuments as any)[key] = specialistDocuments[key].url;
+            // --- ALTERAÇÃO APLICADA: Lógica de upload de documentos para ambos os fluxos de médico ---
+            if (role === 'doctor') {
+                 // Documentos para o fluxo 'caravan'
+                if(doctorObjective === 'caravan') {
+                    const caravanKeys: DoctorDocKeys[] = ['personalRg', 'personalCpf', 'professionalCrm'];
+                    caravanKeys.forEach(key => {
+                        if (doctorDocuments[key].file) filesToProcess.push({ docKey: key, fileState: doctorDocuments[key], typePathFragment: "doctor_documents" });
+                        else if (doctorDocuments[key].url) (finalDocRefs.documents as any)[key] = doctorDocuments[key].url;
                     });
+                }
+                // Documentos para o fluxo 'match'
+                if (doctorObjective === 'match') {
+                    doctorDocKeysArray.forEach(key => {
+                        if (doctorDocuments[key].file) filesToProcess.push({ docKey: key, fileState: doctorDocuments[key], typePathFragment: "doctor_documents" });
+                        else if (doctorDocuments[key].url) (finalDocRefs.documents as any)[key] = doctorDocuments[key].url;
+                    });
+                    if (isSpecialist) {
+                        specialistDocKeysArray.forEach(key => {
+                            if (specialistDocuments[key].file) filesToProcess.push({ docKey: key, fileState: specialistDocuments[key], typePathFragment: "doctor_documents", subFolder: "specialist" });
+                            else if (specialistDocuments[key].url) (finalDocRefs.specialistDocuments as any)[key] = specialistDocuments[key].url;
+                        });
+                    }
                 }
             } else if (role === 'hospital') {
                 hospitalDocKeysArray.forEach(key => {
@@ -944,12 +960,28 @@ export default function RegisterPage() {
                         </div>
                     </form>
                 );
+            // --- ALTERAÇÃO APLICADA: Nova etapa para upload de documentos no fluxo 'caravan' ---
+            case 'essentialDocsCaravan':
+                const caravanDocKeys: DoctorDocKeys[] = ['personalRg', 'personalCpf', 'professionalCrm'];
+                return (
+                    <div className="space-y-4 animate-fade-in">
+                        <h3 className="text-lg font-semibold border-b pb-2 mb-4">Documentos Essenciais</h3>
+                        <p className="text-xs text-gray-500 mb-3">Para participar dos projetos, precisamos que envie alguns documentos básicos para verificação. Formatos: PDF, JPG, PNG. Máx: 5MB.</p>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-5">
+                            {caravanDocKeys.map(key => renderFileInput(key as AllDocumentKeys))}
+                        </div>
+                    </div>
+                );
+            // --- ALTERAÇÃO APLICADA: Nova interface para seleção de especialidades ---
             case 'specialties':
-                const handleSpecialtyChange = (specialtyName: string, checked: boolean) => {
-                    setSelectedSpecialties(prev => checked ? [...prev, specialtyName] : prev.filter(s => s !== specialtyName));
+                const toggleSpecialty = (specialtyName: string) => {
+                    setSelectedSpecialties(prev => 
+                        prev.includes(specialtyName) 
+                            ? prev.filter(s => s !== specialtyName) 
+                            : [...prev, specialtyName]
+                    );
                 };
 
-                // --- ALTERAÇÃO APLICADA: Lógica de renderização usando os novos estados ---
                 if (isLoadingSpecialties) {
                     return (
                         <div className="flex flex-col items-center justify-center min-h-[200px] text-gray-500">
@@ -971,19 +1003,52 @@ export default function RegisterPage() {
                 return (
                     <div className="space-y-4 animate-fade-in">
                         <h3 className="text-lg font-semibold border-b pb-2 mb-4">Selecione suas especialidades*</h3>
-                        <p className="text-sm text-gray-500">Marque todas as áreas em que você atua. Isto é fundamental para o direcionamento dos pacientes.</p>
-                        <div className="grid grid-cols-2 md:grid-cols-3 gap-4 pt-4">
-                            {availableSpecialties.map(spec => (
-                                <div key={spec.id} className="flex items-center space-x-2">
-                                    <Checkbox 
-                                        id={`spec-${spec.id}`} 
-                                        checked={selectedSpecialties.includes(spec.name)} 
-                                        onCheckedChange={(checked) => handleSpecialtyChange(spec.name, !!checked)} 
-                                    />
-                                    <Label htmlFor={`spec-${spec.id}`} className="font-normal cursor-pointer">{spec.name}</Label>
-                                </div>
-                            ))}
-                        </div>
+                        <p className="text-sm text-gray-500">Selecione todas as áreas em que você atua. Você pode digitar para buscar.</p>
+                        
+                        <Popover open={openSpecialtySearch} onOpenChange={setOpenSpecialtySearch}>
+                            <PopoverTrigger asChild>
+                                <Button variant="outline" role="combobox" aria-expanded={openSpecialtySearch} className="w-full justify-start h-auto min-h-10">
+                                    <div className="flex gap-1 flex-wrap">
+                                        {selectedSpecialties.length > 0 ? (
+                                            selectedSpecialties.map(specialty => (
+                                                <Badge key={specialty} variant="secondary" className="mr-1 mb-1">
+                                                    {specialty}
+                                                    <button 
+                                                        aria-label={`Remover ${specialty}`}
+                                                        onClick={(e) => { e.preventDefault(); e.stopPropagation(); toggleSpecialty(specialty); }} 
+                                                        className="ml-1.5 rounded-full outline-none ring-offset-background focus:ring-2 focus:ring-ring focus:ring-offset-2"
+                                                    >
+                                                        <X className="h-3 w-3 text-muted-foreground hover:text-foreground" />
+                                                    </button>
+                                                </Badge>
+                                            ))
+                                        ) : (
+                                            <span className="text-muted-foreground font-normal">Selecione ou busque especialidades...</span>
+                                        )}
+                                    </div>
+                                </Button>
+                            </PopoverTrigger>
+                            <PopoverContent className="w-[--radix-popover-trigger-width] p-0">
+                                <Command>
+                                    <CommandInput placeholder="Buscar especialidade..." />
+                                    <CommandList>
+                                        <CommandEmpty>Nenhuma especialidade encontrada.</CommandEmpty>
+                                        <CommandGroup>
+                                            {availableSpecialties.map((spec) => (
+                                                <CommandItem
+                                                    key={spec.id}
+                                                    value={spec.name}
+                                                    onSelect={() => toggleSpecialty(spec.name)}
+                                                >
+                                                    <Check className={cn("mr-2 h-4 w-4", selectedSpecialties.includes(spec.name) ? "opacity-100" : "opacity-0")} />
+                                                    {spec.name}
+                                                </CommandItem>
+                                            ))}
+                                        </CommandGroup>
+                                    </CommandList>
+                                </Command>
+                            </PopoverContent>
+                        </Popover>
                     </div>
                 );
             case 'addressInfo':
@@ -1037,7 +1102,7 @@ export default function RegisterPage() {
                          </div>
                          {isSpecialist ?
                              <p className="text-sm text-blue-700 mt-2 flex items-start gap-1.5"><Info size={16} className="shrink-0 relative top-0.5"/><span>Na próxima etapa, envie os documentos da sua especialidade.</span></p> :
-                             <p className="text-sm text-gray-600 mt-2">Prossiga para definir sua senha.</p>
+                             <p className="text-sm text-gray-600 mt-2">Prossiga para a seleção de suas áreas de atuação.</p>
                          }
                      </div>
                  );
@@ -1143,7 +1208,7 @@ export default function RegisterPage() {
             case 'summary':
                 if (!role) return <div className="p-4 text-center text-red-500">Erro: Perfil não definido.</div>;
                 const summaryDataToRender: SummaryData = role === 'doctor' ?
-                    { personalInfo, addressInfo, doctorDocuments, isSpecialist, specialistDocuments, credentials } :
+                    { registrationObjective: doctorObjective, personalInfo, addressInfo, doctorDocuments, isSpecialist, specialistDocuments, credentials } :
                     { hospitalInfo, hospitalAddressInfo, hospitalDocuments, legalRepresentativeInfo, legalRepDocuments, credentials };
                 return <RegistrationSummary role={role} data={summaryDataToRender} onEdit={handleEditStep} />;
             default:
