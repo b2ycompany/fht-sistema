@@ -829,7 +829,7 @@ export default function RegisterPage() {
                 throw new Error("Um ou mais uploads de documentos falharam. Verifique os arquivos e tente novamente.");
             }
 
-            toast({ title: "Etapa 3/3: Finalizando cadastro...", duration: 3000 });
+            toast({ title: "Etapa 3/3: Finalizando e aplicando permissões...", duration: 3000 });
             let registrationData: DoctorRegistrationPayload | HospitalRegistrationPayload;
 
             if (role === 'doctor') {
@@ -863,17 +863,38 @@ export default function RegisterPage() {
             }
             
             await completeUserRegistration(userId, loginEmail, displayName, role, registrationData);
+
+            // --- LÓGICA DE ATUALIZAÇÃO DE TOKEN REFINADA ---
             
-            // --- MELHORIA APLICADA ---
-            // Força a atualização do token do utilizador para obter os novos Custom Claims (role).
-            // Isto é crucial para que o redirecionamento e a proteção de rotas funcionem corretamente.
-            await firebaseUser.getIdToken(true);
+            // Função auxiliar para esperar um pouco
+            const delay = (ms: number) => new Promise(res => setTimeout(res, ms));
+
+            let claims;
+            let retries = 5; // Tenta por até 10 segundos
+            
+            // Tenta buscar o token atualizado com os novos claims
+            while (retries > 0) {
+                await firebaseUser.getIdToken(true); // Força a atualização
+                const idTokenResult = await firebaseUser.getIdTokenResult();
+                claims = idTokenResult.claims;
+                
+                // Verifica se o claim 'role' foi aplicado
+                if (claims.role === role) {
+                    break; // Se encontrou, sai do loop
+                }
+                
+                retries--;
+                if (retries === 0) {
+                    throw new Error("Não foi possível verificar as permissões. Por favor, faça login novamente.");
+                }
+                await delay(2000); // Espera 2 segundos antes de tentar novamente
+            }
             
             toast({
                 variant: "default",
                 title: "Cadastro Realizado com Sucesso!",
-                description: "Você será redirecionado para o seu painel.",
-                duration: 4000
+                description: "Permissões verificadas. Redirecionando...",
+                duration: 3000
             });
 
             const newDashboardPath = role === 'doctor' ? '/dashboard' : '/hospital/dashboard';
