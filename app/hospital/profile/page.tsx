@@ -1,4 +1,3 @@
-// app/hospital/profile/page.tsx
 "use client";
 
 import React, { useState, useEffect, useCallback } from 'react';
@@ -9,14 +8,12 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { useAuth } from '@/components/auth-provider';
 import { getCurrentUserData, type HospitalProfile } from "@/lib/auth-service";
-import { Loader2, AlertTriangle, Building, User, Mail, Phone, MapPin, Edit, CheckCircle, Clock } from 'lucide-react';
+import { Loader2, AlertTriangle, Building, User, Mail, Phone, MapPin, Edit, CheckCircle, Clock, FileUp } from 'lucide-react';
 import { DOC_LABELS } from '@/lib/constants';
 
-// --- Componentes de Estado ---
 const LoadingState = () => ( <div className="flex justify-center items-center h-64"><Loader2 className="h-8 w-8 animate-spin text-blue-600" /><p className="ml-3">Carregando perfil...</p></div> );
 const ErrorState = ({ message, onRetry }: { message: string, onRetry: () => void }) => ( <div className="text-center p-6"><p className="text-red-600">{message}</p><Button onClick={onRetry} className="mt-4">Tentar Novamente</Button></div> );
 
-// --- Componentes de UI ---
 const ProfileField = ({ icon: Icon, label, value }: { icon: React.ElementType, label: string, value?: string | null }) => (
     <div className="flex items-start gap-3">
         <Icon className="h-4 w-4 text-gray-500 mt-1 flex-shrink-0" />
@@ -45,7 +42,6 @@ const SectionTitle = ({ icon: Icon, title }: { icon: React.ElementType, title: s
     </h3>
 );
 
-// --- Componente Principal ---
 export default function HospitalProfilePage() {
     const { user } = useAuth();
     const router = useRouter();
@@ -59,7 +55,7 @@ export default function HospitalProfilePage() {
         setIsLoading(true); setError(null);
         try {
             const data = await getCurrentUserData();
-            if (data?.role === 'hospital') {
+            if (data?.userType === 'hospital') {
                 setProfile(data as HospitalProfile);
             } else {
                 setError("Perfil de hospital não encontrado.");
@@ -79,7 +75,6 @@ export default function HospitalProfilePage() {
     if (error) return <ErrorState message={error} onRetry={fetchProfile} />;
     if (!profile) return <div className="p-4 text-center">Não foi possível carregar o perfil.</div>;
 
-    // Desestruturando para facilitar o acesso
     const { 
         companyInfo, 
         legalRepresentativeInfo, 
@@ -133,11 +128,12 @@ export default function HospitalProfilePage() {
             <VerificationStatusAlert />
 
             <Card className="shadow-lg">
-                <CardHeader><CardTitle>Informações da Empresa</CardTitle></CardHeader>
+                <CardHeader>
+                    <SectionTitle icon={Building} title="Informações da Empresa" />
+                </CardHeader>
                 <CardContent className="grid md:grid-cols-2 gap-x-6 gap-y-4">
                     <ProfileField icon={Building} label="Razão Social" value={profile.displayName} />
                     <ProfileField icon={Building} label="CNPJ" value={companyInfo.cnpj} />
-                    {/* --- LINHA CORRIGIDA --- */}
                     <ProfileField icon={Mail} label="Email de Contato (Login)" value={profile.email} />
                     <ProfileField icon={Phone} label="Telefone" value={companyInfo.phone} />
                     <ProfileField icon={MapPin} label="Endereço" value={`${companyInfo.address.street}, ${companyInfo.address.number} - ${companyInfo.address.city}, ${companyInfo.address.state}`} />
@@ -146,16 +142,20 @@ export default function HospitalProfilePage() {
             </Card>
             
             <Card className="shadow-lg">
-                <CardHeader><CardTitle>Documentos da Empresa</CardTitle></CardHeader>
+                <CardHeader>
+                    <SectionTitle icon={FileUp} title="Documentos da Empresa" />
+                </CardHeader>
                 <CardContent className="grid md:grid-cols-2 gap-3">
                     {Object.keys(DOC_LABELS).filter(key => key in (hospitalDocs || {})).map(key => (
-                        <DocumentLink key={key} label={DOC_LABELS[key]} url={(hospitalDocs as any)?.[key]} />
+                        <DocumentLink key={key} label={DOC_LABELS[key as keyof typeof DOC_LABELS]} url={(hospitalDocs as any)?.[key]} />
                     ))}
                 </CardContent>
             </Card>
 
             <Card className="shadow-lg">
-                <CardHeader><CardTitle>Responsável Legal</CardTitle></CardHeader>
+                <CardHeader>
+                    <SectionTitle icon={User} title="Responsável Legal" />
+                </CardHeader>
                  <CardContent className="grid md:grid-cols-2 gap-x-6 gap-y-4">
                     <ProfileField icon={User} label="Nome" value={legalRepresentativeInfo.name} />
                     <ProfileField icon={User} label="CPF" value={legalRepresentativeInfo.cpf} />
@@ -166,10 +166,12 @@ export default function HospitalProfilePage() {
             </Card>
 
             <Card className="shadow-lg">
-                <CardHeader><CardTitle>Documentos do Responsável</CardTitle></CardHeader>
+                <CardHeader>
+                    <SectionTitle icon={FileUp} title="Documentos do Responsável" />
+                </CardHeader>
                 <CardContent className="grid md:grid-cols-2 gap-3">
                      {Object.keys(DOC_LABELS).filter(key => key in (legalRepDocuments || {})).map(key => (
-                        <DocumentLink key={key} label={DOC_LABELS[key]} url={(legalRepDocuments as any)?.[key]} />
+                        <DocumentLink key={key} label={DOC_LABELS[key as keyof typeof DOC_LABELS]} url={(legalRepDocuments as any)?.[key]} />
                     ))}
                 </CardContent>
             </Card>

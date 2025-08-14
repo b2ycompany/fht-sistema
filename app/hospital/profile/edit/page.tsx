@@ -1,4 +1,3 @@
-// app/hospital/profile/edit/page.tsx
 "use client";
 
 import React, { useState, useEffect, useCallback, ChangeEvent, ReactNode } from "react";
@@ -12,7 +11,7 @@ import { Loader2, Save, XCircle, AlertTriangle, FileUp, ExternalLink, Building, 
 import { useAuth } from '@/components/auth-provider';
 import {
   getCurrentUserData,
-  updateUserVerificationStatus, // Usaremos a função genérica para o status
+  updateUserVerificationStatus,
   type HospitalProfile,
   type HospitalDocumentsRef,
   type LegalRepDocumentsRef,
@@ -22,20 +21,16 @@ import { DOC_LABELS } from '@/lib/constants';
 import { doc, updateDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 
-// --- Componentes de Estado (Loading, Error) ---
 const LoadingState = ({ message = "Carregando..." }: { message?: string }) => ( <div className="flex justify-center items-center h-64"><Loader2 className="h-8 w-8 animate-spin text-blue-600" /><p className="ml-3">{message}</p></div> );
 const ErrorState = ({ message, onRetry }: { message: string, onRetry: () => void }) => ( <div className="text-center p-6"><p className="text-red-600">{message}</p><Button onClick={onRetry} className="mt-4">Tentar Novamente</Button></div> );
 
-// --- Componente de Upload de Arquivo ---
 const FileUploadField = ({ docKey, label, currentFileUrl, onFileChange }: { docKey: string, label: string, currentFileUrl?: string, onFileChange: (key: string, file: File | null) => void }) => {
     const [fileName, setFileName] = useState<string | null>(null);
-
     const handleFileChange = (e: ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0] || null;
         setFileName(file?.name || null);
         onFileChange(docKey, file);
     };
-
     return (
         <div className="p-3 border rounded-lg bg-gray-50/80">
             <Label htmlFor={docKey} className="text-sm font-medium text-gray-700">{label}</Label>
@@ -47,7 +42,6 @@ const FileUploadField = ({ docKey, label, currentFileUrl, onFileChange }: { docK
         </div>
     );
 };
-
 
 export default function EditHospitalProfilePage() {
     const { user } = useAuth();
@@ -65,7 +59,7 @@ export default function EditHospitalProfilePage() {
         setIsLoading(true); setError(null);
         try {
             const data = await getCurrentUserData();
-            if (data?.role === 'hospital') {
+            if (data?.userType === 'hospital') {
                 setProfile(data as HospitalProfile);
             } else {
                 setError("Perfil de hospital não encontrado.");
@@ -163,7 +157,7 @@ export default function EditHospitalProfilePage() {
                            <FileUploadField 
                                key={key} 
                                docKey={key}
-                               label={DOC_LABELS[key] || key}
+                               label={DOC_LABELS[key as keyof typeof DOC_LABELS] || key}
                                currentFileUrl={profile.hospitalDocs?.[key]}
                                onFileChange={handleFileChange}
                            />
@@ -181,7 +175,7 @@ export default function EditHospitalProfilePage() {
                            <FileUploadField 
                                key={key} 
                                docKey={key}
-                               label={DOC_LABELS[key] || key}
+                               label={DOC_LABELS[key as keyof typeof DOC_LABELS] || key}
                                currentFileUrl={profile.legalRepDocuments?.[key]}
                                onFileChange={handleFileChange}
                            />
@@ -190,13 +184,13 @@ export default function EditHospitalProfilePage() {
                     </CardContent>
                 </Card>
 
-                <CardFooter className="mt-6 flex justify-end gap-3 pt-6 border-t bg-gray-50 -mx-6 -mb-6 px-6 pb-4 rounded-b-lg">
+                <div className="mt-6 flex justify-end gap-3 pt-6 border-t">
                     <Button type="button" variant="outline" onClick={() => router.push("/hospital/dashboard")} disabled={isSubmitting}><XCircle className="mr-2 h-4 w-4"/> Cancelar</Button>
                     <Button type="submit" disabled={isSubmitting} className="bg-blue-600 hover:bg-blue-700 text-white">
                         {isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FileUp className="mr-2 h-4 w-4" />}
                         Salvar e Reenviar para Análise
                     </Button>
-                </CardFooter>
+                </div>
             </form>
         </div>
     );
