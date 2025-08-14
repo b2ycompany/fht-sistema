@@ -21,7 +21,8 @@ import {
   getDocs,
   documentId,
 } from "firebase/firestore";
-import { auth, db } from "./firebase";
+import { auth, db, functions } from "./firebase";
+import { httpsCallable } from "firebase/functions";
 
 export type UserType = "doctor" | "hospital" | "admin" | "backoffice" | "receptionist" | "triage_nurse" | "caravan_admin";
 export type ProfileStatus = "PENDING_REVIEW" | "APPROVED" | "REJECTED_NEEDS_RESUBMISSION";
@@ -152,6 +153,63 @@ export interface DoctorProfileUpdatePayload {
   documentVerificationStatus?: ProfileStatus;
   adminVerificationNotes?: string;
 }
+
+// ===================================================================
+// NOVAS FUNÇÕES E INTERFACE ADICIONADAS AQUI
+// ===================================================================
+export interface StaffCreationPayload {
+  name: string;
+  email: string;
+  userType: 'receptionist' | 'triage_nurse' | 'caravan_admin';
+  hospitalId: string;
+}
+
+// Referência à Firebase Function 'createStaffUser'
+const createStaffUserCallable = httpsCallable<Omit<StaffCreationPayload, 'hospitalId'>, { success: boolean, user: UserProfile }>(functions, 'createStaffUser');
+
+/**
+ * Chama a Firebase Function para criar um novo membro da equipe.
+ * @param payload Os dados do novo membro da equipe.
+ * @returns O perfil do usuário criado.
+ */
+export const createStaffMember = async (payload: StaffCreationPayload) => {
+    try {
+        const result = await createStaffUserCallable(payload);
+        if (!result.data.success) {
+            // Se a função Cloud retornou sucesso: false, lança um erro com a mensagem de lá
+            throw new Error("A função de backend não retornou sucesso.");
+        }
+        return result.data.user;
+    } catch (error: any) {
+        // Captura erros de rede ou os erros lançados acima
+        console.error("[AuthService] Erro ao chamar a função createStaffUser:", error);
+        throw new Error(error.message || "Não foi possível adicionar o membro à equipa.");
+    }
+};
+
+/**
+ * Busca todos os perfis de usuários (equipe) associados a um ID de hospital.
+ * @param hospitalId O ID do hospital.
+ * @returns Uma promessa que resolve para um array de perfis de usuário da equipe.
+ */
+export const getStaffForHospital = async (hospitalId: string): Promise<UserProfile[]> => {
+    try {
+        const usersRef = collection(db, "users");
+        // Cria uma query para buscar usuários onde o campo 'hospitalId' é igual ao ID fornecido.
+        const q = query(usersRef, where("hospitalId", "==", hospitalId));
+        const querySnapshot = await getDocs(q);
+
+        if (querySnapshot.empty) {
+            return [];
+        }
+        
+        return querySnapshot.docs.map(d => ({ uid: d.id, ...d.data() } as UserProfile));
+    } catch (error) {
+        console.error(`[AuthService] Erro ao buscar a equipe para o hospital ${hospitalId}:`, error);
+        throw new Error("Não foi possível carregar a lista da equipa.");
+    }
+};
+// ===================================================================
 
 export const createAuthUser = async (
   email: string,
@@ -346,21 +404,9 @@ export const getUsersForVerification = async (): Promise<UserProfile[]> => {
     }
 };
 
-// ===================================================================
-// NOVA FUNÇÃO ADICIONADA AQUI
-// ===================================================================
-/**
- * Busca perfis de médicos que correspondem a uma especialidade específica e estão aprovados.
- * @param specialty A especialidade a ser procurada.
- * @returns Uma promessa que resolve para um array de perfis de médicos.
- */
 export const getDoctorsBySpecialty = async (specialty: string): Promise<DoctorProfile[]> => {
   try {
     const usersRef = collection(db, "users");
-    // Cria uma query para buscar documentos na coleção 'users' onde:
-    // 1. O userType é 'doctor'.
-    // 2. O array 'specialties' contém a especialidade fornecida.
-    // 3. O status de verificação é 'APPROVED'.
     const q = query(
       usersRef,
       where("userType", "==", "doctor"),
@@ -375,7 +421,6 @@ export const getDoctorsBySpecialty = async (specialty: string): Promise<DoctorPr
       return [];
     }
 
-    // Mapeia os resultados para o tipo DoctorProfile.
     return querySnapshot.docs.map(d => ({ uid: d.id, ...d.data() } as DoctorProfile));
   } catch (error) {
     console.error(`[AuthService] Erro ao buscar médicos pela especialidade "${specialty}":`, error);
