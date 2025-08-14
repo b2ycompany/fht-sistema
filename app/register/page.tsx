@@ -309,8 +309,10 @@ const InputWithIMask: React.FC<InputWithIMaskProps> = ({ maskOptions, onAccept, 
 
 
 export default function RegisterPage() {
-    const [registrationComplete, setRegistrationComplete] = useState(false);
-    const [targetDashboardPath, setTargetDashboardPath] = useState<string | null>(null);
+    // --- ALTERAÇÃO APLICADA: Estados de controle de redirecionamento removidos ---
+    // const [registrationComplete, setRegistrationComplete] = useState(false);
+    // const [targetDashboardPath, setTargetDashboardPath] = useState<string | null>(null);
+
     const [step, setStep] = useState(0);
     const [role, setRole] = useState<UserType | null>(null);
     const [isLoading, setIsLoading] = useState(false);
@@ -382,7 +384,6 @@ export default function RegisterPage() {
                 { id: 'personalInfo', label: 'Dados Pessoais' },
             ];
             
-            // --- ALTERAÇÃO APLICADA: Novo fluxo para 'caravan' ---
             if (doctorObjective === 'caravan') {
                 return [
                     ...baseSteps,
@@ -393,10 +394,8 @@ export default function RegisterPage() {
                 ];
             }
 
-            // Fluxo 'match' (completo)
             const fullMatchSteps = [ ...baseSteps, { id: 'addressInfo', label: 'Endereço' }, { id: 'essentialDocs', label: 'Docs Essenciais' }, { id: 'certsAndCvDocs', label: 'Certidões/CV' }, { id: 'isSpecialist', label: 'Especialidade?' } ];
             const specialistStep = isSpecialist ? [{ id: 'specialistDocs', label: 'Docs Especialista' }] : [];
-            // --- ALTERAÇÃO APLICADA: Adição da etapa de especialidades também no fluxo 'match' ---
             return [...fullMatchSteps, ...specialistStep, { id: 'specialties', label: 'Especialidades' }, { id: 'credentials', label: 'Senha' }, { id: 'summary', label: 'Revisão' }];
         }
         
@@ -641,7 +640,6 @@ export default function RegisterPage() {
                     "Todos os documentos essenciais (marcados com *) são obrigatórios."
                 );
                 break;
-            // --- ALTERAÇÃO APLICADA: Nova validação para 'caravan' ---
             case 'essentialDocsCaravan':
                 const caravanKeys: DoctorDocKeys[] = ['personalRg', 'personalCpf', 'professionalCrm'];
                 validate(
@@ -723,7 +721,6 @@ export default function RegisterPage() {
         }
 
         if (isValid) {
-            // Lógica para pular etapas foi removida para simplificar, pois agora 'specialties' é comum
             if (step < totalSteps - 1) {
                 setStep(s => s + 1);
                 window.scrollTo(0, 0);
@@ -734,7 +731,6 @@ export default function RegisterPage() {
     }, [step, totalSteps, currentStepConfig, role, personalInfo, addressInfo, doctorDocuments, isSpecialist, specialistDocuments, hospitalInfo, hospitalAddressInfo, hospitalDocuments, legalRepresentativeInfo, legalRepDocuments, credentials, toast, doctorObjective, selectedSpecialties, stepsConfig]);
 
     const handlePrevStep = () => {
-        // Lógica para voltar etapas foi simplificada
         if (step > 0) {
             setStep(s => s - 1);
             window.scrollTo(0, 0);
@@ -764,9 +760,7 @@ export default function RegisterPage() {
 
             const filesToProcess: { docKey: AllDocumentKeys, fileState: FileWithProgress, typePathFragment: string, subFolder?: string }[] = [];
 
-            // --- ALTERAÇÃO APLICADA: Lógica de upload de documentos para ambos os fluxos de médico ---
             if (role === 'doctor') {
-                 // Documentos para o fluxo 'caravan'
                 if(doctorObjective === 'caravan') {
                     const caravanKeys: DoctorDocKeys[] = ['personalRg', 'personalCpf', 'professionalCrm'];
                     caravanKeys.forEach(key => {
@@ -774,7 +768,6 @@ export default function RegisterPage() {
                         else if (doctorDocuments[key].url) (finalDocRefs.documents as any)[key] = doctorDocuments[key].url;
                     });
                 }
-                // Documentos para o fluxo 'match'
                 if (doctorObjective === 'match') {
                     doctorDocKeysArray.forEach(key => {
                         if (doctorDocuments[key].file) filesToProcess.push({ docKey: key, fileState: doctorDocuments[key], typePathFragment: "doctor_documents" });
@@ -875,31 +868,41 @@ export default function RegisterPage() {
             
             await completeUserRegistration(userId, loginEmail, displayName, role, registrationData);
             
-            setRegistrationComplete(true);
-            const newDashboardPath = role === 'doctor' ? '/dashboard' : '/hospital/dashboard';
-            setTargetDashboardPath(newDashboardPath);
+            // --- ALTERAÇÃO APLICADA: Redirecionamento direto ---
+            toast({
+                variant: "default",
+                title: "Cadastro Realizado com Sucesso!",
+                description: "Você será redirecionado para o seu painel.",
+                duration: 4000
+            });
 
-            toast({ variant: "default", title: "Cadastro Realizado!", description: "Redirecionando para o painel...", duration: 3000 });
+            const newDashboardPath = role === 'doctor' ? '/dashboard' : '/hospital/dashboard';
+            router.push(newDashboardPath);
 
         } catch (error: any) {
             let title = "Erro no Cadastro";
             let description = error.message || "Ocorreu um erro inesperado.";
             if (error instanceof FirebaseError) {
                 switch (error.code) {
-                    case 'auth/email-already-in-use': title = "Email já Cadastrado"; description = "Este email já está em uso."; break;
+                    case 'auth/email-already-in-use':
+                        title = "Email já Cadastrado";
+                        description = "Este email já está em uso por outra conta.";
+                        break;
                 }
             }
             toast({ variant: "destructive", title: title, description: description, duration: 7000 });
+            // --- CORREÇÃO: setIsLoading(false) movido para o bloco finally ---
         } finally {
             setIsLoading(false);
         }
     };
 
-    useEffect(() => {
-        if (registrationComplete && targetDashboardPath) {
-            router.push(targetDashboardPath);
-        }
-    }, [registrationComplete, targetDashboardPath, router]);
+    // --- ALTERAÇÃO APLICADA: useEffect para redirecionamento removido ---
+    // useEffect(() => {
+    //     if (registrationComplete && targetDashboardPath) {
+    //         router.push(targetDashboardPath);
+    //     }
+    // }, [registrationComplete, targetDashboardPath, router]);
 
 
     const renderCurrentStep = () => {
@@ -960,7 +963,6 @@ export default function RegisterPage() {
                         </div>
                     </form>
                 );
-            // --- ALTERAÇÃO APLICADA: Nova etapa para upload de documentos no fluxo 'caravan' ---
             case 'essentialDocsCaravan':
                 const caravanDocKeys: DoctorDocKeys[] = ['personalRg', 'personalCpf', 'professionalCrm'];
                 return (
@@ -972,7 +974,6 @@ export default function RegisterPage() {
                         </div>
                     </div>
                 );
-            // --- ALTERAÇÃO APLICADA: Nova interface para seleção de especialidades ---
             case 'specialties':
                 const toggleSpecialty = (specialtyName: string) => {
                     setSelectedSpecialties(prev => 
