@@ -1,5 +1,5 @@
 // functions/src/index.ts
-import { onDocumentWritten, onDocumentDeleted, FirestoreEvent } from "firebase-functions/v2/firestore";
+import { onDocumentWritten, onDocumentDeleted, onDocumentCreated, FirestoreEvent } from "firebase-functions/v2/firestore";
 import { HttpsError, onCall, CallableRequest } from "firebase-functions/v2/https";
 import { setGlobalOptions } from "firebase-functions/v2";
 import * as admin from "firebase-admin";
@@ -15,7 +15,7 @@ const db = getFirestore();
 const storage = getStorage();
 const auth = admin.auth();
 
-// Interfaces
+// Interfaces (suas interfaces existentes)
 interface ShiftRequirementData {
   hospitalId: string;
   hospitalName?: string;
@@ -94,8 +94,84 @@ interface TimeRecord {
     checkOutPhotoUrl?: string;
 }
 
+interface Medication {
+  name: string;
+  dosage: string;
+  instructions: string;
+}
+
+interface PrescriptionPayload {
+  consultationId: string;
+  patientName: string;
+  doctorName: string;
+  doctorCrm: string;
+  medications: Medication[];
+}
+
+type DocumentType = 'medicalCertificate' | 'attendanceCertificate';
+
+interface DocumentPayload {
+  type: DocumentType;
+  consultationId: string;
+  patientName: string;
+  doctorName: string;
+  doctorCrm: string;
+  details: {
+    daysOff?: number;
+    cid?: string;
+    consultationPeriod?: string;
+  };
+}
+
+interface CreateTelemedicineAppointmentPayload {
+  patientName: string;
+  doctorId: string;
+  doctorName: string;
+  specialty: string;
+  appointmentDate: string;
+}
+
 
 setGlobalOptions({ region: "us-central1", memory: "512MiB" });
+
+// ===================================================================
+// NOVA FUNÇÃO AUTOMÁTICA ADICIONADA AQUI
+// ===================================================================
+/**
+ * Esta função é acionada sempre que um NOVO documento é criado na coleção 'users'.
+ * Ela define os 'custom claims' (função/papel) no Firebase Auth.
+ */
+export const onUserCreatedSetClaims = onDocumentCreated("users/{userId}", async (event) => {
+    const userSnap = event.data;
+    if (!userSnap) {
+        logger.error("Snapshot do utilizador não encontrado no evento de criação.");
+        return;
+    }
+    const userData = userSnap.data();
+    const userId = event.params.userId;
+
+    // Obtém o 'userType' e 'hospitalId' do documento recém-criado
+    const userType = userData.userType;
+    const hospitalId = userData.hospitalId || null;
+
+    if (!userType) {
+        logger.warn(`Utilizador ${userId} criado sem um 'userType'. Claims não serão definidos.`);
+        return;
+    }
+
+    try {
+        // Prepara os 'claims' (carimbos) para serem aplicados
+        const claims = { role: userType, hospitalId: hospitalId };
+        
+        // Define os claims para o usuário correspondente no Firebase Auth
+        await auth.setCustomUserClaims(userId, claims);
+        
+        logger.info(`Claims definidos com sucesso para o utilizador ${userId}:`, claims);
+    } catch (error) {
+        logger.error(`Falha ao definir claims para o utilizador ${userId}:`, error);
+    }
+});
+
 
 const timeToMinutes = (timeStr: string): number => {
   if (!timeStr || !timeStr.includes(":")) { return 0; }
@@ -108,6 +184,8 @@ const doIntervalsOverlap = (startA: number, endA: number, isOvernightA: boolean,
   const effectiveEndB = isOvernightB && endB <= startB ? endB + 1440 : endB;
   return startA < effectiveEndB && startB < effectiveEndA;
 };
+
+// SUAS FUNÇÕES EXISTENTES CONTINUAM AQUI...
 
 export const findMatchesOnShiftRequirementWrite = onDocumentWritten({ document: "shiftRequirements/{requirementId}" },
   async (event: FirestoreEvent<Change<DocumentSnapshot> | undefined, { requirementId: string }>): Promise<void> => {
@@ -458,20 +536,6 @@ export const correctServiceTypeCapitalization = onCall(
     }
 );
 
-interface Medication {
-  name: string;
-  dosage: string;
-  instructions: string;
-}
-
-interface PrescriptionPayload {
-  consultationId: string;
-  patientName: string;
-  doctorName: string;
-  doctorCrm: string;
-  medications: Medication[];
-}
-
 async function drawTextWithWrapping(page: any, text: string, options: { x: number, y: number, font: PDFFont, size: number, maxWidth: number, lineHeight: number }) {
     const { x, font, size, maxWidth, lineHeight } = options;
     let { y } = options;
@@ -581,21 +645,6 @@ export const generatePrescriptionPdf = onCall({ cors: true }, async (request: Ca
         throw new HttpsError("internal", "Ocorreu um erro inesperado ao gerar a receita.");
     }
 });
-
-type DocumentType = 'medicalCertificate' | 'attendanceCertificate';
-
-interface DocumentPayload {
-  type: DocumentType;
-  consultationId: string;
-  patientName: string;
-  doctorName: string;
-  doctorCrm: string;
-  details: {
-    daysOff?: number;
-    cid?: string;
-    consultationPeriod?: string;
-  };
-}
 
 export const generateDocumentPdf = onCall({ cors: true }, async (request: CallableRequest<DocumentPayload>) => {
     if (!request.auth) {
@@ -896,6 +945,7 @@ export const createStaffUser = onCall({
             updatedAt: FieldValue.serverTimestamp(),
         };
 
+        // Esta linha irá disparar a função 'onUserCreatedSetClaims' automaticamente
         await db.collection("users").doc(userRecord.uid).set(userProfile);
         
         logger.info(`TODO: Enviar email de boas-vindas para ${email} com a senha temporária: ${tempPassword}`);
@@ -981,25 +1031,17 @@ export const createConsultationRoom = onCall({ cors: ["http://localhost:3000", "
     }
 });
 
-interface CreateTelemedicineAppointmentPayload {
-  patientName: string;
-  doctorId: string;
-  doctorName: string;
-  specialty: string;
-  appointmentDate: string; // Receber como string ISO (ex: "2025-12-31T14:00:00.000Z")
-}
-
 export const createTelemedicineAppointment = onCall(
     { 
-        cors: true, // Permite ser chamada pelo seu app web
-        secrets: ["DAILY_APIKEY"] // Usa o mesmo segredo que você já configurou
+        cors: true, 
+        secrets: ["DAILY_APIKEY"]
     },
     async (request: CallableRequest<CreateTelemedicineAppointmentPayload>) => {
         if (!request.auth) {
             throw new HttpsError("unauthenticated", "A função só pode ser chamada por um utilizador autenticado.");
         }
         
-        const createdByUid = request.auth.uid; // UID de quem está a agendar (admin/recepcionista)
+        const createdByUid = request.auth.uid; 
         const { patientName, doctorId, doctorName, specialty, appointmentDate } = request.data;
         
         if (!patientName || !doctorId || !doctorName || !specialty || !appointmentDate) {
@@ -1015,9 +1057,7 @@ export const createTelemedicineAppointment = onCall(
         }
 
         try {
-            // Passo 1: Criar a sala de vídeo na Daily.co
             const expirationDate = new Date(appointmentDate);
-            // Adiciona 2 horas de margem de segurança para a expiração da sala
             const expirationTimestamp = Math.round((expirationDate.getTime() + 2 * 60 * 60 * 1000) / 1000);
 
             const roomOptions = {
@@ -1049,7 +1089,6 @@ export const createTelemedicineAppointment = onCall(
             const roomUrl = roomData.url;
             logger.info(`Sala de vídeo criada com sucesso: ${roomUrl}`);
 
-            // Passo 2: Salvar o agendamento no Firestore
             const appointmentData = {
                 patientName,
                 doctorId,
