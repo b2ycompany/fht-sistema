@@ -135,12 +135,10 @@ interface CreateTelemedicineAppointmentPayload {
 setGlobalOptions({ region: "us-central1", memory: "512MiB" });
 
 // ===================================================================
-// NOVA FUNÇÃO AUTOMÁTICA ADICIONADA AQUI
+// FUNÇÃO AUTOMÁTICA PARA DEFINIR PERMISSÕES (CUSTOM CLAIMS)
+// Esta função está corretamente implementada e é acionada sempre que
+// um NOVO documento é criado na coleção 'users'.
 // ===================================================================
-/**
- * Esta função é acionada sempre que um NOVO documento é criado na coleção 'users'.
- * Ela define os 'custom claims' (função/papel) no Firebase Auth.
- */
 export const onUserCreatedSetClaims = onDocumentCreated("users/{userId}", async (event) => {
     const userSnap = event.data;
     if (!userSnap) {
@@ -185,7 +183,8 @@ const doIntervalsOverlap = (startA: number, endA: number, isOvernightA: boolean,
   return startA < effectiveEndB && startB < effectiveEndA;
 };
 
-// SUAS FUNÇÕES EXISTENTES CONTINUAM AQUI...
+// SUAS OUTRAS FUNÇÕES EXISTENTES CONTINUAM ABAIXO
+// ...
 
 export const findMatchesOnShiftRequirementWrite = onDocumentWritten({ document: "shiftRequirements/{requirementId}" },
   async (event: FirestoreEvent<Change<DocumentSnapshot> | undefined, { requirementId: string }>): Promise<void> => {
