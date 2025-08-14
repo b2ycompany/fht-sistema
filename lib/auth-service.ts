@@ -154,9 +154,6 @@ export interface DoctorProfileUpdatePayload {
   adminVerificationNotes?: string;
 }
 
-// ===================================================================
-// NOVAS FUNÇÕES E INTERFACE ADICIONADAS AQUI
-// ===================================================================
 export interface StaffCreationPayload {
   name: string;
   email: string;
@@ -195,21 +192,24 @@ export const createStaffMember = async (payload: StaffCreationPayload) => {
 export const getStaffForHospital = async (hospitalId: string): Promise<UserProfile[]> => {
     try {
         const usersRef = collection(db, "users");
-        // Cria uma query para buscar usuários onde o campo 'hospitalId' é igual ao ID fornecido.
+        // Consulta corrigida: Busca todos os utilizadores associados ao hospitalId.
         const q = query(usersRef, where("hospitalId", "==", hospitalId));
         const querySnapshot = await getDocs(q);
 
         if (querySnapshot.empty) {
             return [];
         }
+
+        const staffList = querySnapshot.docs.map(d => ({ uid: d.id, ...d.data() } as UserProfile));
         
-        return querySnapshot.docs.map(d => ({ uid: d.id, ...d.data() } as UserProfile));
+        // Filtro no lado do cliente: Remove o próprio gestor (cujo UID é o hospitalId) da lista.
+        return staffList.filter(staff => staff.uid !== hospitalId);
+
     } catch (error) {
         console.error(`[AuthService] Erro ao buscar a equipe para o hospital ${hospitalId}:`, error);
         throw new Error("Não foi possível carregar a lista da equipa.");
     }
 };
-// ===================================================================
 
 export const createAuthUser = async (
   email: string,
