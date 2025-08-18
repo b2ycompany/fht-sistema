@@ -1,3 +1,4 @@
+// app/dashboard/agendamento/page.tsx
 "use client";
 
 import React, { useState, useEffect, useCallback } from 'react';
@@ -14,8 +15,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Calendar } from '@/components/ui/calendar';
 import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
-import { getTelemedicineSpecialties } from '@/lib/telemedicine-service';
-import { getDoctorsBySpecialty, type DoctorProfile, type UserType } from '@/lib/auth-service';
+import { getSpecialtiesList, type Specialty } from '@/lib/specialty-service';
+import { getAssociatedDoctorsBySpecialty, type UserProfile, type UserType } from '@/lib/auth-service';
 import { createTelemedicineAppointment } from '@/lib/appointment-service';
 import { useAuth } from '@/components/auth-provider';
 
@@ -30,17 +31,18 @@ export default function AgendamentoPage() {
   const [appointmentDate, setAppointmentDate] = useState<Date | undefined>();
   const [appointmentTime, setAppointmentTime] = useState('');
 
-  const [specialties, setSpecialties] = useState<string[]>([]);
-  const [doctors, setDoctors] = useState<DoctorProfile[]>([]);
+  const [specialties, setSpecialties] = useState<Specialty[]>([]);
+  const [doctors, setDoctors] = useState<UserProfile[]>([]);
   const [isLoadingSpecialties, setIsLoadingSpecialties] = useState(true);
   const [isLoadingDoctors, setIsLoadingDoctors] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  // Efeito para buscar a lista de todas as especialidades disponíveis
   useEffect(() => {
     const fetchSpecialties = async () => {
       try {
         setIsLoadingSpecialties(true);
-        const fetchedSpecialties = await getTelemedicineSpecialties();
+        const fetchedSpecialties = await getSpecialtiesList();
         setSpecialties(fetchedSpecialties);
       } catch (error) {
         toast({
@@ -55,8 +57,10 @@ export default function AgendamentoPage() {
     fetchSpecialties();
   }, [toast]);
 
+  // Efeito para buscar médicos QUANDO uma especialidade é selecionada
   useEffect(() => {
-    if (!selectedSpecialty) {
+    // Só prossegue se uma especialidade foi selecionada E se o perfil do usuário (com hospitalId) foi carregado
+    if (!selectedSpecialty || !userProfile?.hospitalId) {
       setDoctors([]);
       setSelectedDoctorId('');
       return;
@@ -65,12 +69,15 @@ export default function AgendamentoPage() {
     const fetchDoctors = async () => {
       try {
         setIsLoadingDoctors(true);
-        const fetchedDoctors = await getDoctorsBySpecialty(selectedSpecialty);
+        const hospitalId = userProfile.hospitalId!; // Sabemos que existe por causa da verificação acima
+        // *** PONTO CHAVE DA ATUALIZAÇÃO ***
+        // Chama a nova função que busca médicos por especialidade E associação com o hospital
+        const fetchedDoctors = await getAssociatedDoctorsBySpecialty(hospitalId, selectedSpecialty);
         setDoctors(fetchedDoctors);
-      } catch (error) {
+      } catch (error: any) {
         toast({
           title: "Erro ao Carregar Médicos",
-          description: "Não foi possível buscar os médicos para esta especialidade.",
+          description: error.message || "Não foi possível buscar os médicos para esta unidade.",
           variant: "destructive",
         });
       } finally {
@@ -78,8 +85,9 @@ export default function AgendamentoPage() {
       }
     };
     fetchDoctors();
-  }, [selectedSpecialty, toast]);
+  }, [selectedSpecialty, userProfile, toast]); // Depende da especialidade e do perfil do usuário
 
+  // Função para lidar com o envio do formulário de agendamento
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -104,6 +112,7 @@ export default function AgendamentoPage() {
           throw new Error("Médico selecionado não encontrado.");
       }
 
+      // Chama o serviço para criar o agendamento no backend
       await createTelemedicineAppointment({
         patientName,
         doctorId: selectedDoctorId,
@@ -115,8 +124,10 @@ export default function AgendamentoPage() {
       toast({
         title: "Agendamento Realizado com Sucesso!",
         description: `A consulta para ${patientName} foi agendada.`,
+        className: "bg-green-600 text-white",
       });
 
+      // Limpa o formulário após o sucesso
       setPatientName('');
       setSelectedSpecialty('');
       setSelectedDoctorId('');
@@ -133,6 +144,7 @@ export default function AgendamentoPage() {
     }
   };
 
+  // Tela de carregamento enquanto o perfil do usuário é verificado
   if (authLoading) {
     return (
       <div className="flex h-screen w-full items-center justify-center">
@@ -141,8 +153,8 @@ export default function AgendamentoPage() {
     );
   }
 
+  // Tela de "Acesso Negado" para usuários sem permissão
   const allowedRoles: UserType[] = ['admin', 'receptionist', 'caravan_admin', 'hospital', 'backoffice'];
-
   if (!userProfile || !allowedRoles.includes(userProfile.userType)) {
     return (
       <div className="container mx-auto flex h-[calc(100vh-80px)] items-center justify-center p-8 text-center">
@@ -171,6 +183,7 @@ export default function AgendamentoPage() {
     );
   }
 
+  // Renderização do formulário de agendamento
   return (
     <div className="container mx-auto p-4 sm:p-6 lg:p-8">
       <form onSubmit={handleSubmit}>
@@ -204,7 +217,7 @@ export default function AgendamentoPage() {
                   </SelectTrigger>
                   <SelectContent>
                     {specialties.map(spec => (
-                      <SelectItem key={spec} value={spec}>{spec}</SelectItem>
+                      <SelectItem key={spec.id} value={spec.name}>{spec.name}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
@@ -226,7 +239,9 @@ export default function AgendamentoPage() {
                         <SelectItem key={doc.uid} value={doc.uid}>{doc.displayName}</SelectItem>
                       ))
                     ) : (
-                      <SelectItem value="no-doctors" disabled>Nenhum médico disponível</SelectItem>
+                      <SelectItem value="no-doctors" disabled>
+                        Nenhum médico associado para esta especialidade
+                      </SelectItem>
                     )}
                   </SelectContent>
                 </Select>

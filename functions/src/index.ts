@@ -1146,3 +1146,93 @@ export const onUserDeletedCleanup = functions.auth.user().onDelete(async (user: 
     
     return;
 });
+
+// --- NOVAS FUNÇÕES ADICIONADAS ---
+
+/**
+ * Procura médicos na plataforma com base num termo de pesquisa.
+ * Apenas utilizadores com a função 'hospital' podem chamar esta função.
+ * A busca é feita por nome (case-insensitive), CRM (exato) ou email (exato).
+ */
+export const searchPlatformDoctors = onCall({ cors: true }, async (request) => {
+    if (request.auth?.token?.role !== 'hospital') {
+        throw new HttpsError("permission-denied", "Apenas gestores de unidade podem buscar médicos.");
+    }
+    const { searchTerm } = request.data;
+    if (typeof searchTerm !== 'string' || searchTerm.length < 3) {
+        throw new HttpsError("invalid-argument", "O termo de busca deve ter pelo menos 3 caracteres.");
+    }
+
+    try {
+        const lowerCaseSearchTerm = searchTerm.toLowerCase();
+        
+        // Busca por nome, CRM ou email. O Firestore não suporta busca 'OU' complexa nativamente.
+        // Faremos 3 buscas separadas e uniremos os resultados.
+        const nameQuery = db.collection('users').where('userType', '==', 'doctor').where('displayName_lowercase', '>=', lowerCaseSearchTerm).where('displayName_lowercase', '<=', lowerCaseSearchTerm + '\uf8ff');
+        const crmQuery = db.collection('users').where('userType', '==', 'doctor').where('professionalCrm', '==', searchTerm.toUpperCase());
+        const emailQuery = db.collection('users').where('userType', '==', 'doctor').where('email', '==', lowerCaseSearchTerm);
+
+        const [nameSnap, crmSnap, emailSnap] = await Promise.all([nameQuery.get(), crmQuery.get(), emailQuery.get()]);
+
+        const resultsMap = new Map();
+        const processSnapshot = (snap: admin.firestore.QuerySnapshot) => {
+            snap.forEach(doc => {
+                const data = doc.data();
+                if (!resultsMap.has(doc.id)) {
+                    resultsMap.set(doc.id, {
+                        uid: doc.id,
+                        name: data.displayName,
+                        crm: data.professionalCrm,
+                        specialties: data.specialties || [],
+                    });
+                }
+            });
+        };
+
+        processSnapshot(nameSnap);
+        processSnapshot(crmSnap);
+        processSnapshot(emailSnap);
+        
+        const results = Array.from(resultsMap.values());
+        return { success: true, doctors: results };
+
+    } catch (error) {
+        logger.error("Erro ao buscar médicos na plataforma:", error);
+        throw new HttpsError("internal", "Ocorreu um erro ao realizar a busca.");
+    }
+});
+
+/**
+ * Associa um médico a uma unidade de saúde (hospital).
+ * Apenas utilizadores com a função 'hospital' podem chamar esta função.
+ * Adiciona o ID do hospital ao array 'healthUnitIds' no perfil do médico.
+ */
+export const associateDoctorToUnit = onCall({ cors: true }, async (request) => {
+    if (request.auth?.token?.role !== 'hospital') {
+        throw new HttpsError("permission-denied", "Apenas gestores de unidade podem associar médicos.");
+    }
+
+    const { doctorId } = request.data;
+    const hospitalId = request.auth.uid; // O ID do hospital é o UID do gestor que chama a função
+
+    if (!doctorId) {
+        throw new HttpsError("invalid-argument", "O ID do médico é obrigatório.");
+    }
+
+    try {
+        const doctorRef = db.collection('users').doc(doctorId);
+        
+        // Usamos FieldValue.arrayUnion para adicionar o ID do hospital ao array de forma segura,
+        // garantindo que não haja duplicatas.
+        await doctorRef.update({
+            healthUnitIds: FieldValue.arrayUnion(hospitalId)
+        });
+
+        logger.info(`Médico ${doctorId} associado com sucesso à Unidade de Saúde ${hospitalId}.`);
+        return { success: true, message: "Médico associado com sucesso." };
+
+    } catch (error) {
+        logger.error(`Falha ao associar médico ${doctorId} à unidade ${hospitalId}:`, error);
+        throw new HttpsError("internal", "Não foi possível concluir a associação.");
+    }
+});

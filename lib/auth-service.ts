@@ -427,6 +427,34 @@ export const getDoctorsBySpecialty = async (specialty: string): Promise<DoctorPr
     throw new Error("Não foi possível buscar os médicos disponíveis para esta especialidade.");
   }
 };
+
+// --- FUNÇÃO ADICIONADA ---
+/**
+ * Busca médicos de uma especialidade específica que estão associados a uma unidade de saúde.
+ * @param hospitalId O UID da unidade de saúde.
+ * @param specialty A especialidade a ser buscada.
+ * @returns Uma lista de perfis de médicos que correspondem aos critérios.
+ */
+export const getAssociatedDoctorsBySpecialty = async (hospitalId: string, specialty: string): Promise<UserProfile[]> => {
+    try {
+        const usersRef = collection(db, "users");
+        // Esta consulta combina três filtros: ser médico, ter a especialidade e pertencer à unidade.
+        const q = query(
+            usersRef,
+            where("userType", "==", "doctor"),
+            where("specialties", "array-contains", specialty),
+            where("healthUnitIds", "array-contains", hospitalId)
+        );
+        const querySnapshot = await getDocs(q);
+        if (querySnapshot.empty) {
+            return [];
+        }
+        return querySnapshot.docs.map(d => ({ uid: d.id, ...d.data() } as UserProfile));
+    } catch (error) {
+        console.error("[AuthService] Erro ao buscar médicos associados por especialidade:", error);
+        throw new Error("Não foi possível carregar a lista de médicos para esta unidade.");
+    }
+};
   
 export const updateUserVerificationStatus = async (
     userId: string,
