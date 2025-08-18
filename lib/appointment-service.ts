@@ -1,3 +1,4 @@
+// lib/appointment-service.ts
 import { db, functions } from "./firebase";
 import { httpsCallable } from "firebase/functions";
 import {
@@ -13,16 +14,18 @@ import {
   serverTimestamp,
 } from "firebase/firestore";
 
-export interface TelemedicineAppointment {
+// Interface atualizada para ser mais genérica
+export interface Appointment {
   id: string;
   patientName: string;
   patientId?: string;
   doctorId: string;
   doctorName: string;
   specialty: string;
+  type: 'Telemedicina' | 'Presencial'; // Novo campo para o tipo de agendamento
   appointmentDate: Timestamp;
   status: "SCHEDULED" | "COMPLETED" | "CANCELLED" | "IN_PROGRESS";
-  telemedicineRoomUrl: string;
+  telemedicineRoomUrl: string | null; // Pode ser nulo para consultas presenciais
   createdAt: Timestamp;
   createdBy: string;
   clinicalEvolution?: string;
@@ -32,23 +35,31 @@ export interface TelemedicineAppointment {
   documents?: Array<{ type: string; url: string; createdAt: Timestamp }>;
 }
 
+// Payload de criação atualizado para incluir o tipo
 interface CreateAppointmentPayload {
   patientName: string;
   doctorId: string;
   doctorName: string;
   specialty: string;
   appointmentDate: string;
+  type: 'Telemedicina' | 'Presencial';
 }
 
-const createTelemedicineAppointmentFunction = httpsCallable<CreateAppointmentPayload, { success: boolean, appointmentId: string }>(functions, 'createTelemedicineAppointment');
+// Referência à nova Cloud Function 'createAppointment'
+const createAppointmentFunction = httpsCallable<CreateAppointmentPayload, { success: boolean, appointmentId: string }>(functions, 'createAppointment');
 
-export const createTelemedicineAppointment = async (data: Omit<CreateAppointmentPayload, 'appointmentDate'> & { appointmentDate: Date }): Promise<string> => {
+/**
+ * Função de serviço RENOMEADA E ATUALIZADA para criar qualquer tipo de agendamento.
+ * @param data - Os dados do agendamento, incluindo o novo campo 'type'.
+ * @returns O ID do agendamento criado.
+ */
+export const createAppointment = async (data: Omit<CreateAppointmentPayload, 'appointmentDate'> & { appointmentDate: Date }): Promise<string> => {
   try {
     const payload: CreateAppointmentPayload = {
         ...data,
         appointmentDate: data.appointmentDate.toISOString(),
     };
-    const result = await createTelemedicineAppointmentFunction(payload);
+    const result = await createAppointmentFunction(payload);
     if (!result.data.success || !result.data.appointmentId) {
         throw new Error("A Cloud Function não retornou um resultado de sucesso.");
     }
@@ -59,9 +70,15 @@ export const createTelemedicineAppointment = async (data: Omit<CreateAppointment
   }
 };
 
-export const getAppointmentsForDoctor = async (doctorId: string): Promise<TelemedicineAppointment[]> => {
+/**
+ * Busca os agendamentos de um médico na nova coleção 'appointments'.
+ * @param doctorId - O UID do médico.
+ * @returns Uma lista de agendamentos.
+ */
+export const getAppointmentsForDoctor = async (doctorId: string): Promise<Appointment[]> => {
   try {
-    const appointmentsCollection = collection(db, "telemedicineAppointments");
+    // ATUALIZAÇÃO: Apontando para a nova coleção "appointments"
+    const appointmentsCollection = collection(db, "appointments");
     const q = query(
       appointmentsCollection,
       where("doctorId", "==", doctorId),
@@ -69,18 +86,24 @@ export const getAppointmentsForDoctor = async (doctorId: string): Promise<Teleme
       orderBy("appointmentDate", "asc")
     );
     const querySnapshot = await getDocs(q);
-    return querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data(), } as TelemedicineAppointment));
+    return querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data(), } as Appointment));
   } catch (error) {
     throw new Error("Falha ao carregar a agenda.");
   }
 };
 
-export const getAppointmentById = async (appointmentId: string): Promise<TelemedicineAppointment | null> => {
+/**
+ * Busca um agendamento específico pelo ID na nova coleção 'appointments'.
+ * @param appointmentId - O ID do agendamento.
+ * @returns O agendamento encontrado ou nulo.
+ */
+export const getAppointmentById = async (appointmentId: string): Promise<Appointment | null> => {
   try {
-    const docRef = doc(db, "telemedicineAppointments", appointmentId);
+    // ATUALIZAÇÃO: Apontando para a nova coleção "appointments"
+    const docRef = doc(db, "appointments", appointmentId);
     const docSnap = await getDoc(docRef);
     if (docSnap.exists()) {
-      return { id: docSnap.id, ...docSnap.data() } as TelemedicineAppointment;
+      return { id: docSnap.id, ...docSnap.data() } as Appointment;
     }
     return null;
   } catch (error) {
@@ -88,12 +111,18 @@ export const getAppointmentById = async (appointmentId: string): Promise<Telemed
   }
 };
 
+/**
+ * Salva detalhes do prontuário em um agendamento na coleção 'appointments'.
+ * @param appointmentId - O ID do agendamento.
+ * @param details - Os detalhes a serem salvos.
+ */
 export const saveAppointmentDetails = async (
   appointmentId: string,
   details: { clinicalEvolution: string; diagnosticHypothesis: string }
 ): Promise<void> => {
   try {
-    const appointmentRef = doc(db, "telemedicineAppointments", appointmentId);
+    // ATUALIZAÇÃO: Apontando para a nova coleção "appointments"
+    const appointmentRef = doc(db, "appointments", appointmentId);
     await updateDoc(appointmentRef, {
       clinicalEvolution: details.clinicalEvolution,
       diagnosticHypothesis: details.diagnosticHypothesis,
@@ -104,12 +133,18 @@ export const saveAppointmentDetails = async (
   }
 };
 
+/**
+ * Salva as respostas de um protocolo em um agendamento na coleção 'appointments'.
+ * @param appointmentId - O ID do agendamento.
+ * @param answers - As respostas do protocolo.
+ */
 export const saveAppointmentProtocolAnswers = async (
     appointmentId: string,
     answers: Record<string, any>
 ): Promise<void> => {
     try {
-        const appointmentRef = doc(db, "telemedicineAppointments", appointmentId);
+        // ATUALIZAÇÃO: Apontando para a nova coleção "appointments"
+        const appointmentRef = doc(db, "appointments", appointmentId);
         await updateDoc(appointmentRef, {
             autismProtocolAnswers: answers,
             updatedAt: serverTimestamp(),
@@ -119,12 +154,18 @@ export const saveAppointmentProtocolAnswers = async (
     }
 };
 
+/**
+ * Salva o relatório da IA em um agendamento na coleção 'appointments'.
+ * @param appointmentId - O ID do agendamento.
+ * @param report - O relatório a ser salvo.
+ */
 export const saveAppointmentAIReport = async (
     appointmentId: string,
     report: string
 ): Promise<void> => {
     try {
-        const appointmentRef = doc(db, "telemedicineAppointments", appointmentId);
+        // ATUALIZAÇÃO: Apontando para a nova coleção "appointments"
+        const appointmentRef = doc(db, "appointments", appointmentId);
         await updateDoc(appointmentRef, {
             aiAnalysisReport: report,
             updatedAt: serverTimestamp(),

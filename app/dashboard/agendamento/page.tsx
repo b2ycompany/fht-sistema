@@ -17,27 +17,31 @@ import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
 import { getSpecialtiesList, type Specialty } from '@/lib/specialty-service';
 import { getAssociatedDoctorsBySpecialty, type UserProfile, type UserType } from '@/lib/auth-service';
-import { createTelemedicineAppointment } from '@/lib/appointment-service';
+import { createAppointment } from '@/lib/appointment-service'; // ATUALIZADO: Importa a função renomeada
 import { useAuth } from '@/components/auth-provider';
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'; // ADICIONADO: Import para o seletor
 
 export default function AgendamentoPage() {
   const { toast } = useToast();
   const router = useRouter();
   const { user, userProfile, loading: authLoading } = useAuth();
 
+  // Estados do formulário
   const [patientName, setPatientName] = useState('');
   const [selectedSpecialty, setSelectedSpecialty] = useState('');
   const [selectedDoctorId, setSelectedDoctorId] = useState('');
   const [appointmentDate, setAppointmentDate] = useState<Date | undefined>();
   const [appointmentTime, setAppointmentTime] = useState('');
+  const [appointmentType, setAppointmentType] = useState<'Telemedicina' | 'Presencial'>('Telemedicina'); // ADICIONADO: Novo estado para o tipo de consulta
 
+  // Estados de controlo
   const [specialties, setSpecialties] = useState<Specialty[]>([]);
   const [doctors, setDoctors] = useState<UserProfile[]>([]);
   const [isLoadingSpecialties, setIsLoadingSpecialties] = useState(true);
   const [isLoadingDoctors, setIsLoadingDoctors] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Efeito para buscar a lista de todas as especialidades disponíveis
+  // Efeito para buscar especialidades (permanece o mesmo)
   useEffect(() => {
     const fetchSpecialties = async () => {
       try {
@@ -57,21 +61,17 @@ export default function AgendamentoPage() {
     fetchSpecialties();
   }, [toast]);
 
-  // Efeito para buscar médicos QUANDO uma especialidade é selecionada
+  // Efeito para buscar médicos associados (permanece o mesmo)
   useEffect(() => {
-    // Só prossegue se uma especialidade foi selecionada E se o perfil do usuário (com hospitalId) foi carregado
     if (!selectedSpecialty || !userProfile?.hospitalId) {
       setDoctors([]);
       setSelectedDoctorId('');
       return;
     }
-
     const fetchDoctors = async () => {
       try {
         setIsLoadingDoctors(true);
-        const hospitalId = userProfile.hospitalId!; // Sabemos que existe por causa da verificação acima
-        // *** PONTO CHAVE DA ATUALIZAÇÃO ***
-        // Chama a nova função que busca médicos por especialidade E associação com o hospital
+        const hospitalId = userProfile.hospitalId!;
         const fetchedDoctors = await getAssociatedDoctorsBySpecialty(hospitalId, selectedSpecialty);
         setDoctors(fetchedDoctors);
       } catch (error: any) {
@@ -85,9 +85,9 @@ export default function AgendamentoPage() {
       }
     };
     fetchDoctors();
-  }, [selectedSpecialty, userProfile, toast]); // Depende da especialidade e do perfil do usuário
+  }, [selectedSpecialty, userProfile, toast]);
 
-  // Função para lidar com o envio do formulário de agendamento
+  // Função de submissão do formulário ATUALIZADA
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -112,13 +112,14 @@ export default function AgendamentoPage() {
           throw new Error("Médico selecionado não encontrado.");
       }
 
-      // Chama o serviço para criar o agendamento no backend
-      await createTelemedicineAppointment({
+      // ATUALIZADO: Chama a nova função 'createAppointment' e passa o 'type'
+      await createAppointment({
         patientName,
         doctorId: selectedDoctorId,
         doctorName: selectedDoctor.displayName,
         specialty: selectedSpecialty,
         appointmentDate: finalAppointmentDate,
+        type: appointmentType,
       });
 
       toast({
@@ -127,12 +128,13 @@ export default function AgendamentoPage() {
         className: "bg-green-600 text-white",
       });
 
-      // Limpa o formulário após o sucesso
+      // Limpa o formulário
       setPatientName('');
       setSelectedSpecialty('');
       setSelectedDoctorId('');
       setAppointmentDate(undefined);
       setAppointmentTime('');
+      setAppointmentType('Telemedicina');
     } catch (error: any) {
       toast({
         title: "Erro ao Agendar Consulta",
@@ -144,7 +146,7 @@ export default function AgendamentoPage() {
     }
   };
 
-  // Tela de carregamento enquanto o perfil do usuário é verificado
+  // Lógica de carregamento e permissão (permanece a mesma)
   if (authLoading) {
     return (
       <div className="flex h-screen w-full items-center justify-center">
@@ -153,7 +155,6 @@ export default function AgendamentoPage() {
     );
   }
 
-  // Tela de "Acesso Negado" para usuários sem permissão
   const allowedRoles: UserType[] = ['admin', 'receptionist', 'caravan_admin', 'hospital', 'backoffice'];
   if (!userProfile || !allowedRoles.includes(userProfile.userType)) {
     return (
@@ -183,16 +184,32 @@ export default function AgendamentoPage() {
     );
   }
 
-  // Renderização do formulário de agendamento
+  // Renderização do formulário
   return (
     <div className="container mx-auto p-4 sm:p-6 lg:p-8">
       <form onSubmit={handleSubmit}>
         <Card>
           <CardHeader>
-            <CardTitle className="text-2xl">Novo Agendamento de Telemedicina</CardTitle>
-            <CardDescription>Preencha os dados abaixo para criar uma nova teleconsulta.</CardDescription>
+            <CardTitle className="text-2xl">Novo Agendamento</CardTitle>
+            <CardDescription>Preencha os dados abaixo para criar uma nova consulta.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
+            
+            {/* ADICIONADO: Novo seletor para o tipo de atendimento */}
+            <div className="space-y-2">
+              <Label>Tipo de Atendimento</Label>
+              <RadioGroup defaultValue="Telemedicina" value={appointmentType} onValueChange={(value) => setAppointmentType(value as any)} className="flex items-center space-x-4 pt-1">
+                <div className="flex items-center space-x-2">
+                  <RadioGroupItem value="Telemedicina" id="type-telemedicina" />
+                  <Label htmlFor="type-telemedicina">Telemedicina</Label>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <RadioGroupItem value="Presencial" id="type-presencial" />
+                  <Label htmlFor="type-presencial">Presencial</Label>
+                </div>
+              </RadioGroup>
+            </div>
+
             <div className="space-y-2">
               <Label htmlFor="patientName">Nome do Paciente</Label>
               <Input
@@ -203,15 +220,11 @@ export default function AgendamentoPage() {
                 required
               />
             </div>
+            
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div className="space-y-2">
                 <Label htmlFor="specialty">Especialidade</Label>
-                <Select
-                  value={selectedSpecialty}
-                  onValueChange={setSelectedSpecialty}
-                  disabled={isLoadingSpecialties}
-                  required
-                >
+                <Select value={selectedSpecialty} onValueChange={setSelectedSpecialty} disabled={isLoadingSpecialties} required>
                   <SelectTrigger id="specialty">
                     <SelectValue placeholder={isLoadingSpecialties ? "A carregar..." : "Selecione a especialidade"} />
                   </SelectTrigger>
@@ -224,12 +237,7 @@ export default function AgendamentoPage() {
               </div>
               <div className="space-y-2">
                 <Label htmlFor="doctor">Médico</Label>
-                <Select
-                  value={selectedDoctorId}
-                  onValueChange={setSelectedDoctorId}
-                  disabled={!selectedSpecialty || isLoadingDoctors}
-                  required
-                >
+                <Select value={selectedDoctorId} onValueChange={setSelectedDoctorId} disabled={!selectedSpecialty || isLoadingDoctors} required>
                   <SelectTrigger id="doctor">
                     <SelectValue placeholder={isLoadingDoctors ? "A carregar médicos..." : "Selecione o médico"} />
                   </SelectTrigger>
@@ -239,57 +247,38 @@ export default function AgendamentoPage() {
                         <SelectItem key={doc.uid} value={doc.uid}>{doc.displayName}</SelectItem>
                       ))
                     ) : (
-                      <SelectItem value="no-doctors" disabled>
-                        Nenhum médico associado para esta especialidade
-                      </SelectItem>
+                      <SelectItem value="no-doctors" disabled>Nenhum médico associado para esta especialidade</SelectItem>
                     )}
                   </SelectContent>
                 </Select>
               </div>
             </div>
+
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div className="space-y-2">
                 <Label htmlFor="appointmentDate">Data da Consulta</Label>
                 <Popover>
                   <PopoverTrigger asChild>
-                    <Button
-                      variant={"outline"}
-                      className={cn(
-                        "w-full justify-start text-left font-normal",
-                        !appointmentDate && "text-muted-foreground"
-                      )}
-                    >
+                    <Button variant={"outline"} className={cn("w-full justify-start text-left font-normal", !appointmentDate && "text-muted-foreground")}>
                       <CalendarIcon className="mr-2 h-4 w-4" />
                       {appointmentDate ? format(appointmentDate, 'PPP', { locale: ptBR }) : <span>Escolha uma data</span>}
                     </Button>
                   </PopoverTrigger>
                   <PopoverContent className="w-auto p-0">
-                    <Calendar
-                      mode="single"
-                      selected={appointmentDate}
-                      onSelect={setAppointmentDate}
-                      initialFocus
-                      disabled={(date) => date < new Date(new Date().setDate(new Date().getDate() - 1))}
-                    />
+                    <Calendar mode="single" selected={appointmentDate} onSelect={setAppointmentDate} initialFocus disabled={(date) => date < new Date(new Date().setDate(new Date().getDate() - 1))}/>
                   </PopoverContent>
                 </Popover>
               </div>
               <div className="space-y-2">
                 <Label htmlFor="appointmentTime">Hora da Consulta</Label>
-                <Input
-                  id="appointmentTime"
-                  type="time"
-                  value={appointmentTime}
-                  onChange={(e) => setAppointmentTime(e.target.value)}
-                  required
-                />
+                <Input id="appointmentTime" type="time" value={appointmentTime} onChange={(e) => setAppointmentTime(e.target.value)} required/>
               </div>
             </div>
           </CardContent>
           <CardFooter>
             <Button type="submit" disabled={isSubmitting} className="w-full md:w-auto">
               {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              {isSubmitting ? "A Agendar..." : "Agendar Consulta"}
+              {isSubmitting ? "A agendar..." : "Agendar Consulta"}
             </Button>
           </CardFooter>
         </Card>

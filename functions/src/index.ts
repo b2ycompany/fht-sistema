@@ -123,15 +123,6 @@ interface DocumentPayload {
   };
 }
 
-interface CreateTelemedicineAppointmentPayload {
-  patientName: string;
-  doctorId: string;
-  doctorName: string;
-  specialty: string;
-  appointmentDate: string;
-}
-
-
 setGlobalOptions({ region: "us-central1", memory: "512MiB" });
 
 export const onUserCreatedSetClaims = onDocumentCreated("users/{userId}", async (event) => {
@@ -328,7 +319,6 @@ async function deleteQueryBatch(query: Query, context: string) {
 }
 
 export const generateContractPdf = onCall({ cors: [/fhtgestao\.com\.br$/, "https://fht-sistema.web.app"] }, async (request: CallableRequest) => {
-    // CORREÇÃO APLICADA AQUI
     const { PDFDocument, StandardFonts } = await import("pdf-lib");
 
     if (!request.auth) {
@@ -1031,93 +1021,58 @@ export const createConsultationRoom = onCall({ cors: ["http://localhost:3000", "
     }
 });
 
-export const createTelemedicineAppointment = onCall(
-    { 
-        cors: true, 
-        secrets: ["DAILY_APIKEY"]
-    },
-    async (request: CallableRequest<CreateTelemedicineAppointmentPayload>) => {
+// FUNÇÃO SUBSTITUÍDA
+export const createAppointment = onCall(
+    { cors: true, secrets: ["DAILY_APIKEY"] },
+    async (request: CallableRequest) => {
         const fetch = (await import("node-fetch")).default;
-        
         if (!request.auth) {
             throw new HttpsError("unauthenticated", "A função só pode ser chamada por um utilizador autenticado.");
         }
         
-        const createdByUid = request.auth.uid; 
-        const { patientName, doctorId, doctorName, specialty, appointmentDate } = request.data;
+        const createdByUid = request.auth.uid;
+        const { patientName, doctorId, doctorName, specialty, appointmentDate, type } = request.data;
         
-        if (!patientName || !doctorId || !doctorName || !specialty || !appointmentDate) {
+        if (!patientName || !doctorId || !doctorName || !specialty || !appointmentDate || !type) {
             throw new HttpsError("invalid-argument", "Dados para o agendamento estão incompletos.");
         }
         
-        logger.info(`Iniciando criação de agendamento para Dr(a). ${doctorName} com paciente ${patientName}`);
+        let roomUrl = null;
+        if (type === 'Telemedicina') {
+            const DAILY_API_KEY = process.env.DAILY_APIKEY;
+            if (!DAILY_API_KEY) throw new HttpsError("internal", "Configuração do servidor de vídeo incompleta.");
 
-        const DAILY_API_KEY = process.env.DAILY_APIKEY;
-        if (!DAILY_API_KEY) {
-            logger.error("A API Key do Daily.co não está configurada nos Secrets do Firebase.");
-            throw new HttpsError("internal", "Configuração do servidor de vídeo incompleta.");
-        }
-
-        try {
             const expirationDate = new Date(appointmentDate);
             const expirationTimestamp = Math.round((expirationDate.getTime() + 2 * 60 * 60 * 1000) / 1000);
 
-            const roomOptions = {
-                properties: {
-                    exp: expirationTimestamp,
-                    enable_chat: true,
-                    enable_screenshare: true,
-                    start_video_off: true,
-                    start_audio_off: true,
-                },
-            };
-
+            const roomOptions = { properties: { exp: expirationTimestamp, enable_chat: true } };
             const apiResponse = await fetch("https://api.daily.co/v1/rooms", {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${DAILY_API_KEY}`,
-                },
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${DAILY_API_KEY}` },
                 body: JSON.stringify(roomOptions),
             });
-
-            if (!apiResponse.ok) {
-                const errorBody = await apiResponse.json();
-                logger.error("Erro da API do Daily.co ao criar sala:", errorBody);
-                throw new HttpsError("internal", "Falha ao criar a sala de videochamada.");
-            }
-
+            if (!apiResponse.ok) throw new HttpsError("internal", "Falha ao criar a sala de videochamada.");
             const roomData: any = await apiResponse.json();
-            const roomUrl = roomData.url;
+            roomUrl = roomData.url;
             logger.info(`Sala de vídeo criada com sucesso: ${roomUrl}`);
-
-            const appointmentData = {
-                patientName,
-                doctorId,
-                doctorName,
-                specialty,
-                appointmentDate: admin.firestore.Timestamp.fromDate(new Date(appointmentDate)),
-                status: "SCHEDULED",
-                telemedicineRoomUrl: roomUrl,
-                createdAt: FieldValue.serverTimestamp(),
-                updatedAt: FieldValue.serverTimestamp(),
-                createdBy: createdByUid,
-            };
-
-            const docRef = await db.collection("telemedicineAppointments").add(appointmentData);
-            logger.info(`Agendamento ${docRef.id} salvo com sucesso no Firestore.`);
-
-            return { success: true, appointmentId: docRef.id, roomUrl: roomUrl };
-
-        } catch (error) {
-            logger.error(`Falha crítica ao criar agendamento de telemedicina:`, error);
-            if (error instanceof HttpsError) {
-                throw error;
-            }
-            throw new HttpsError("internal", "Ocorreu um erro inesperado durante o agendamento.");
         }
+
+        const appointmentData = {
+            patientName, doctorId, doctorName, specialty, type,
+            appointmentDate: admin.firestore.Timestamp.fromDate(new Date(appointmentDate)),
+            status: "SCHEDULED",
+            telemedicineRoomUrl: roomUrl,
+            createdAt: FieldValue.serverTimestamp(),
+            updatedAt: FieldValue.serverTimestamp(),
+            createdBy: createdByUid,
+        };
+
+        const docRef = await db.collection("appointments").add(appointmentData);
+        logger.info(`Agendamento ${docRef.id} salvo com sucesso.`);
+        return { success: true, appointmentId: docRef.id };
     }
 );
+
 
 // --- FUNÇÃO REESCRITA COM SINTAXE V1 ---
 export const onUserDeletedCleanup = functions.auth.user().onDelete(async (user: UserRecord) => {
@@ -1148,12 +1103,6 @@ export const onUserDeletedCleanup = functions.auth.user().onDelete(async (user: 
 });
 
 // --- NOVAS FUNÇÕES ADICIONADAS ---
-
-/**
- * Procura médicos na plataforma com base num termo de pesquisa.
- * Apenas utilizadores com a função 'hospital' podem chamar esta função.
- * A busca é feita por nome (case-insensitive), CRM (exato) ou email (exato).
- */
 export const searchPlatformDoctors = onCall({ cors: true }, async (request) => {
     if (request.auth?.token?.role !== 'hospital') {
         throw new HttpsError("permission-denied", "Apenas gestores de unidade podem buscar médicos.");
@@ -1166,8 +1115,6 @@ export const searchPlatformDoctors = onCall({ cors: true }, async (request) => {
     try {
         const lowerCaseSearchTerm = searchTerm.toLowerCase();
         
-        // Busca por nome, CRM ou email. O Firestore não suporta busca 'OU' complexa nativamente.
-        // Faremos 3 buscas separadas e uniremos os resultados.
         const nameQuery = db.collection('users').where('userType', '==', 'doctor').where('displayName_lowercase', '>=', lowerCaseSearchTerm).where('displayName_lowercase', '<=', lowerCaseSearchTerm + '\uf8ff');
         const crmQuery = db.collection('users').where('userType', '==', 'doctor').where('professionalCrm', '==', searchTerm.toUpperCase());
         const emailQuery = db.collection('users').where('userType', '==', 'doctor').where('email', '==', lowerCaseSearchTerm);
@@ -1202,18 +1149,13 @@ export const searchPlatformDoctors = onCall({ cors: true }, async (request) => {
     }
 });
 
-/**
- * Associa um médico a uma unidade de saúde (hospital).
- * Apenas utilizadores com a função 'hospital' podem chamar esta função.
- * Adiciona o ID do hospital ao array 'healthUnitIds' no perfil do médico.
- */
 export const associateDoctorToUnit = onCall({ cors: true }, async (request) => {
     if (request.auth?.token?.role !== 'hospital') {
         throw new HttpsError("permission-denied", "Apenas gestores de unidade podem associar médicos.");
     }
 
     const { doctorId } = request.data;
-    const hospitalId = request.auth.uid; // O ID do hospital é o UID do gestor que chama a função
+    const hospitalId = request.auth.uid; 
 
     if (!doctorId) {
         throw new HttpsError("invalid-argument", "O ID do médico é obrigatório.");
@@ -1222,8 +1164,6 @@ export const associateDoctorToUnit = onCall({ cors: true }, async (request) => {
     try {
         const doctorRef = db.collection('users').doc(doctorId);
         
-        // Usamos FieldValue.arrayUnion para adicionar o ID do hospital ao array de forma segura,
-        // garantindo que não haja duplicatas.
         await doctorRef.update({
             healthUnitIds: FieldValue.arrayUnion(hospitalId)
         });
@@ -1234,5 +1174,47 @@ export const associateDoctorToUnit = onCall({ cors: true }, async (request) => {
     } catch (error) {
         logger.error(`Falha ao associar médico ${doctorId} à unidade ${hospitalId}:`, error);
         throw new HttpsError("internal", "Não foi possível concluir a associação.");
+    }
+});
+
+// ** FUNÇÃO CORRIGIDA **
+export const onContractFinalizedLinkDoctor = onDocumentWritten("contracts/{contractId}", async (event) => {
+    const change = event.data;
+    
+    // Garante que o evento e os dados "after" existem. Se não, o doc foi deletado.
+    if (!change || !change.after.exists) {
+        return;
+    }
+
+    // Obtém os dados de forma segura
+    const contractData = change.after.data();
+    if (!contractData) {
+        logger.warn(`Dados do contrato ${event.params.contractId} não encontrados após a atualização.`);
+        return;
+    }
+    
+    // Obtém o status anterior de forma segura usando optional chaining (?.)
+    const statusBefore = change.before?.data()?.status ?? null;
+
+    // A ação só acontece quando o status muda PARA 'ACTIVE_SIGNED'
+    if (contractData.status === 'ACTIVE_SIGNED' && statusBefore !== 'ACTIVE_SIGNED') {
+        const { doctorId, hospitalId } = contractData;
+
+        if (!doctorId || !hospitalId) {
+            logger.warn(`Contrato ${event.params.contractId} finalizado sem doctorId ou hospitalId.`);
+            return;
+        }
+
+        try {
+            const doctorRef = db.collection('users').doc(doctorId);
+            // Usamos FieldValue.arrayUnion para adicionar o ID do hospital de forma segura,
+            // garantindo que não haja duplicatas.
+            await doctorRef.update({
+                healthUnitIds: FieldValue.arrayUnion(hospitalId)
+            });
+            logger.info(`Vínculo automático criado: Médico ${doctorId} associado à Unidade de Saúde ${hospitalId} via Contrato ${event.params.contractId}.`);
+        } catch (error) {
+            logger.error(`Falha ao criar vínculo automático para o Contrato ${event.params.contractId}:`, error);
+        }
     }
 });
