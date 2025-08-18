@@ -3,19 +3,19 @@ import { onDocumentWritten, onDocumentDeleted, onDocumentCreated, FirestoreEvent
 import { HttpsError, onCall, CallableRequest } from "firebase-functions/v2/https";
 import { setGlobalOptions } from "firebase-functions/v2";
 import * as admin from "firebase-admin";
+import * as functions from "firebase-functions/v1";
+import { UserRecord } from "firebase-admin/auth";
 import { logger } from "firebase-functions/v2";
 import { Change } from "firebase-functions";
 import { DocumentSnapshot, FieldValue, getFirestore, Query, GeoPoint } from "firebase-admin/firestore";
-import { PDFDocument, StandardFonts, rgb, PDFFont } from "pdf-lib";
 import { getStorage } from "firebase-admin/storage";
-import fetch from "node-fetch";
 
 if (admin.apps.length === 0) { admin.initializeApp(); }
 const db = getFirestore();
 const storage = getStorage();
 const auth = admin.auth();
 
-// Interfaces (suas interfaces existentes)
+// Interfaces (suas interfaces existentes permanecem as mesmas)
 interface ShiftRequirementData {
   hospitalId: string;
   hospitalName?: string;
@@ -328,6 +328,9 @@ async function deleteQueryBatch(query: Query, context: string) {
 }
 
 export const generateContractPdf = onCall({ cors: [/fhtgestao\.com\.br$/, "https://fht-sistema.web.app"] }, async (request: CallableRequest) => {
+    // CORREÇÃO APLICADA AQUI
+    const { PDFDocument, StandardFonts } = await import("pdf-lib");
+
     if (!request.auth) {
         throw new HttpsError("unauthenticated", "A função só pode ser chamada por um usuário autenticado.");
     }
@@ -403,6 +406,8 @@ export const createTelemedicineRoom = onCall(
         secrets: ["DAILY_APIKEY"] 
     }, 
     async (request: CallableRequest) => {
+        const fetch = (await import("node-fetch")).default;
+
         if (!request.auth) {
             throw new HttpsError("unauthenticated", "A função só pode ser chamada por um utilizador autenticado.");
         }
@@ -521,7 +526,7 @@ export const correctServiceTypeCapitalization = onCall(
     }
 );
 
-async function drawTextWithWrapping(page: any, text: string, options: { x: number, y: number, font: PDFFont, size: number, maxWidth: number, lineHeight: number }) {
+async function drawTextWithWrapping(page: any, text: string, options: { x: number, y: number, font: any, size: number, maxWidth: number, lineHeight: number }, rgb: any) {
     const { x, font, size, maxWidth, lineHeight } = options;
     let { y } = options;
     const words = text.split(' ');
@@ -543,6 +548,8 @@ async function drawTextWithWrapping(page: any, text: string, options: { x: numbe
 }
 
 export const generatePrescriptionPdf = onCall({ cors: true }, async (request: CallableRequest<PrescriptionPayload>) => {
+    const { PDFDocument, StandardFonts, rgb } = await import("pdf-lib");
+
     if (!request.auth) {
         throw new HttpsError("unauthenticated", "A função só pode ser chamada por um usuário autenticado.");
     }
@@ -575,7 +582,7 @@ export const generatePrescriptionPdf = onCall({ cors: true }, async (request: Ca
             currentY -= 15;
             currentY = await drawTextWithWrapping(page, `${med.dosage} - ${med.instructions}`, {
                 x: 60, y: currentY, font, size: 11, maxWidth: width - 120, lineHeight: 15
-            });
+            }, rgb);
             currentY -= 10;
         }
 
@@ -632,6 +639,8 @@ export const generatePrescriptionPdf = onCall({ cors: true }, async (request: Ca
 });
 
 export const generateDocumentPdf = onCall({ cors: true }, async (request: CallableRequest<DocumentPayload>) => {
+    const { PDFDocument, StandardFonts, rgb } = await import("pdf-lib");
+
     if (!request.auth) {
         throw new HttpsError("unauthenticated", "A função só pode ser chamada por um usuário autenticado.");
     }
@@ -654,14 +663,14 @@ export const generateDocumentPdf = onCall({ cors: true }, async (request: Callab
             const days = details.daysOff || 0;
             page.drawText("Atestado Médico", { x: 50, y: height - 60, font: fontBold, size: 24 });
             const text = `Atesto para os devidos fins que o(a) Sr(a). ${patientName} esteve sob meus cuidados médicos nesta data, necessitando de ${days} dia(s) de afastamento de suas atividades laborais a partir de hoje.`;
-            await drawTextWithWrapping(page, text, { x: 50, y: height - 120, font, size: 12, lineHeight: 20, maxWidth: width - 100 });
+            await drawTextWithWrapping(page, text, { x: 50, y: height - 120, font, size: 12, lineHeight: 20, maxWidth: width - 100 }, rgb);
             if (details.cid) {
                 page.drawText(`CID: ${details.cid}`, { x: 50, y: height - 200, font, size: 12 });
             }
         } else if (type === 'attendanceCertificate') {
             page.drawText("Declaração de Comparecimento", { x: 50, y: height - 60, font: fontBold, size: 24 });
             const text = `Declaro para os devidos fins que o(a) Sr(a). ${patientName} esteve presente nesta unidade de saúde para consulta médica no dia de hoje, ${date}, durante o período de ${details.consultationPeriod || 'não informado'}.`;
-            await drawTextWithWrapping(page, text, { x: 50, y: height - 120, font, size: 12, lineHeight: 20, maxWidth: width - 100 });
+            await drawTextWithWrapping(page, text, { x: 50, y: height - 120, font, size: 12, lineHeight: 20, maxWidth: width - 100 }, rgb);
         }
 
         const signatureY = 150;
@@ -881,7 +890,6 @@ export const setAdminClaim = onCall({
     }
 });
 
-// --- FUNÇÃO CORRIGIDA ---
 export const createStaffUser = onCall({
     cors: [
         /fhtgestao\.com\.br$/, 
@@ -953,6 +961,8 @@ export const createStaffUser = onCall({
 
 
 export const createConsultationRoom = onCall({ cors: ["http://localhost:3000", "https://fht-sistema.web.app", "https://fht-sistema.firebaseapp.com"], secrets: ["DAILY_APIKEY"] }, async (request: CallableRequest) => {
+    const fetch = (await import("node-fetch")).default;
+
     if (!request.auth) {
         throw new HttpsError("unauthenticated", "A função só pode ser chamada por um usuário autenticado.");
     }
@@ -1027,6 +1037,8 @@ export const createTelemedicineAppointment = onCall(
         secrets: ["DAILY_APIKEY"]
     },
     async (request: CallableRequest<CreateTelemedicineAppointmentPayload>) => {
+        const fetch = (await import("node-fetch")).default;
+        
         if (!request.auth) {
             throw new HttpsError("unauthenticated", "A função só pode ser chamada por um utilizador autenticado.");
         }
@@ -1106,3 +1118,31 @@ export const createTelemedicineAppointment = onCall(
         }
     }
 );
+
+// --- FUNÇÃO REESCRITA COM SINTAXE V1 ---
+export const onUserDeletedCleanup = functions.auth.user().onDelete(async (user: UserRecord) => {
+    const uid = user.uid;
+    logger.info(`[Sintaxe V1] Utilizador de autenticação com UID: ${uid} foi excluído. A iniciar limpeza.`);
+    
+    const userDocRef = db.collection("users").doc(uid);
+    
+    try {
+        await userDocRef.delete();
+        logger.info(`Documento de perfil ${uid} em 'users' foi excluído com sucesso.`);
+    } catch (error) {
+        logger.error(`Falha ao excluir o documento de perfil ${uid} em 'users':`, error);
+    }
+    
+    const hospitalDocRef = db.collection("hospitals").doc(uid);
+    const hospitalDoc = await hospitalDocRef.get();
+    if(hospitalDoc.exists) {
+        try {
+            await hospitalDocRef.delete();
+            logger.info(`Documento de perfil ${uid} em 'hospitals' foi excluído com sucesso.`);
+        } catch (error) {
+            logger.error(`Falha ao excluir o documento de perfil ${uid} em 'hospitals':`, error);
+        }
+    }
+    
+    return;
+});
