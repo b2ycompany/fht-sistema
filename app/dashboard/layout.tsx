@@ -1,16 +1,14 @@
-// app/dashboard/layout.tsx
 "use client";
 
 import type React from "react";
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-// ATUALIZADO: Adicionado 'BookMarked' para a Agenda
-import { Calendar, Clock, FileText, Home, LogOut, Menu, User, X, BookMarked } from "lucide-react";
+import { Calendar, FileText, Home, LogOut, Menu, User, X, BookMarked, ClipboardCheck, HeartPulse } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useMobile } from "@/hooks/use-mobile";
 import { useAuth } from "@/components/auth-provider";
-import { logoutUser } from "@/lib/auth-service";
+import { logoutUser, type UserType } from "@/lib/auth-service";
 import Image from "next/image";
 import Logo from "@/public/logo-fht.svg";
 import { cn } from "@/lib/utils";
@@ -21,7 +19,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const router = useRouter();
   const { toast } = useToast();
   const isMobile = useMobile(768); 
-  const { user, loading } = useAuth();
+  const { user, userProfile, loading } = useAuth();
 
   useEffect(() => {
     if (!loading && !user) {
@@ -38,7 +36,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       });
       router.push("/");
     } catch (error) {
-      console.error("Logout error:", error);
       toast({
         title: "Erro ao sair",
         description: "Ocorreu um erro ao fazer logout. Tente novamente.",
@@ -47,28 +44,53 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     }
   };
 
-  // ATUALIZADO: Adicionado "Minha Agenda" e removido "Check-in/out"
-  const navItems = [
-    { href: "/dashboard", label: "Dashboard", icon: <Home className="h-5 w-5" /> },
-    { href: "/dashboard/agenda", label: "Minha Agenda", icon: <BookMarked className="h-5 w-5" /> },
-    { href: "/dashboard/availability", label: "Disponibilidade", icon: <Calendar className="h-5 w-5" /> },
-    { href: "/dashboard/contracts", label: "Meus Contratos", icon: <FileText className="h-5 w-5" /> },
-    { href: "/dashboard/profile", label: "Meu Perfil", icon: <User className="h-5 w-5" /> },
-    // { href: "/dashboard/checkin", label: "Check-in/out", icon: <Clock className="h-5 w-5" /> }, // Removido
-  ];
+  const getNavItemsForRole = (role: UserType | undefined) => {
+    const doctorNavItems = [
+        { href: "/dashboard", label: "Dashboard", icon: <Home className="h-5 w-5" /> },
+        { href: "/dashboard/agenda", label: "Minha Agenda", icon: <BookMarked className="h-5 w-5" /> },
+        { href: "/dashboard/availability", label: "Disponibilidade", icon: <Calendar className="h-5 w-5" /> },
+        { href: "/dashboard/contracts", label: "Meus Contratos", icon: <FileText className="h-5 w-5" /> },
+        { href: "/dashboard/profile", label: "Meu Perfil", icon: <User className="h-5 w-5" /> },
+    ];
 
-  if (loading) {
+    const receptionistNavItems = [
+        { href: "/dashboard/reception", label: "Recepção / Check-in", icon: <ClipboardCheck className="h-5 w-5" /> },
+        { href: "/dashboard/agendamento", label: "Agendamento", icon: <Calendar className="h-5 w-5" /> },
+    ];
+
+    const triageNurseNavItems = [
+        { href: "/dashboard/triage", label: "Painel de Triagem", icon: <HeartPulse className="h-5 w-5" /> },
+    ];
+
+    switch (role) {
+        case 'doctor':
+            return doctorNavItems;
+        case 'receptionist':
+        case 'caravan_admin':
+            return receptionistNavItems;
+        case 'triage_nurse':
+            return triageNurseNavItems;
+        case 'admin':
+            const allItems = [...receptionistNavItems, ...triageNurseNavItems, ...doctorNavItems];
+            const uniqueItems = allItems.filter((item, index, self) =>
+                index === self.findIndex((t) => t.href === item.href)
+            );
+            return uniqueItems;
+        default:
+            return [];
+    }
+  };
+
+  const navItems = getNavItemsForRole(userProfile?.userType);
+
+  if (loading || !user) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-gray-50">
         <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-blue-600"></div>
       </div>
     );
   }
-
-  if (!user) {
-    return null;
-  }
-
+  
   return (
     <div className="flex min-h-screen bg-gray-50">
       <button
@@ -99,7 +121,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                   href={item.href}
                   className={cn(
                     "flex items-center gap-3 px-4 py-3 rounded-md text-sm font-medium transition-all duration-200",
-                    pathname.startsWith(item.href) // Usando startsWith para manter o item ativo
+                    pathname.startsWith(item.href)
                       ? "bg-blue-600 text-white shadow-sm hover:bg-blue-700"
                       : "text-gray-700 hover:bg-blue-100 hover:text-blue-600"
                   )}
@@ -113,7 +135,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           </ul>
         </nav>
 
-        <div className="p-4 border-t border-blue-100">
+        <div className="p-4 border-t border-blue-100 mt-auto">
           <button
             onClick={handleLogout}
             className="w-full flex items-center justify-center gap-2 py-2 px-4 rounded-md border border-blue-600 text-blue-600 hover:bg-blue-50 hover:text-blue-700 transition-colors text-sm font-medium"

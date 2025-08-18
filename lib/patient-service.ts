@@ -12,168 +12,186 @@ import {
   orderBy,
   doc,
   getDoc,
-  setDoc, // Adicionado para a função de salvar
-  limit, // Adicionado para a busca de consulta
+  updateDoc,
+  limit,
+  startAt,
+  onSnapshot,
+  Unsubscribe,
 } from "firebase/firestore";
 import { db, auth } from "./firebase";
 
-// Interface para os dados do formulário de salvamento do prontuário
-export interface ConsultationDetailsPayload {
-  clinicalEvolution: string;
-  diagnosticHypothesis: string;
+// --- INTERFACES ALINHADAS COM A ESTRUTURA FHIR (SIMPLIFICADA) ---
+export interface PatientName {
+  use: 'official' | 'usual' | 'nickname';
+  family: string; // Apelido
+  given: string[]; // Nomes próprios
 }
 
-// Interface completa para os dados de uma consulta
-export interface Consultation {
-  id: string;
-  patientId: string;
-  patientName: string;
-  chiefComplaint: string;
-  medicalHistorySummary?: string;
-  contractId: string;
-  doctorId: string;
-  doctorName: string;
-  hospitalId: string;
-  hospitalName: string;
-  serviceType: string;
-  status: 'SCHEDULED' | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED';
-  createdAt: Timestamp;
-  clinicalEvolution?: string;
-  diagnosticHypothesis?: string; // Campo que faltava
-  prescriptions?: string[];
+export interface PatientIdentifier {
+  system: string; // Ex: "CPF", "RG"
+  value: string;
 }
 
-// Interface para os dados de um paciente
 export interface Patient {
   id: string;
-  hospitalId: string;
-  name: string;
-  cpf?: string;
-  dateOfBirth?: Timestamp;
-  phone?: string;
-  email?: string;
+  unitId: string;
+  name: PatientName[];
+  identifier: PatientIdentifier[];
+  gender: 'male' | 'female' | 'other' | 'unknown';
+  birthDate: string; // Formato YYYY-MM-DD
+  telecom?: { system: 'phone' | 'email', value: string }[];
+  name_lowercase: string;
   createdAt: Timestamp;
+  createdBy: string;
 }
 
-// Interface para os dados do formulário de criação de paciente
 export interface PatientPayload {
-  name: string;
-  cpf?: string;
-  dateOfBirth?: Date;
-  phone?: string;
-  email?: string;
+  name: PatientName[];
+  identifier: PatientIdentifier[];
+  gender: 'male' | 'female' | 'other' | 'unknown';
+  birthDate: string;
+  telecom?: { system: 'phone' | 'email', value: string }[];
+  unitId: string;
+  createdBy: string;
+}
+
+
+export interface TriageData {
+    chiefComplaint: string;
+    bloodPressure: string;
+    temperature: string;
+    heartRate: string;
+    respiratoryRate: string;
+    oxygenSaturation: string;
+    notes?: string;
+}
+
+export interface ServiceQueueEntry {
+    id: string;
+    ticketNumber: string;
+    patientName: string;
+    patientId: string;
+    status: 'Aguardando Triagem' | 'Em Triagem' | 'Aguardando Atendimento' | 'Em Atendimento' | 'Finalizado';
+    unitId: string;
+    createdAt: Timestamp;
+    triageData?: TriageData;
+    nurseId?: string;
+    doctorId?: string;
 }
 
 /**
- * Adiciona um novo paciente ao banco de dados.
+ * Função ATUALIZADA para criar um paciente com a nova estrutura de dados.
  */
-export const addPatient = async (payload: PatientPayload): Promise<string> => {
-  const currentUser = auth.currentUser;
-  if (!currentUser) throw new Error("Usuário não autenticado.");
-  if (!payload.name) throw new Error("O nome do paciente é obrigatório.");
-
-  const patientsRef = collection(db, "patients");
-  
-  const newPatientData = {
-    ...payload,
-    hospitalId: currentUser.uid,
-    dateOfBirth: payload.dateOfBirth ? Timestamp.fromDate(payload.dateOfBirth) : undefined,
-    createdAt: serverTimestamp(),
-  };
-
-  const docRef = await addDoc(patientsRef, newPatientData);
-  return docRef.id;
-};
-
-/**
- * Busca a lista de pacientes de um hospital.
- */
-export const getPatientsByHospital = async (): Promise<Patient[]> => {
-  const currentUser = auth.currentUser;
-  if (!currentUser) return [];
-
-  const patientsRef = collection(db, "patients");
-  const q = query(
-    patientsRef,
-    where("hospitalId", "==", currentUser.uid),
-    orderBy("name", "asc")
-  );
-
-  try {
-    const querySnapshot = await getDocs(q);
-    return querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Patient));
-  } catch (error) {
-    console.error("Erro ao buscar pacientes:", error);
-    throw new Error("Não foi possível carregar a lista de pacientes.");
-  }
-};
-
-/**
- * Busca um único paciente pelo seu ID.
- */
-export const getPatientById = async (patientId: string): Promise<Patient | null> => {
-    const patientRef = doc(db, "patients", patientId);
-    const docSnap = await getDoc(patientRef);
-    if (docSnap.exists()) {
-        return { id: docSnap.id, ...docSnap.data() } as Patient;
+export const createPatient = async (patientData: PatientPayload): Promise<string> => {
+    try {
+        const patientsRef = collection(db, "patients");
+        const fullName = `${patientData.name[0].given.join(' ')} ${patientData.name[0].family}`;
+        
+        const docRef = await addDoc(patientsRef, {
+            ...patientData,
+            name_lowercase: fullName.toLowerCase(),
+            createdAt: serverTimestamp(),
+        });
+        return docRef.id;
+    } catch (error) {
+        console.error("Erro ao cadastrar paciente:", error);
+        throw new Error("Não foi possível cadastrar o novo paciente.");
     }
-    return null;
+};
+
+export const searchPatients = async (searchTerm: string, unitId: string): Promise<Patient[]> => {
+    if (searchTerm.length < 2) return [];
+    try {
+        const patientsRef = collection(db, "patients");
+        const lowerCaseSearchTerm = searchTerm.toLowerCase();
+        const q = query(
+            patientsRef,
+            where("unitId", "==", unitId),
+            orderBy("name_lowercase"),
+            where("name_lowercase", ">=", lowerCaseSearchTerm),
+            where("name_lowercase", "<=", lowerCaseSearchTerm + '\uf8ff'),
+            limit(10)
+        );
+        const querySnapshot = await getDocs(q);
+        return querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Patient));
+    } catch (error) {
+        console.error("Erro na busca por pacientes:", error);
+        throw new Error("Não foi possível realizar a busca por pacientes.");
+    }
 };
 
 /**
- * Busca o histórico de consultas de um paciente específico.
+ * Função ATUALIZADA para lidar com o novo formato de nome do paciente.
  */
-export const getConsultationsForPatient = async (patientId: string): Promise<Consultation[]> => {
-    const consultsRef = collection(db, "consultations");
+export const addPatientToServiceQueue = async (patient: Patient, unitId: string): Promise<string> => {
+    try {
+        const queueRef = collection(db, "serviceQueue");
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+
+        const todayQueueQuery = query(queueRef, where("unitId", "==", unitId), where("createdAt", ">=", today));
+        const todayQueueSnapshot = await getDocs(todayQueueQuery);
+        const nextTicketNumber = `A${(todayQueueSnapshot.size + 1).toString().padStart(2, '0')}`;
+
+        // Constrói o nome completo a partir da estrutura FHIR para salvar na fila
+        const patientFullName = `${patient.name[0].given.join(' ')} ${patient.name[0].family}`;
+
+        const queueEntry = {
+            ticketNumber: nextTicketNumber,
+            patientName: patientFullName,
+            patientId: patient.id,
+            status: 'Aguardando Triagem',
+            unitId,
+            createdAt: serverTimestamp(),
+        };
+        const docRef = await addDoc(queueRef, queueEntry);
+        return docRef.id;
+    } catch (error) {
+        console.error("Erro ao adicionar paciente à fila:", error);
+        throw new Error("Não foi possível adicionar o paciente à fila de atendimento.");
+    }
+};
+
+export const listenToServiceQueue = (unitId: string, status: ServiceQueueEntry['status'], callback: (entries: ServiceQueueEntry[]) => void): Unsubscribe => {
+    const queueRef = collection(db, "serviceQueue");
     const q = query(
-        consultsRef,
-        where("patientId", "==", patientId),
-        orderBy("createdAt", "desc")
+        queueRef, 
+        where("unitId", "==", unitId), 
+        where("status", "==", status),
+        orderBy("createdAt", "asc")
     );
 
-    const querySnapshot = await getDocs(q);
-    return querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Consultation));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+        const entries = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as ServiceQueueEntry));
+        callback(entries);
+    }, (error) => {
+        console.error("[PatientService] Erro ao escutar a fila de atendimento:", error);
+        callback([]);
+    });
+
+    return unsubscribe;
 };
 
-/**
- * Busca os detalhes de uma consulta com base no ID do contrato.
- */
-export const getConsultationByContractId = async (contractId: string): Promise<Consultation | null> => {
-    if (!contractId) return null;
-    
-    const consultsRef = collection(db, "consultations");
-    const q = query(consultsRef, where("contractId", "==", contractId), limit(1));
-    
+export const startTriage = async (queueId: string, nurseId: string): Promise<void> => {
     try {
-        const querySnapshot = await getDocs(q);
-        if (querySnapshot.empty) {
-            console.warn(`[getConsultationByContractId] Nenhuma consulta encontrada para o contractId: ${contractId}`);
-            return null;
-        }
-        const docSnap = querySnapshot.docs[0];
-        return { id: docSnap.id, ...docSnap.data() } as Consultation;
+        const queueDocRef = doc(db, "serviceQueue", queueId);
+        await updateDoc(queueDocRef, {
+            status: 'Em Triagem',
+            nurseId: nurseId,
+        });
     } catch (error) {
-        console.error("[getConsultationByContractId] Erro ao buscar consulta:", error);
-        throw new Error("Falha ao carregar os dados da consulta.");
+        throw new Error("Não foi possível chamar o paciente para a triagem.");
     }
 };
 
-/**
- * Salva ou atualiza os detalhes do prontuário de uma consulta.
- */
-export const saveConsultationDetails = async (consultationId: string, payload: ConsultationDetailsPayload): Promise<void> => {
-    if (!consultationId) throw new Error("ID da consulta é obrigatório.");
-
-    const consultRef = doc(db, "consultations", consultationId);
-    
+export const submitTriage = async (queueId: string, triageData: TriageData): Promise<void> => {
     try {
-        await setDoc(consultRef, {
-            clinicalEvolution: payload.clinicalEvolution,
-            diagnosticHypothesis: payload.diagnosticHypothesis,
-            status: 'IN_PROGRESS'
-        }, { merge: true });
+        const queueDocRef = doc(db, "serviceQueue", queueId);
+        await updateDoc(queueDocRef, {
+            triageData: triageData,
+            status: 'Aguardando Atendimento',
+        });
     } catch (error) {
-        console.error("[saveConsultationDetails] Erro ao salvar detalhes da consulta:", error);
-        throw new Error("Não foi possível salvar os dados do prontuário.");
+        throw new Error("Não foi possível finalizar a triagem.");
     }
 };

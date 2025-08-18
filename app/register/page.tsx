@@ -113,7 +113,7 @@ const StepIndicator: React.FC<StepIndicatorProps> = ({ steps, currentStep }) => 
 };
 
 type SummaryData = {
-    personalInfo?: PersonalInfo;
+    personalInfo?: PersonalInfo & { professionalCrm?: string }; // Adicionado CRM aqui
     addressInfo?: AddressInfo;
     doctorDocuments?: DoctorDocumentsState;
     isSpecialist?: boolean;
@@ -207,6 +207,7 @@ const RegistrationSummary: React.FC<RegistrationSummaryProps> = ({ role, data, o
                         <SummaryField label="Nascimento" value={data.personalInfo.dob} />
                         <SummaryField label="RG" value={data.personalInfo.rg} />
                         <SummaryField label="CPF" value={formatDoc(data.personalInfo.cpf, 'cpf')} />
+                        <SummaryField label="CRM" value={data.personalInfo.professionalCrm} />
                         <SummaryField label="Telefone" value={formatDoc(data.personalInfo.phone, 'phone')} />
                         <SummaryField label="Email (Login)" value={data.personalInfo.email} />
                     </>))}
@@ -286,7 +287,7 @@ const RegistrationSummary: React.FC<RegistrationSummaryProps> = ({ role, data, o
                         ))}
                     </>))}
                     {renderSection("Credenciais de Acesso", "credentials", (<>
-                        <SummaryField label="Email Acesso (Empresa)" value={data.hospitalInfo.email} />
+                        <SummaryField label="Email Acesso (Responsável)" value={data.legalRepresentativeInfo.email} />
                         <p className="text-sm"><strong className="font-medium">Senha:</strong> <span className="ml-1">********</span></p>
                     </>))}
                 </>
@@ -317,14 +318,17 @@ export default function RegisterPage() {
     const { user: authUser, loading: authLoading } = useAuthHook();
     const [doctorObjective, setDoctorObjective] = useState<'caravan' | 'match' | null>(null);
     
-    // Estados para especialidades
     const [availableSpecialties, setAvailableSpecialties] = useState<Specialty[]>([]);
     const [selectedSpecialties, setSelectedSpecialties] = useState<string[]>([]);
     const [isLoadingSpecialties, setIsLoadingSpecialties] = useState(true);
     const [specialtiesError, setSpecialtiesError] = useState<string | null>(null);
     const [openSpecialtySearch, setOpenSpecialtySearch] = useState(false);
 
-    const [personalInfo, setPersonalInfo] = useState<PersonalInfo>({ name: "", dob: "", rg: "", cpf: "", phone: "", email: "" });
+    // CORREÇÃO 1: Adicionar 'professionalCrm' ao estado de 'personalInfo'
+    const [personalInfo, setPersonalInfo] = useState<PersonalInfo & { professionalCrm: string }>({ 
+        name: "", dob: "", rg: "", cpf: "", phone: "", email: "", professionalCrm: "" 
+    });
+
     const [addressInfo, setAddressInfo] = useState<AddressInfo>({ cep: "", street: "", number: "", complement: "", neighborhood: "", city: "", state: "" });
     const [isSpecialist, setIsSpecialist] = useState<boolean>(false);
     const [hospitalInfo, setHospitalInfo] = useState<HospitalInfo>({ companyName: "", cnpj: "", stateRegistration: "", phone: "", email: ""});
@@ -615,6 +619,7 @@ export default function RegisterPage() {
         switch (currentStepConfig?.id) {
             case 'personalInfo':
                 validate(isNotEmpty(personalInfo.name), "Nome completo é obrigatório.");
+                validate(isNotEmpty(personalInfo.professionalCrm), "CRM é obrigatório.");
                 validate(isValidDate(personalInfo.dob), "Data de nascimento inválida.");
                 validate(isValidRG(personalInfo.rg), "RG inválido.");
                 validate(isValidCPF(personalInfo.cpf), "CPF inválido.");
@@ -699,7 +704,7 @@ export default function RegisterPage() {
                 );
                 break;
             case 'credentials':
-                const loginEmail = role === 'doctor' ? personalInfo.email : hospitalInfo.email;
+                const loginEmail = role === 'doctor' ? personalInfo.email : legalRepresentativeInfo.email;
                 if (!validate(isValidEmail(loginEmail), "O email de login parece inválido. Volte e corrija.")) {
                     errorTitle = "Email de Login Inválido";
                 } else if (!validate(isValidPassword(credentials.password), "Senha deve ter no mínimo 6 caracteres.")) {
@@ -740,7 +745,7 @@ export default function RegisterPage() {
         }
         setIsLoading(true);
 
-        const loginEmail = role === 'doctor' ? personalInfo.email : hospitalInfo.email;
+        const loginEmail = role === 'doctor' ? personalInfo.email : legalRepresentativeInfo.email;
         const displayName = role === 'doctor' ? personalInfo.name : hospitalInfo.companyName;
 
         try {
@@ -835,9 +840,10 @@ export default function RegisterPage() {
             if (role === 'doctor') {
                 const { name: _pName, email: _pEmail, ...personalDetails } = personalInfo;
                 
+                // CORREÇÃO 3: Usar o 'professionalCrm' do estado
                 const doctorData: DoctorRegistrationPayload = {
                     ...personalDetails,
-                    professionalCrm: personalInfo.rg,
+                    professionalCrm: personalInfo.professionalCrm,
                     specialties: selectedSpecialties,
                     isSpecialist: isSpecialist,
                     documents: finalDocRefs.documents,
@@ -863,31 +869,25 @@ export default function RegisterPage() {
             }
             
             await completeUserRegistration(userId, loginEmail, displayName, role, registrationData);
-
-            // --- LÓGICA DE ATUALIZAÇÃO DE TOKEN REFINADA ---
             
-            // Função auxiliar para esperar um pouco
             const delay = (ms: number) => new Promise(res => setTimeout(res, ms));
-
             let claims;
-            let retries = 5; // Tenta por até 10 segundos
+            let retries = 5;
             
-            // Tenta buscar o token atualizado com os novos claims
             while (retries > 0) {
-                await firebaseUser.getIdToken(true); // Força a atualização
+                await firebaseUser.getIdToken(true);
                 const idTokenResult = await firebaseUser.getIdTokenResult();
                 claims = idTokenResult.claims;
                 
-                // Verifica se o claim 'role' foi aplicado
                 if (claims.role === role) {
-                    break; // Se encontrou, sai do loop
+                    break; 
                 }
                 
                 retries--;
                 if (retries === 0) {
                     throw new Error("Não foi possível verificar as permissões. Por favor, faça login novamente.");
                 }
-                await delay(2000); // Espera 2 segundos antes de tentar novamente
+                await delay(2000);
             }
             
             toast({
@@ -970,8 +970,10 @@ export default function RegisterPage() {
                             <div className="space-y-1"><Label htmlFor="dob">Nascimento*</Label><Input id="dob" type="date" value={personalInfo.dob} onChange={handleInputChangeCallback(setPersonalInfo, 'dob')} required max={new Date().toISOString().split("T")[0]}/></div>
                             <div className="space-y-1"><Label htmlFor="rg">RG*</Label><Input id="rg" value={personalInfo.rg} onChange={handleInputChangeCallback(setPersonalInfo, 'rg')} required /></div>
                             <div className="space-y-1"><Label htmlFor="cpf">CPF*</Label><InputWithIMask id="cpf" maskOptions={{ mask: '000.000.000-00' }} defaultValue={personalInfo.cpf} onAccept={handleIMaskAcceptCallback(setPersonalInfo, 'cpf')} required placeholder="000.000.000-00" /></div>
+                            {/* CORREÇÃO 2: Adicionar o campo de input para o CRM */}
+                            <div className="space-y-1"><Label htmlFor="professionalCrm">CRM*</Label><Input id="professionalCrm" value={personalInfo.professionalCrm} onChange={handleInputChangeCallback(setPersonalInfo, 'professionalCrm')} required /></div>
                             <div className="space-y-1"><Label htmlFor="phone">Telefone Celular*</Label><InputWithIMask id="phone" maskOptions={{ mask: [{ mask: '(00) 0000-0000' }, { mask: '(00) 00000-0000' }] }} defaultValue={personalInfo.phone} onAccept={handleIMaskAcceptCallback(setPersonalInfo, 'phone')} required placeholder="(00) 90000-0000" type="tel" /></div>
-                            <div className="space-y-1"><Label htmlFor="email">Email (Login)*</Label><Input id="email" type="email" value={personalInfo.email} onChange={handleInputChangeCallback(setPersonalInfo, 'email')} required /></div>
+                            <div className="space-y-1 md:col-span-2"><Label htmlFor="email">Email (Login)*</Label><Input id="email" type="email" value={personalInfo.email} onChange={handleInputChangeCallback(setPersonalInfo, 'email')} required /></div>
                         </div>
                     </form>
                 );
@@ -1139,7 +1141,7 @@ export default function RegisterPage() {
                             <div className="space-y-1"><Label htmlFor="cnpj">CNPJ*</Label><InputWithIMask id="cnpj" maskOptions={{ mask: '00.000.000/0000-00' }} defaultValue={hospitalInfo.cnpj} onAccept={handleIMaskAcceptCallback(setHospitalInfo, 'cnpj')} required placeholder="00.000.000/0000-00"/></div>
                             <div className="space-y-1"><Label htmlFor="stateRegistration">Inscrição Estadual</Label><Input id="stateRegistration" value={hospitalInfo.stateRegistration ?? ""} onChange={handleInputChangeCallback(setHospitalInfo, 'stateRegistration')} /><p className="text-xs text-gray-500">Deixe em branco se isento.</p></div>
                             <div className="space-y-1"><Label htmlFor="hospitalPhone">Telefone Comercial*</Label><InputWithIMask id="hospitalPhone" maskOptions={{ mask: [{ mask: '(00) 0000-0000' }, { mask: '(00) 00000-0000' }] }} defaultValue={hospitalInfo.phone} onAccept={handleIMaskAcceptCallback(setHospitalInfo, 'phone')} required placeholder="(00) 0000-0000" type="tel"/></div>
-                            <div className="space-y-1"><Label htmlFor="hospitalEmail">Email da Empresa (Login)*</Label><Input id="hospitalEmail" type="email" value={hospitalInfo.email} onChange={handleInputChangeCallback(setHospitalInfo, 'email')} required /></div>
+                            <div className="space-y-1"><Label htmlFor="hospitalEmail">Email da Empresa*</Label><Input id="hospitalEmail" type="email" value={hospitalInfo.email} onChange={handleInputChangeCallback(setHospitalInfo, 'email')} required /></div>
                         </div>
                     </form>
                 );
@@ -1200,7 +1202,7 @@ export default function RegisterPage() {
                     </div>
                 );
             case 'credentials':
-                const currentLoginEmail = role === 'doctor' ? personalInfo.email : hospitalInfo.email;
+                const currentLoginEmail = role === 'doctor' ? personalInfo.email : legalRepresentativeInfo.email;
                 const isLoginEmailValid = isValidEmail(currentLoginEmail);
                 return (
                     <form autoComplete="off" onSubmit={(e) => {e.preventDefault(); handleNextStep();}} className="space-y-4 animate-fade-in">

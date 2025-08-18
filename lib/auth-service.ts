@@ -118,6 +118,7 @@ export interface UserProfileBase {
 export interface DoctorProfile extends UserProfileBase, DoctorRegistrationPayload {
   userType: "doctor";
   documentVerificationStatus?: ProfileStatus;
+  healthUnitIds?: string[];
 }
 
 export interface HospitalProfile extends UserProfileBase {
@@ -161,38 +162,24 @@ export interface StaffCreationPayload {
   hospitalId: string;
 }
 
-// Referência à Firebase Function 'createStaffUser'
 const createStaffUserCallable = httpsCallable<Omit<StaffCreationPayload, 'hospitalId'>, { success: boolean, user: UserProfile }>(functions, 'createStaffUser');
 
-/**
- * Chama a Firebase Function para criar um novo membro da Equipa.
- * @param payload Os dados do novo membro da Equipa.
- * @returns O perfil do usuário criado.
- */
 export const createStaffMember = async (payload: StaffCreationPayload) => {
     try {
         const result = await createStaffUserCallable(payload);
         if (!result.data.success) {
-            // Se a função Cloud retornou sucesso: false, lança um erro com a mensagem de lá
             throw new Error("A função de backend não retornou sucesso.");
         }
         return result.data.user;
     } catch (error: any) {
-        // Captura erros de rede ou os erros lançados acima
         console.error("[AuthService] Erro ao chamar a função createStaffUser:", error);
         throw new Error(error.message || "Não foi possível adicionar o membro à Equipa.");
     }
 };
 
-/**
- * Busca todos os perfis de usuários (Equipa) associados a um ID de hospital.
- * @param hospitalId O ID do hospital.
- * @returns Uma promessa que resolve para um array de perfis de usuário da Equipa.
- */
 export const getStaffForHospital = async (hospitalId: string): Promise<UserProfile[]> => {
     try {
         const usersRef = collection(db, "users");
-        // Consulta corrigida: Busca todos os utilizadores associados ao hospitalId.
         const q = query(usersRef, where("hospitalId", "==", hospitalId));
         const querySnapshot = await getDocs(q);
 
@@ -202,7 +189,6 @@ export const getStaffForHospital = async (hospitalId: string): Promise<UserProfi
 
         const staffList = querySnapshot.docs.map(d => ({ uid: d.id, ...d.data() } as UserProfile));
         
-        // Filtro no lado do cliente: Remove o próprio gestor (cujo UID é o hospitalId) da lista.
         return staffList.filter(staff => staff.uid !== hospitalId);
 
     } catch (error) {
@@ -428,17 +414,9 @@ export const getDoctorsBySpecialty = async (specialty: string): Promise<DoctorPr
   }
 };
 
-// --- FUNÇÃO ADICIONADA ---
-/**
- * Busca médicos de uma especialidade específica que estão associados a uma unidade de saúde.
- * @param hospitalId O UID da unidade de saúde.
- * @param specialty A especialidade a ser buscada.
- * @returns Uma lista de perfis de médicos que correspondem aos critérios.
- */
 export const getAssociatedDoctorsBySpecialty = async (hospitalId: string, specialty: string): Promise<UserProfile[]> => {
     try {
         const usersRef = collection(db, "users");
-        // Esta consulta combina três filtros: ser médico, ter a especialidade e pertencer à unidade.
         const q = query(
             usersRef,
             where("userType", "==", "doctor"),
