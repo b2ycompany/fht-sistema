@@ -167,6 +167,8 @@ async function drawTextWithWrapping(page: any, text: string, options: { x: numbe
 }
 
 // --- LÓGICA DE CADA FUNÇÃO (HANDLERS) ---
+
+// [FUNÇÃO ATUALIZADA]
 export const onUserCreatedSetClaimsHandler = async (event: FirestoreEvent<DocumentSnapshot | undefined, { userId: string }>) => {
     const userSnap = event.data;
     if (!userSnap) {
@@ -183,18 +185,34 @@ export const onUserCreatedSetClaimsHandler = async (event: FirestoreEvent<Docume
     const userId = event.params.userId;
     const userType = userData.userType;
     const hospitalId = userData.hospitalId || null;
+    const displayName = userData.displayName || '';
 
     if (!userType) {
         logger.warn(`Utilizador ${userId} criado sem um 'userType'. Claims não serão definidos.`);
         return;
     }
+    
+    const claims = { role: userType, hospitalId: hospitalId };
+    const profileUpdate: { displayName_lowercase?: string } = {};
+
+    // Adiciona o campo de busca em minúsculas se for um médico
+    if (userType === 'doctor' && displayName) {
+        profileUpdate.displayName_lowercase = displayName.toLowerCase();
+    }
 
     try {
-        const claims = { role: userType, hospitalId: hospitalId };
+        // Define as permissões (claims)
         await auth.setCustomUserClaims(userId, claims);
         logger.info(`Claims definidos com sucesso para o utilizador ${userId}:`, claims);
+
+        // Se houver atualizações no perfil (como o campo de busca), aplica-as
+        if (Object.keys(profileUpdate).length > 0) {
+            await userSnap.ref.update(profileUpdate);
+            logger.info(`Perfil do utilizador ${userId} atualizado com campo de busca.`);
+        }
+
     } catch (error) {
-        logger.error(`Falha ao definir claims para o utilizador ${userId}:`, error);
+        logger.error(`Falha ao finalizar configuração do utilizador ${userId}:`, error);
     }
 };
 
@@ -583,7 +601,6 @@ export const generatePrescriptionPdfHandler = async (request: CallableRequest<Pr
         
         const crmText = `CRM: ${doctorCrm}`;
         const crmTextWidth = font.widthOfTextAtSize(crmText, 11);
-        // CORREÇÃO: A sintaxe estava incorreta aqui.
         page.drawText(crmText, { x: (width - crmTextWidth) / 2, y: signatureY - 30, font: font, size: 11 });
         
         const date = new Date().toLocaleDateString('pt-BR', { day: '2-digit', month: 'long', year: 'numeric' });
@@ -664,7 +681,6 @@ export const generateDocumentPdfHandler = async (request: CallableRequest<Docume
         page.drawText(doctorName, { x: (width - doctorNameWidth) / 2, y: signatureY - 15, font: fontBold, size: 12 });
         const crmText = `CRM: ${doctorCrm}`;
         const crmTextWidth = font.widthOfTextAtSize(crmText, 11);
-        // CORREÇÃO: A sintaxe estava incorreta aqui.
         page.drawText(crmText, { x: (width - crmTextWidth) / 2, y: signatureY - 30, font: font, size: 11 });
         page.drawText(date, { x: 50, y: 50, font, size: 10 });
 
