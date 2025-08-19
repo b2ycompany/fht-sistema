@@ -7,6 +7,7 @@ import { Change } from "firebase-functions";
 import { DocumentSnapshot, FieldValue, getFirestore, Query, GeoPoint, DocumentData } from "firebase-admin/firestore";
 import { getStorage } from "firebase-admin/storage";
 import { FirestoreEvent } from "firebase-functions/v2/firestore";
+import { v4 as uuidv4 } from 'uuid';
 
 // --- INTERFACES E TIPOS ---
 
@@ -19,6 +20,8 @@ interface UserProfile extends DocumentData {
     professionalCrm?: string;
     specialties?: string[];
     healthUnitIds?: string[];
+    status?: 'active' | 'pending_approval' | 'suspended'; // Adicionado status ao perfil
+    invitationToken?: string; // Adicionado campo para rastrear o convite
 }
 
 interface ShiftRequirementData {
@@ -185,39 +188,55 @@ export const onUserCreatedSetClaimsHandler = async (event: FirestoreEvent<Docume
         logger.error("Snapshot do utilizador não encontrado no evento de criação.");
         return;
     }
-    const userData = userSnap.data();
-
+    const userData = userSnap.data() as UserProfile;
     if (!userData) {
         logger.error(`Dados do utilizador (userData) não encontrados para o UID: ${event.params.userId}`);
         return;
     }
 
     const userId = event.params.userId;
-    const userType = userData.userType;
-    const hospitalId = userData.hospitalId || null;
-    const displayName = userData.displayName || '';
+    const { userType, displayName, invitationToken } = userData;
+
+    // --- LÓGICA DE VÍNCULO POR CONVITE ADICIONADA ---
+    if (userType === 'doctor' && invitationToken) {
+        const invitationsRef = db.collection("invitations");
+        const q = invitationsRef.where("token", "==", invitationToken).where("status", "==", "pending");
+        const querySnapshot = await q.get();
+
+        if (!querySnapshot.empty) {
+            const invitationDoc = querySnapshot.docs[0];
+            const hospitalId = invitationDoc.data().hospitalId;
+
+            // Vínculo automático e status de pendente
+            await userSnap.ref.update({
+                healthUnitIds: FieldValue.arrayUnion(hospitalId),
+                status: 'pending_approval'
+            });
+            await invitationDoc.ref.update({ status: 'completed' });
+            
+            logger.info(`Médico ${userId} vinculado automaticamente ao hospital ${hospitalId} via convite.`);
+        }
+    }
+    // --- FIM DA LÓGICA DE VÍNCULO ---
 
     if (!userType) {
         logger.warn(`Utilizador ${userId} criado sem um 'userType'. Claims não serão definidos.`);
         return;
     }
 
-    const claims = { role: userType, hospitalId: hospitalId };
+    const claims = { role: userType, hospitalId: userData.hospitalId || null };
     const profileUpdate: { displayName_lowercase?: string } = {};
-
-    if (userType === 'doctor' && displayName) {
+    if (displayName) {
         profileUpdate.displayName_lowercase = displayName.toLowerCase();
     }
 
     try {
         await auth.setCustomUserClaims(userId, claims);
         logger.info(`Claims definidos com sucesso para o utilizador ${userId}:`, claims);
-
         if (Object.keys(profileUpdate).length > 0) {
             await userSnap.ref.update(profileUpdate);
             logger.info(`Perfil do utilizador ${userId} atualizado com campo de busca.`);
         }
-
     } catch (error) {
         logger.error(`Falha ao finalizar configuração do utilizador ${userId}:`, error);
     }
@@ -1167,8 +1186,6 @@ export const onContractFinalizedLinkDoctorHandler = async (event: FirestoreEvent
     }
 };
 
-
-// --- NOVA FUNÇÃO DE MIGRAÇÃO ---
 export const migrateDoctorProfilesToUsersHandler = async (request: CallableRequest) => {
     if (request.auth?.token?.role !== 'admin') {
         throw new HttpsError("permission-denied", "Apenas administradores podem executar esta função.");
@@ -1221,7 +1238,6 @@ export const migrateDoctorProfilesToUsersHandler = async (request: CallableReque
     }
 };
 
-// --- NOVA FUNÇÃO DE BUSCA INTELIGENTE ---
 export const searchAssociatedDoctorsHandler = async (request: CallableRequest) => {
     if (request.auth?.token?.role !== 'hospital') {
         throw new HttpsError("permission-denied", "Apenas gestores de unidade podem buscar médicos.");
@@ -1272,5 +1288,71 @@ export const searchAssociatedDoctorsHandler = async (request: CallableRequest) =
     } catch (error) {
         logger.error(`Erro ao buscar médicos para o hospital ${hospitalId}:`, error);
         throw new HttpsError("internal", "Ocorreu um erro ao realizar a busca.");
+    }
+};
+
+export const sendDoctorInvitationHandler = async (request: CallableRequest) => {
+    if (request.auth?.token?.role !== 'hospital') {
+        throw new HttpsError("permission-denied", "Apenas gestores de unidade podem convidar novos médicos.");
+    }
+
+    const { doctorEmail } = request.data;
+    if (!doctorEmail) {
+        throw new HttpsError("invalid-argument", "O email do médico é obrigatório.");
+    }
+
+    const hospitalId = request.auth.uid;
+    const hospitalDoc = await db.collection('users').doc(hospitalId).get();
+    const hospitalName = hospitalDoc.data()?.displayName || 'Uma unidade de saúde';
+
+    // Verifica se o médico já existe
+    try {
+        await auth.getUserByEmail(doctorEmail);
+        throw new HttpsError("already-exists", "Um utilizador com este e-mail já existe. Use a função 'Associar Médico'.");
+    } catch (error: any) {
+        if (error.code !== 'auth/user-not-found') {
+            throw error;
+        }
+    }
+
+    const token = uuidv4();
+    const invitationLink = `https://fht-sistema.web.app/register?invitationToken=${token}`;
+
+    await db.collection("invitations").add({
+        hospitalId: hospitalId,
+        hospitalName: hospitalName,
+        doctorEmail: doctorEmail,
+        token: token,
+        status: 'pending',
+        createdAt: FieldValue.serverTimestamp(),
+    });
+
+    logger.info(`CONVITE GERADO para ${doctorEmail} pelo hospital ${hospitalName}. Link: ${invitationLink}`);
+
+    return { success: true, message: `Convite enviado com sucesso para ${doctorEmail}.` };
+};
+
+export const approveDoctorHandler = async (request: CallableRequest) => {
+    if (request.auth?.token?.role !== 'admin') {
+        throw new HttpsError("permission-denied", "Apenas administradores podem aprovar cadastros.");
+    }
+
+    const { doctorId } = request.data;
+    if (!doctorId) {
+        throw new HttpsError("invalid-argument", "O ID do médico é obrigatório.");
+    }
+
+    try {
+        const doctorRef = db.collection("users").doc(doctorId);
+        await doctorRef.update({
+            status: 'active'
+        });
+
+        logger.info(`Médico ${doctorId} foi aprovado por um administrador.`);
+        return { success: true, message: "Médico aprovado com sucesso." };
+
+    } catch (error) {
+        logger.error(`Falha ao aprovar médico ${doctorId}:`, error);
+        throw new HttpsError("internal", "Não foi possível aprovar o cadastro do médico.");
     }
 };

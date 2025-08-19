@@ -12,11 +12,12 @@ import { useDebounce } from '@/hooks/use-debounce';
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogTrigger } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogTrigger, DialogFooter } from '@/components/ui/dialog';
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem } from "@/components/ui/command";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from '@/components/ui/badge';
+import { Label } from '@/components/ui/label';
 import { Loader2, UserPlus, Search, Link as LinkIcon, ListFilter, X } from 'lucide-react';
 
 // Interface para os resultados da busca
@@ -27,8 +28,58 @@ interface DoctorSearchResult {
     specialties: string[];
 }
 
+
+// --- NOVO Componente do Diálogo de CONVITE de Médico ---
+const InviteDoctorDialog = ({ onInvitationSuccess }: { onInvitationSuccess: () => void }) => {
+    const { toast } = useToast();
+    const [isSubmitting, setIsSubmitting] = useState(false);
+    const [doctorEmail, setDoctorEmail] = useState('');
+
+    const handleInviteDoctor = async () => {
+        if (!doctorEmail) {
+            toast({ title: "Campo Incompleto", description: "O e-mail do médico é obrigatório.", variant: "destructive" });
+            return;
+        }
+        setIsSubmitting(true);
+        try {
+            const inviteFunction = httpsCallable(functions, 'sendDoctorInvitation');
+            await inviteFunction({ doctorEmail });
+            toast({ title: "Sucesso!", description: `Convite enviado para ${doctorEmail}. O médico receberá um e-mail para se cadastrar.`, className: "bg-green-600 text-white" });
+            onInvitationSuccess();
+        } catch (error: any) {
+            toast({ title: "Erro ao Enviar Convite", description: error.message, variant: "destructive" });
+        } finally {
+            setIsSubmitting(false);
+        }
+    };
+
+    return (
+        <DialogContent>
+            <DialogHeader>
+                <DialogTitle>Convidar Novo Médico</DialogTitle>
+                <DialogDescription>
+                    Insira o e-mail do médico para enviar um convite de cadastro. Após o cadastro e aprovação, ele será vinculado à sua unidade.
+                </DialogDescription>
+            </DialogHeader>
+            <div className="grid gap-4 py-4">
+                <div className="space-y-1.5">
+                    <Label htmlFor="email">Email do Médico</Label>
+                    <Input id="email" type="email" value={doctorEmail} onChange={(e) => setDoctorEmail(e.target.value)} placeholder="email@exemplo.com" />
+                </div>
+            </div>
+            <DialogFooter>
+                <Button onClick={handleInviteDoctor} disabled={isSubmitting}>
+                    {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                    Enviar Convite
+                </Button>
+            </DialogFooter>
+        </DialogContent>
+    );
+};
+
+
 /**
- * Componente de Diálogo para Buscar e Associar Médicos
+ * Componente de Diálogo para Buscar e Associar Médicos Vinculados
  */
 const AssociateDoctorDialog = ({ onAssociationSuccess }: { onAssociationSuccess: () => void }) => {
     const { toast } = useToast();
@@ -41,7 +92,6 @@ const AssociateDoctorDialog = ({ onAssociationSuccess }: { onAssociationSuccess:
     const debouncedSearchTerm = useDebounce(searchTerm, 500);
     const hospitalId = useAuth().user?.uid;
 
-    // Efeito para buscar as especialidades disponíveis entre os médicos associados
     useEffect(() => {
         const fetchSpecialties = async () => {
             if (!hospitalId) return;
@@ -60,7 +110,6 @@ const AssociateDoctorDialog = ({ onAssociationSuccess }: { onAssociationSuccess:
         fetchSpecialties();
     }, [hospitalId]);
 
-    // Efeito para executar a busca sempre que o termo ou o filtro de especialidades mudar
     useEffect(() => {
         const handleSearch = async () => {
             if (debouncedSearchTerm.length < 3 && specialtiesFilter.length === 0) {
@@ -102,9 +151,9 @@ const AssociateDoctorDialog = ({ onAssociationSuccess }: { onAssociationSuccess:
     return (
         <DialogContent className="sm:max-w-2xl">
             <DialogHeader>
-                <DialogTitle>Associar Médico Vinculado</DialogTitle>
+                <DialogTitle>Buscar Médico Vinculado</DialogTitle>
                 <DialogDescription>
-                    Procure por um médico que já tenha vínculo com a sua unidade para associá-lo a um agendamento.
+                    Procure por um médico que já tenha vínculo com a sua unidade.
                 </DialogDescription>
             </DialogHeader>
             <div className="flex flex-col sm:flex-row gap-2 py-4">
@@ -193,7 +242,8 @@ export default function HospitalDoctorsPage() {
     const { user } = useAuth();
     const [associatedDoctors, setAssociatedDoctors] = useState<UserProfile[]>([]);
     const [isLoading, setIsLoading] = useState(true);
-    const [isDialogOpen, setIsDialogOpen] = useState(false);
+    const [isAssociateDialogOpen, setIsAssociateDialogOpen] = useState(false);
+    const [isInviteDoctorDialogOpen, setIsInviteDoctorDialogOpen] = useState(false);
 
     const fetchAssociatedDoctors = useCallback(async () => {
         if (!user) return;
@@ -216,21 +266,34 @@ export default function HospitalDoctorsPage() {
         <div className="space-y-6">
             <div className="flex items-center justify-between">
                 <h1 className="text-3xl font-bold">Gestão de Médicos</h1>
-                <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-                    <DialogTrigger asChild>
-                        <Button><UserPlus className="mr-2 h-4 w-4" /> Associar Médico</Button>
-                    </DialogTrigger>
-                    <AssociateDoctorDialog onAssociationSuccess={() => {
-                        setIsDialogOpen(false);
-                        fetchAssociatedDoctors();
-                    }} />
-                </Dialog>
+                <div className="flex gap-2">
+                    {/* Botão para buscar/associar médico JÁ VINCULADO */}
+                    <Dialog open={isAssociateDialogOpen} onOpenChange={setIsAssociateDialogOpen}>
+                        <DialogTrigger asChild>
+                            <Button variant="outline"><Search className="mr-2 h-4 w-4" /> Buscar Médico</Button>
+                        </DialogTrigger>
+                        <AssociateDoctorDialog onAssociationSuccess={() => {
+                            setIsAssociateDialogOpen(false);
+                            fetchAssociatedDoctors();
+                        }} />
+                    </Dialog>
+                    {/* Botão para CONVIDAR novo médico */}
+                    <Dialog open={isInviteDoctorDialogOpen} onOpenChange={setIsInviteDoctorDialogOpen}>
+                        <DialogTrigger asChild>
+                            <Button><UserPlus className="mr-2 h-4 w-4" /> Convidar Novo Médico</Button>
+                        </DialogTrigger>
+                        <InviteDoctorDialog onInvitationSuccess={() => {
+                            setIsInviteDoctorDialogOpen(false);
+                            // Não precisa de recarregar a lista, pois o médico precisa de se cadastrar e ser aprovado.
+                        }} />
+                    </Dialog>
+                </div>
             </div>
 
             <Card>
                 <CardHeader>
                     <CardTitle>Médicos Associados à Unidade</CardTitle>
-                    <CardDescription>Esta é a lista de médicos que já têm vínculo com a sua unidade.</CardDescription>
+                    <CardDescription>Esta é a lista de médicos que já têm vínculo com a sua unidade e foram aprovados.</CardDescription>
                 </CardHeader>
                 <CardContent>
                     {isLoading ? <div className="flex justify-center p-8"><Loader2 className="h-8 w-8 animate-spin" /></div> : (

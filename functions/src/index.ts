@@ -1,5 +1,4 @@
 // functions/src/index.ts
-// Este arquivo é o "lançador". Ele é leve e carrega a lógica sob demanda.
 import { onDocumentWritten, onDocumentDeleted, onDocumentCreated, FirestoreEvent } from "firebase-functions/v2/firestore";
 import { onCall, CallableRequest } from "firebase-functions/v2/https";
 import { setGlobalOptions } from "firebase-functions/v2";
@@ -94,14 +93,18 @@ export const onContractFinalizedLinkDoctor = onDocumentWritten("contracts/{contr
     (event: FirestoreEvent<Change<DocumentSnapshot> | undefined, { contractId: string }>) => import("./logic").then(api => api.onContractFinalizedLinkDoctorHandler(event))
 );
 
-// --- NOVAS FUNÇÕES ADICIONADAS ---
-
-// Função de migração de dados (executar uma vez)
 export const migrateDoctorProfilesToUsers = onCall({ cors: true },
     (request: CallableRequest) => import("./logic").then(api => api.migrateDoctorProfilesToUsersHandler(request))
 );
 
-// Nova função de busca segura e contextual
 export const searchAssociatedDoctors = onCall({ cors: true },
     (request: CallableRequest) => import("./logic").then(api => api.searchAssociatedDoctorsHandler(request))
+);
+
+export const sendDoctorInvitation = onCall({ cors: true },
+    (request: CallableRequest) => import("./logic").then(api => api.sendDoctorInvitationHandler(request))
+);
+
+export const approveDoctor = onCall({ cors: true },
+    (request: CallableRequest) => import("./logic").then(api => api.approveDoctorHandler(request))
 );
