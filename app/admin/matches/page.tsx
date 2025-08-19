@@ -1,12 +1,12 @@
 // app/admin/matches/page.tsx
 "use client";
 
-import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
     ChevronDown, MoreHorizontal, ArrowUpDown, FileText, DollarSign, TrendingUp, CheckCircle, Clock, XCircle, Loader2, RotateCcw, ClipboardList, Users, Briefcase, CalendarDays, MapPinIcon, Info, Building, User, ShieldCheck,
-    MessageSquare, Send, AlertTriangle, Star // NOVO: Ícone para o score
+    MessageSquare, Send, AlertTriangle, Star, ExternalLink
 } from 'lucide-react';
-import { Timestamp, query, collection, where, onSnapshot, orderBy, type Unsubscribe } from "firebase/firestore";
+import { Timestamp, query, collection, where, onSnapshot, orderBy } from "firebase/firestore";
 import { db } from '@/lib/firebase';
 import { useToast } from "@/hooks/use-toast";
 import { cn, formatCurrency } from "@/lib/utils";
@@ -24,38 +24,149 @@ import { Badge } from "@/components/ui/badge";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 
 // Serviços e Tipos
+// [CORREÇÃO]: Adicionado getMatchChatMessages ao import.
 import { approveMatchAndCreateContract, rejectMatchByBackoffice, type PotentialMatch, sendMessageInMatchChat, getMatchChatMessages, type ChatMessage, type ChatTarget } from "@/lib/match-service";
 import { updateUserVerificationStatus, type UserProfile, type ProfileStatus } from "@/lib/auth-service";
 import { type Contract } from "@/lib/contract-service";
 
 
-// --- Componentes de estado (Loading, Empty) permanecem os mesmos ---
+// --- Componentes de estado (Loading, Empty) ---
 const LoadingState = React.memo(({ message = "Carregando..." }: { message?: string }) => ( <div className="flex flex-col items-center justify-center py-10 min-h-[150px] w-full"><Loader2 className="h-8 w-8 animate-spin text-blue-600" /><p className="mt-3 text-sm text-gray-600">{message}</p></div> ));
 const EmptyState = React.memo(({ title, message }: { title: string, message: string; }) => ( <div className="text-center text-sm text-gray-500 py-10 min-h-[150px] flex flex-col items-center justify-center bg-gray-50/70 rounded-md border border-dashed"><ClipboardList className="w-12 h-12 text-gray-400 mb-4"/><p className="font-medium text-gray-600 mb-1">{title}</p><p>{message}</p></div> ));
 
-// --- UserVerificationCard e NegotiationChat permanecem os mesmos ---
+// --- UserVerificationCard CORRIGIDO ---
 const UserVerificationCard: React.FC<{ user: UserProfile; onAction: (userId: string, status: ProfileStatus, notes: string, reasons?: Record<string, string>) => Promise<void>; }> = ({ user, onAction }) => {
     const [generalNotes, setGeneralNotes] = useState(user.adminVerificationNotes || "");
     const [isProcessing, setIsProcessing] = useState(false);
     const [rejectionState, setRejectionState] = useState<Record<string, { selected: boolean; reason: string }>>({});
-    const DOC_LABELS: Record<string, string> = { personalRg: "RG Pessoal", personalCpf: "CPF Pessoal", professionalCrm: "CRM", photo3x4: "Foto 3x4", addressProof: "Comprov. Endereço", graduationCertificate: "Cert. Graduação", criminalRecordCert: "Cert. Neg. Criminal", ethicalCert: "Cert. Neg. Ética", debtCert: "Cert. Neg. Débitos CRM", cv: "Currículo Vitae", rqe: "RQE", postGradCert: "Cert. Pós/Residência", specialistTitle: "Título Especialista", recommendationLetter: "Carta Recomendação", socialContract: "Contrato Social", cnpjCard: "Cartão CNPJ", companyAddressProof: "Comprovante Endereço Empresa", repRg: "RG do Responsável", repCpf: "CPF do Responsável", repAddressProof: "Comprovante Endereço Responsável" };
-    const allDocuments = user.role === 'doctor' ? { ...(user.documents || {}), ...(user.specialistDocuments || {}) } : user.role === 'hospital' ? { ...(user.hospitalDocs || {}), ...(user.legalRepDocuments || {}) } : {};
+
+    const DOC_LABELS: Record<string, string> = { 
+        personalRg: "RG Pessoal", personalCpf: "CPF Pessoal", professionalCrm: "CRM", photo3x4: "Foto 3x4", addressProof: "Comprov. Endereço", graduationCertificate: "Cert. Graduação", criminalRecordCert: "Cert. Neg. Criminal", ethicalCert: "Cert. Neg. Ética", debtCert: "Cert. Neg. Débitos CRM", cv: "Currículo Vitae", rqe: "RQE", postGradCert: "Cert. Pós/Residência", specialistTitle: "Título Especialista", recommendationLetter: "Carta Recomendação", 
+        socialContract: "Contrato Social", cnpjCard: "Cartão CNPJ", companyAddressProof: "Comprovante Endereço Empresa", 
+        repRg: "RG do Responsável", repCpf: "CPF do Responsável", repAddressProof: "Comprovante Endereço Responsável" 
+    };
+
     const handleCheckboxChange = (docKey: string, checked: boolean) => { setRejectionState(prev => ({ ...prev, [docKey]: { ...prev[docKey], selected: checked } })); };
     const handleReasonChange = (docKey: string, reason: string) => { setRejectionState(prev => ({ ...prev, [docKey]: { ...prev[docKey], reason: reason } })); };
+    
     const handleAction = async (status: ProfileStatus) => {
         setIsProcessing(true);
         let reasonsToSubmit: Record<string, string> = {};
         if (status === 'REJECTED_NEEDS_RESUBMISSION') {
             Object.entries(rejectionState).forEach(([key, value]) => { if (value.selected && value.reason?.trim()) { reasonsToSubmit[key] = value.reason.trim(); } });
-            if (Object.keys(reasonsToSubmit).length === 0) { alert("Para solicitar correções, selecione pelo menos um documento e escreva o motivo."); setIsProcessing(false); return; }
+            if (Object.keys(reasonsToSubmit).length === 0) {
+                alert("Para solicitar correções, selecione pelo menos um documento e escreva o motivo.");
+                setIsProcessing(false);
+                return;
+            }
         }
-        try { await onAction(user.uid, status, generalNotes, reasonsToSubmit); } finally { setIsProcessing(false); }
+        try { 
+            await onAction(user.uid, status, generalNotes, reasonsToSubmit); 
+        } finally { 
+            setIsProcessing(false); 
+        }
     };
+
+    const DocumentReviewRow = ({ docKey, url }: { docKey: string, url?: string }) => {
+        if (!url) return null;
+        const isSelected = rejectionState[docKey]?.selected;
+        return (
+            <div className="space-y-2 p-2 bg-slate-50 rounded-md border">
+                <div className="flex items-center justify-between">
+                    <div className="flex items-center space-x-2">
+                        <Checkbox id={docKey} checked={isSelected} onCheckedChange={(checked: boolean) => handleCheckboxChange(docKey, checked)} />
+                        <Label htmlFor={docKey} className="text-sm font-normal">{DOC_LABELS[docKey] || docKey}</Label>
+                    </div>
+                    <a href={url} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline font-medium text-xs flex items-center gap-1">
+                        Ver Documento <ExternalLink size={12} />
+                    </a>
+                </div>
+                {isSelected && (
+                    <Textarea 
+                        placeholder={`Motivo da correção para ${DOC_LABELS[docKey] || docKey}...`}
+                        value={rejectionState[docKey]?.reason || ''}
+                        onChange={(e) => handleReasonChange(docKey, e.target.value)}
+                        className="h-20 mt-2"
+                    />
+                )}
+            </div>
+        );
+    };
+
+    // [CORREÇÃO]: Trocado 'user.role' por 'user.userType'
+    const isHospital = user.userType === 'hospital';
+
     return (
-      <Card className="border-l-4 border-yellow-500"><CardHeader><div className="flex justify-between items-start"><div><CardTitle className="flex items-center gap-2">{user.role === 'doctor' ? <User size={20}/> : <Building size={20}/>} {user.displayName}</CardTitle><CardDescription>{user.role === 'doctor' ? 'Médico(a)' : 'Hospital'} - {user.email}</CardDescription></div><Badge variant="outline">Pendente de Revisão</Badge></div></CardHeader><CardContent className="space-y-6"><div><h4 className="font-semibold text-sm mb-2">Selecione os docs para correções</h4><div className="grid grid-cols-1 md:grid-cols-2 gap-x-4 gap-y-2">{Object.entries(allDocuments).map(([key, url]) => {if (!url) return null;const isSelected = rejectionState[key]?.selected;return (<div key={key} className="space-y-2"><div className="flex items-center space-x-2"><Checkbox id={key} checked={isSelected} onCheckedChange={(checked: boolean) => handleCheckboxChange(key, checked)} /><a href={url as string} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:text-blue-800 text-sm flex items-center gap-2">{DOC_LABELS[key] || key}</a></div>{isSelected && ( <Textarea placeholder={`Motivo...`} value={rejectionState[key]?.reason || ''} onChange={(e) => handleReasonChange(key, e.target.value)} className="h-20"/> )}</div>)})}</div></div><div><Label htmlFor={`notes-${user.uid}`}>Observações Gerais</Label><Textarea id={`notes-${user.uid}`} value={generalNotes} onChange={(e) => setGeneralNotes(e.target.value)} disabled={isProcessing}/></div></CardContent><CardFooter className="flex justify-end gap-3"><Button variant="destructive" onClick={() => handleAction('REJECTED_NEEDS_RESUBMISSION')} disabled={isProcessing}>{isProcessing?<Loader2 className="animate-spin"/>:<XCircle/>}Pedir Correção</Button><Button onClick={() => handleAction('APPROVED')} disabled={isProcessing}>{isProcessing?<Loader2 className="animate-spin"/>:<CheckCircle/>}Aprovar Cadastro</Button></CardFooter></Card>
+      <Card className="border-l-4 border-yellow-500">
+        <CardHeader>
+            <div className="flex justify-between items-start">
+                <div>
+                    <CardTitle className="flex items-center gap-2">{isHospital ? <Building size={20}/> : <User size={20}/>} {user.displayName}</CardTitle>
+                    <CardDescription>{isHospital ? 'Hospital/Empresa' : 'Médico(a)'} - {user.email}</CardDescription>
+                </div>
+                <Badge variant="outline">Pendente de Revisão</Badge>
+            </div>
+        </CardHeader>
+        <CardContent className="space-y-6">
+            <Accordion type="single" collapsible className="w-full">
+                <AccordionItem value="documents">
+                    <AccordionTrigger className="text-base font-semibold">Visualizar e Selecionar Documentos para Correção</AccordionTrigger>
+                    <AccordionContent className="pt-4 space-y-4">
+                        {isHospital && ( // Se for hospital, agora o TypeScript entende que user é HospitalProfile
+                            <>
+                                <div className="space-y-2">
+                                    <h4 className="font-semibold text-sm text-gray-800">Documentos da Empresa</h4>
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                                        {Object.entries(user.hospitalDocs || {}).map(([key, url]) => (
+                                            <DocumentReviewRow key={key} docKey={key} url={url as string} />
+                                        ))}
+                                    </div>
+                                </div>
+                                <div className="space-y-2">
+                                    <h4 className="font-semibold text-sm text-gray-800">Documentos do Responsável Legal</h4>
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                                        {Object.entries(user.legalRepDocuments || {}).map(([key, url]) => (
+                                            <DocumentReviewRow key={key} docKey={key} url={url as string} />
+                                        ))}
+                                    </div>
+                                </div>
+                            </>
+                        )}
+                         {user.userType === 'doctor' && ( // Se for médico, o TypeScript entende que user é DoctorProfile
+                             <div className="space-y-2">
+                                <h4 className="font-semibold text-sm">Documentos do Médico</h4>
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                                    {Object.entries({ ...(user.documents || {}), ...(user.specialistDocuments || {}) }).map(([key, url]) => (
+                                        <DocumentReviewRow key={key} docKey={key} url={url as string} />
+                                    ))}
+                                </div>
+                            </div>
+                         )}
+                    </AccordionContent>
+                </AccordionItem>
+            </Accordion>
+            
+            <div>
+                <Label htmlFor={`notes-${user.uid}`}>Observações Gerais</Label>
+                <Textarea id={`notes-${user.uid}`} value={generalNotes} onChange={(e) => setGeneralNotes(e.target.value)} disabled={isProcessing} placeholder="Adicione observações gerais sobre a aprovação ou motivo da rejeição..." />
+            </div>
+        </CardContent>
+        <CardFooter className="flex justify-end gap-3">
+            <Button variant="destructive" onClick={() => handleAction('REJECTED_NEEDS_RESUBMISSION')} disabled={isProcessing}>
+                {isProcessing ? <Loader2 className="animate-spin"/> : <XCircle/>}
+                Pedir Correção
+            </Button>
+            <Button onClick={() => handleAction('APPROVED')} disabled={isProcessing}>
+                {isProcessing ? <Loader2 className="animate-spin"/> : <CheckCircle/>}
+                Aprovar Cadastro
+            </Button>
+        </CardFooter>
+      </Card>
     );
 };
 
+
+// --- NegotiationChat (sem alterações) ---
 const NegotiationChat: React.FC<{ matchId: string, target: ChatTarget }> = ({ matchId, target }) => {
     const { user } = useAuth();
     const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -110,6 +221,7 @@ const NegotiationChat: React.FC<{ matchId: string, target: ChatTarget }> = ({ ma
 };
 
 
+// --- MatchReviewCard (sem alterações) ---
 const MatchReviewCard: React.FC<{ match: PotentialMatch; onApproveMatch: (matchId: string, doctorRate: number, hospitalRate: number, margin: number, notes?: string) => Promise<void>; onRejectMatch: (matchId: string, notes: string) => Promise<void>; }> = ({ match, onApproveMatch, onRejectMatch }) => {
     const [notes, setNotes] = useState("");
     const [isProcessing, setIsProcessing] = useState(false);
@@ -133,21 +245,18 @@ const MatchReviewCard: React.FC<{ match: PotentialMatch; onApproveMatch: (matchI
     const location = `${match.shiftCities?.join(', ') || 'Cidade?'}, ${match.shiftState || 'Estado?'}`;
     const needsNegotiation = match.doctorDesiredRate > match.offeredRateByHospital;
     
-    // NOVO: Função para determinar a cor do card com base na pontuação
     const getScoreVariantClass = (score: number): string => {
-        if (score >= 10) return "border-green-500"; // Pontuação excelente
-        if (score >= 6) return "border-blue-500";   // Pontuação boa
-        return "border-gray-300";                   // Pontuação padrão
+        if (score >= 10) return "border-green-500";
+        if (score >= 6) return "border-blue-500";
+        return "border-gray-300";
     };
 
-    // NOVO: Lógica para determinar a cor da badge de score
     const getScoreBadgeVariant = (score: number): "default" | "secondary" | "destructive" => {
-        if (score >= 10) return "default"; // Verde (padrão do ShadCN para "sucesso")
+        if (score >= 10) return "default";
         if (score >= 6) return "secondary";
-        return "destructive"; // Vermelho para scores baixos
+        return "destructive";
     }
 
-    // ALTERADO: A cor do card agora prioriza a negociação, depois a pontuação do match.
     const cardBorderColor = needsNegotiation ? "border-red-500" : getScoreVariantClass(match.matchScore ?? 0);
 
     return (
@@ -159,7 +268,6 @@ const MatchReviewCard: React.FC<{ match: PotentialMatch; onApproveMatch: (matchI
                 <CardDescription>{match.hospitalName} &harr; {match.doctorName}</CardDescription>
               </div>
               <div className="flex items-center gap-2">
-                {/* NOVO: Badge para exibir a pontuação do match */}
                 <Badge variant={getScoreBadgeVariant(match.matchScore ?? 0)} className="flex items-center gap-1.5 text-sm py-1 px-3">
                     <Star size={14} />
                     <span>Score: {match.matchScore ?? 0}</span>
@@ -213,9 +321,10 @@ const MatchReviewCard: React.FC<{ match: PotentialMatch; onApproveMatch: (matchI
 };
 
 
+// --- Componente Principal da Página (AdminUnifiedPage) ---
 export default function AdminUnifiedPage() {
     const { toast } = useToast();
-    const [activeTab, setActiveTab] = useState("matches");
+    const [activeTab, setActiveTab] = useState("verification");
     const [pendingUsers, setPendingUsers] = useState<UserProfile[]>([]);
     const [matches, setMatches] = useState<PotentialMatch[]>([]);
     const [contracts, setContracts] = useState<Contract[]>([]);
@@ -226,7 +335,6 @@ export default function AdminUnifiedPage() {
     useEffect(() => {
         const unsubUsers = onSnapshot(query(collection(db, "users"), where("documentVerificationStatus", "==", "PENDING_REVIEW")), (snapshot) => { setPendingUsers(snapshot.docs.map(doc => ({ uid: doc.id, ...doc.data() } as UserProfile))); setIsLoadingUsers(false); });
         
-        // ALTERADO: A query agora ordena por 'matchScore' (maior primeiro) e depois por data de criação como critério de desempate.
         const matchesQuery = query(
             collection(db, "potentialMatches"), 
             where("status", "==", "PENDING_BACKOFFICE_REVIEW"), 
@@ -237,7 +345,6 @@ export default function AdminUnifiedPage() {
             setMatches(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as PotentialMatch))); 
             setIsLoadingMatches(false); 
         }, (error) => {
-            // NOVO: Tratamento de erro para o caso do índice não existir.
             console.error("Erro ao buscar matches (verifique o índice do Firestore):", error);
             toast({
                 title: "Erro de Consulta",
@@ -251,7 +358,7 @@ export default function AdminUnifiedPage() {
         const unsubContracts = onSnapshot(query(collection(db, "contracts"), orderBy("createdAt", "desc")), (snapshot) => { setContracts(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Contract))); setIsLoadingContracts(false); });
         
         return () => { unsubUsers(); unsubMatches(); unsubContracts(); };
-    }, [toast]); // NOVO: Adicionado toast como dependência do useEffect.
+    }, [toast]);
 
     const handleUserVerification = async (userId: string, status: ProfileStatus, notes: string, reasons?: Record<string, string>) => { try { await updateUserVerificationStatus(userId, status, notes, reasons); toast({ title: "Cadastro Atualizado!" }); } catch (e: any) { toast({ title: "Erro", description: e.message, variant: "destructive" }); }};
     const handleApproveMatch = async (matchId: string, doctorRate: number, hospitalRate: number, platformMargin: number, notes?: string) => {
@@ -267,17 +374,17 @@ export default function AdminUnifiedPage() {
     const isLoadingAnything = isLoadingUsers || isLoadingMatches || isLoadingContracts;
 
     return (
-      <div className="space-y-6">
+      <div className="space-y-6 p-4 md:p-6">
           <div className="flex items-center justify-between"><h1 className="text-2xl md:text-3xl font-bold tracking-tight text-gray-800 flex items-center gap-2"><ShieldCheck size={28}/> Painel de Controlo</h1><Button variant="outline" size="sm" disabled><RotateCcw className={cn("mr-2 h-4 w-4", isLoadingAnything && "animate-spin")}/>Sincronizado</Button></div>
           <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
             <TabsList className="grid w-full grid-cols-3">
-                <TabsTrigger value="verification">Verificações<Badge variant="destructive" className="ml-2">{isLoadingUsers ? "..." : pendingUsers.length}</Badge></TabsTrigger>
-                <TabsTrigger value="matches">Revisão de Matches<Badge variant="destructive" className="ml-2">{isLoadingMatches ? "..." : matches.length}</Badge></TabsTrigger>
+                <TabsTrigger value="verification">Verificações<Badge variant={pendingUsers.length > 0 ? "destructive" : "secondary"} className="ml-2">{isLoadingUsers ? "..." : pendingUsers.length}</Badge></TabsTrigger>
+                <TabsTrigger value="matches">Revisão de Matches<Badge variant={matches.length > 0 ? "destructive" : "secondary"} className="ml-2">{isLoadingMatches ? "..." : matches.length}</Badge></TabsTrigger>
                 <TabsTrigger value="contracts">Gestão de Contratos</TabsTrigger>
             </TabsList>
             
             <TabsContent value="verification" className="mt-4">
-                <Card><CardHeader><CardTitle>Cadastros Pendentes</CardTitle><CardDescription>Aprove ou solicite correções.</CardDescription></CardHeader><CardContent className="pt-4">{isLoadingUsers ? <LoadingState /> : pendingUsers.length === 0 ? <EmptyState title="Nenhum cadastro para verificar" message="Todos estão em dia." /> : <div className="space-y-4">{pendingUsers.map(user => <UserVerificationCard key={user.uid} user={user} onAction={handleUserVerification} />)}</div>}</CardContent></Card>
+                <Card><CardHeader><CardTitle>Cadastros Pendentes</CardTitle><CardDescription>Aprove ou solicite correções nos cadastros abaixo.</CardDescription></CardHeader><CardContent className="pt-4">{isLoadingUsers ? <LoadingState /> : pendingUsers.length === 0 ? <EmptyState title="Nenhum cadastro para verificar" message="Todos estão em dia." /> : <div className="space-y-4">{pendingUsers.map(user => <UserVerificationCard key={user.uid} user={user} onAction={handleUserVerification} />)}</div>}</CardContent></Card>
             </TabsContent>
 
             <TabsContent value="matches" className="mt-4">
@@ -292,8 +399,8 @@ export default function AdminUnifiedPage() {
 
             <TabsContent value="contracts" className="mt-4">
                 <Card>
-                    <CardHeader><CardTitle>A ser implementado</CardTitle></CardHeader>
-                    <CardContent><EmptyState title="Gestão de Contratos" message="Esta área mostrará o histórico de todos os contratos gerados." /></CardContent>
+                    <CardHeader><CardTitle>Gestão de Contratos</CardTitle><CardDescription>Esta área mostrará o histórico de todos os contratos gerados.</CardDescription></CardHeader>
+                    <CardContent><EmptyState title="A ser implementado" message="A funcionalidade de gestão de contratos estará disponível em breve." /></CardContent>
                 </Card>
             </TabsContent>
           </Tabs>

@@ -23,7 +23,7 @@ import { CitySelector } from "@/components/ui/city-selector";
 
 import { cn, formatCurrency, formatPercentage, formatHours } from "@/lib/utils";
 import { auth, db } from "@/lib/firebase";
-import { collection, query, where, getDocs, Timestamp, orderBy } from "firebase/firestore";
+import { collection, query, where, getDocs, Timestamp, orderBy,getCountFromServer } from "firebase/firestore";
 
 import {
   addShiftRequirement,
@@ -58,6 +58,7 @@ EmptyState.displayName = 'EmptyState';
 const ErrorState = React.memo(({ message, onRetry }: { message: string; onRetry?: () => void }) => ( <div className="text-center text-sm text-red-600 py-10 min-h-[150px] flex flex-col items-center justify-center bg-red-50/70 rounded-md border border-dashed border-red-300 w-full"> <AlertCircle className="w-12 h-12 text-red-400 mb-4"/> <p className="font-semibold text-red-700 mb-1 text-base">Oops! Algo deu errado.</p> <p className="max-w-md text-red-600">{message || "Não foi possível carregar os dados."}</p> {onRetry && ( <Button variant="destructive" size="sm" onClick={onRetry} className="mt-4"> <RotateCcw className="mr-2 h-4 w-4" /> Tentar Novamente </Button> )} </div> ));
 ErrorState.displayName = 'ErrorState';
 
+// --- DIÁLOGO (sem alterações) ---
 interface AddShiftDialogProps { onShiftSubmitted: () => void; initialData?: ShiftRequirement | null; }
 const AddShiftDialog: React.FC<AddShiftDialogProps> = ({ onShiftSubmitted, initialData }) => {
   const { toast } = useToast();
@@ -92,6 +93,7 @@ const AddShiftDialog: React.FC<AddShiftDialogProps> = ({ onShiftSubmitted, initi
 };
 AddShiftDialog.displayName = 'AddShiftDialog';
 
+// --- LIST ITEM (sem alterações) ---
 interface ShiftListItemProps { shift: ShiftRequirement; actions?: { label: string; icon: React.ElementType; onClick: () => void; variant?: ButtonVariant; className?: string; disabled?: boolean }[]; }
 const ShiftListItem: React.FC<ShiftListItemProps> = React.memo(({ shift, actions }) => {
   const serviceTypeObj = serviceTypesOptions.find(opt => opt.value === shift.serviceType);
@@ -104,6 +106,8 @@ const ShiftListItem: React.FC<ShiftListItemProps> = React.memo(({ shift, actions
 });
 ShiftListItem.displayName = 'ShiftListItem';
 
+
+// --- COMPONENTE PRINCIPAL DA PÁGINA (COM LÓGICA DE KPI) ---
 export default function HospitalShiftsPage() {
   const { toast } = useToast();
   const router = useRouter();
@@ -112,6 +116,9 @@ export default function HospitalShiftsPage() {
   const [confirmedShifts, setConfirmedShifts] = useState<ShiftRequirement[]>([]);
   const [historyShifts, setHistoryShifts] = useState<ShiftRequirement[]>([]);
   
+  const [doctorCount, setDoctorCount] = useState<number>(0);
+  const [isDoctorCountLoading, setIsDoctorCountLoading] = useState(true);
+
   type ListStateType = { isLoading: boolean; error: string | null };
   const initialListState: ListStateType = { isLoading: true, error: null };
   const [listStates, setListStates] = useState({
@@ -151,27 +158,91 @@ export default function HospitalShiftsPage() {
       }
   }, []);
   
-  // CORREÇÃO: Carrega todos os dados na montagem inicial do componente
   const loadAllInitialData = useCallback(() => {
     fetchShiftsByStatus('OPEN', setOpenShifts, 'open');
     fetchShiftsByStatus(['PENDING_MATCH_REVIEW', 'PENDING_DOCTOR_ACCEPTANCE'], setPendingShifts, 'pending');
     fetchShiftsByStatus('CONFIRMED', setConfirmedShifts, 'confirmed');
     fetchShiftsByStatus(['COMPLETED', 'CANCELLED_BY_HOSPITAL', 'EXPIRED'], setHistoryShifts, 'history');
+    
+    const fetchDoctorCount = async () => {
+        try {
+            setIsDoctorCountLoading(true);
+            const q = query(collection(db, "users"), where("userType", "==", "doctor"));
+            const snapshot = await getCountFromServer(q);
+            setDoctorCount(snapshot.data().count);
+        } catch (error) {
+            console.error("Erro ao buscar contagem de médicos:", error);
+            setDoctorCount(0); // fallback
+        } finally {
+            setIsDoctorCountLoading(false);
+        }
+    };
+    fetchDoctorCount();
   }, [fetchShiftsByStatus]);
 
-  useEffect(() => {
-    loadAllInitialData();
-  }, [loadAllInitialData]);
+  useEffect(() => { loadAllInitialData(); }, [loadAllInitialData]);
 
-  // ALTERADO: handleTabChange agora apenas muda o estado da aba, sem buscar dados.
-  const handleTabChange = (value: string) => {
-      setActiveTab(value);
-  };
+  const handleTabChange = (value: string) => { setActiveTab(value); };
   
   const handleOpenEditDialog = (shift: ShiftRequirement) => { setEditingShift(shift); setIsAddShiftDialogOpen(true); };
   const handleOpenAddDialog = () => { setEditingShift(null); setIsAddShiftDialogOpen(true); };
   const handleCancelShift = async (shiftId: string | undefined) => { if (!shiftId) return; try { await deleteShiftRequirement(shiftId); toast({ title: "Demanda Cancelada" }); loadAllInitialData(); } catch (error: any) { toast({ title: "Erro ao Cancelar", description: error.message, variant: "destructive"}); } };
   const onShiftSubmitted = () => { setIsAddShiftDialogOpen(false); setEditingShift(null); setActiveTab("open"); loadAllInitialData(); };
+
+  // --- LÓGICA DE CÁLCULO PARA OS KPIs (COM A CORREÇÃO) ---
+  const allShifts = useMemo(() => [...openShifts, ...pendingShifts, ...confirmedShifts, ...historyShifts], [openShifts, pendingShifts, confirmedShifts, historyShifts]);
+
+  const kpiValues = useMemo(() => {
+      const thirtyDaysAgo = new Date();
+      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+  
+      const recentShifts = allShifts.filter(shift => shift.createdAt && shift.createdAt.toDate() > thirtyDaysAgo);
+
+      const filledStatuses: ShiftRequirement['status'][] = ['FULLY_STAFFED', 'CONFIRMED', 'ACTIVE_SIGNED', 'COMPLETED', 'IN_PROGRESS'];
+      const filledCount = recentShifts.filter(s => s.status && filledStatuses.includes(s.status)).length;
+      const fillRate = recentShifts.length > 0 ? filledCount / recentShifts.length : 0;
+
+      const shiftsForCost = [...confirmedShifts, ...historyShifts.filter(s => s.status === 'COMPLETED')];
+      let totalCost = 0;
+      shiftsForCost.forEach(shift => {
+          const shiftDate = shift.dates[0]?.toDate();
+          if (shiftDate > thirtyDaysAgo) {
+            const [startH, startM] = shift.startTime.split(':').map(Number);
+            const [endH, endM] = shift.endTime.split(':').map(Number);
+            let duration = (endH + endM/60) - (startH + startM/60);
+            if (shift.isOvernight || duration < 0) { duration += 24; }
+            totalCost += duration * shift.offeredRate * (shift.numberOfVacancies || 1) * shift.dates.length;
+          }
+      });
+      
+      const filledShiftsWithTimestamps = recentShifts.filter(s => filledStatuses.includes(s.status!) && s.createdAt && s.updatedAt);
+      let totalFillTime = 0;
+      if (filledShiftsWithTimestamps.length > 0) {
+        totalFillTime = filledShiftsWithTimestamps.reduce((acc, shift) => {
+            const diff = shift.updatedAt!.toDate().getTime() - shift.createdAt!.toDate().getTime();
+            return acc + diff;
+        }, 0);
+        const avgFillTimeInMillis = totalFillTime / filledShiftsWithTimestamps.length;
+        totalFillTime = avgFillTimeInMillis / (1000 * 60 * 60);
+      }
+      
+      const specialtyCounts: { [key: string]: number } = {};
+      allShifts.forEach(shift => {
+          shift.specialtiesRequired?.forEach(spec => {
+              specialtyCounts[spec] = (specialtyCounts[spec] || 0) + 1;
+          });
+      });
+      const topSpecialty = Object.keys(specialtyCounts).length > 0 
+          ? Object.keys(specialtyCounts).reduce((a, b) => specialtyCounts[a] > specialtyCounts[b] ? a : b)
+          : 'N/A';
+
+      return {
+          fillRate,
+          totalCost,
+          avgFillTimeInHours: totalFillTime,
+          topSpecialty
+      };
+  }, [allShifts, confirmedShifts, historyShifts]);
 
   return (
       <div className="flex flex-col gap-6 md:gap-8 p-1">
@@ -180,11 +251,11 @@ export default function HospitalShiftsPage() {
           <section aria-labelledby="kpi-heading"> <h2 id="kpi-heading" className="sr-only">Visão Geral</h2> <div className="grid gap-3 sm:gap-4 grid-cols-2 md:grid-cols-4 lg:grid-cols-7">
             <KPICard title="Demandas Abertas" value={openShifts.length} icon={AlertCircle} isLoading={listStates.open.isLoading} description="Aguardando médicos" />
             <KPICard title="Pendentes Ação" value={pendingShifts.length} icon={Hourglass} isLoading={listStates.pending.isLoading} description="Matches/contratos" />
-            <KPICard title="Taxa Preenchim. (30d)" value={formatPercentage(85.7)} icon={Target} isLoading={false} description="Eficiência" />
-            <KPICard title="Custo Estimado (30d)" value={formatCurrency(25780.50)} icon={WalletCards} isLoading={false} description="Gasto com plantões" />
-            <KPICard title="Tempo Médio Preench." value={formatHours(4.2)} icon={Clock} isLoading={false} description="Agilidade (horas)" />
-            <KPICard title="Médicos na Plataforma" value={152} icon={Users} isLoading={false} description="Total cadastrados" />
-            <KPICard title="Top Demanda (Espec.)" value={'Clínica Médica'} icon={TrendingUp} isLoading={false} description="Mais requisitada" />
+            <KPICard title="Taxa Preenchim. (30d)" value={formatPercentage(kpiValues.fillRate)} icon={Target} isLoading={listStates.history.isLoading} description="Eficiência" />
+            <KPICard title="Custo Estimado (30d)" value={formatCurrency(kpiValues.totalCost)} icon={WalletCards} isLoading={listStates.history.isLoading || listStates.confirmed.isLoading} description="Gasto com plantões" />
+            <KPICard title="Tempo Médio Preench." value={formatHours(kpiValues.avgFillTimeInHours)} icon={Clock} isLoading={listStates.history.isLoading} description="Agilidade (horas)" />
+            <KPICard title="Médicos na Plataforma" value={doctorCount} icon={Users} isLoading={isDoctorCountLoading} description="Total cadastrados" />
+            <KPICard title="Top Demanda (Espec.)" value={kpiValues.topSpecialty} icon={TrendingUp} isLoading={listStates.open.isLoading} description="Mais requisitada" />
           </div> </section>
 
           <section aria-labelledby="shifts-management-heading">

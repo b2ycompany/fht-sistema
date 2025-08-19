@@ -1,11 +1,9 @@
-// app/hospital/layout.tsx
 "use client";
 
 import type React from "react";
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-// ATUALIZADO: Adicionado ícone 'Users' para Pacientes
 import { Building, ClipboardList, User, Briefcase, FileText, LogOut, Menu, X, Loader2, CalendarPlus, Users } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useMobile } from "@/hooks/use-mobile";
@@ -47,12 +45,12 @@ export default function HospitalLayout({ children }: { children: React.ReactNode
     }
   };
 
-  // ATUALIZADO: Adicionado o novo item de menu "Pacientes"
   const navItems = [
     { href: "/hospital/dashboard", label: "Painel Hospital", icon: <Building className="h-5 w-5" /> },
+    { href: "/hospital/dashboard/equipe", label: "Gestão de Equipe", icon: <Users className="h-5 w-5" /> },
     { href: "/hospital/shifts", label: "Plantões", icon: <ClipboardList className="h-5 w-5" /> },
     { href: "/hospital/schedule", label: "Agendamentos", icon: <CalendarPlus className="h-5 w-5" /> },
-    { href: "/hospital/patients", label: "Pacientes", icon: <Users className="h-5 w-5" /> }, // NOVO ITEM
+    { href: "/hospital/patients", label: "Pacientes", icon: <Users className="h-5 w-5" /> },
     { href: "/hospital/contracts", label: "Contratos", icon: <FileText className="h-5 w-5" /> },
     { href: "/hospital/doctors", label: "Médicos", icon: <User className="h-5 w-5" /> },
     { href: "/hospital/profile", label: "Perfil Empresa", icon: <Briefcase className="h-5 w-5" /> },
