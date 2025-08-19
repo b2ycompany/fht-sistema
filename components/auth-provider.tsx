@@ -1,18 +1,16 @@
 // components/auth-provider.tsx
 "use client";
 
-import React, { createContext, useContext, useEffect, useState, type ReactNode } from "react"; // CORRIGIDO
+import React, { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 import { onAuthStateChanged, type User } from "firebase/auth";
-import { auth } from "@/lib/firebase"; // Ajuste o caminho se necessário
-import { getCurrentUserData, type UserProfile, type HospitalProfile, type DoctorProfile } from "@/lib/auth-service"; // Ajuste o caminho
+import { auth } from "@/lib/firebase";
+import { getCurrentUserData, type UserProfile } from "@/lib/auth-service";
 
 interface AuthContextType {
-  user: User | null; // Usuário do Firebase Auth
-  userProfile: UserProfile | null; // Perfil do Firestore (DoctorProfile ou HospitalProfile ou AdminProfile)
-  loading: boolean; // Estado de carregamento inicial do AuthProvider
-  profileLoading: boolean; // Estado de carregamento do perfil do Firestore
-  // Removido hospitalUser, usaremos userProfile com type guard
-  // hospitalUser: HospitalProfile | null; 
+  user: User | null;
+  userProfile: UserProfile | null;
+  loading: boolean;
+  profileLoading: boolean;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -20,8 +18,8 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [user, setUser] = useState<User | null>(null);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
-  const [loading, setLoading] = useState(true); // Para o estado inicial do onAuthStateChanged
-  const [profileLoading, setProfileLoading] = useState(true); // Para o carregamento do perfil do Firestore
+  const [loading, setLoading] = useState(true);
+  const [profileLoading, setProfileLoading] = useState(true);
 
   useEffect(() => {
     console.log("[AuthProvider] Subscribing to onAuthStateChanged (montagem do provider)");
@@ -30,22 +28,31 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       setUser(firebaseUser);
       
       if (firebaseUser) {
-        setProfileLoading(true); // Inicia o carregamento do perfil
+        setProfileLoading(true);
         try {
-          const profile = await getCurrentUserData(); // getCurrentUserData já usa auth.currentUser
+          const profile = await getCurrentUserData();
           setUserProfile(profile);
           console.log("[AuthProvider] onAuthStateChanged: Profile fetched after user state change:", profile);
+
+          // --- BLOCO DE DEPURACÃO ADICIONADO ---
+          // Estas linhas são cruciais para descobrirmos o problema
+          console.log("--- DEBUGGING AUTH PROVIDER ---");
+          console.log("Perfil recebido do Firestore:", profile);
+          console.log("Tipo de utilizador (userType):", profile?.userType);
+          console.log("---------------------------------");
+          // --- FIM DO BLOCO DE DEPURACÃO ---
+
         } catch (error) {
           console.error("[AuthProvider] onAuthStateChanged: Error fetching profile:", error);
           setUserProfile(null); 
         } finally {
-          setProfileLoading(false); // Finaliza o carregamento do perfil
+          setProfileLoading(false);
         }
       } else {
-        setUserProfile(null); // Limpa o perfil se não houver usuário Firebase
-        setProfileLoading(false); // Para o loading do perfil se não houver usuário
+        setUserProfile(null);
+        setProfileLoading(false);
       }
-      setLoading(false); // Finaliza o loading inicial do AuthProvider
+      setLoading(false);
       console.log("[AuthProvider] onAuthStateChanged: Loading set to false.");
     });
 
@@ -58,8 +65,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const contextValue = {
     user,
     userProfile,
-    loading, // Este é o loading do AuthProvider (estado inicial do Firebase Auth)
-    profileLoading, // Este é o loading do perfil do Firestore
+    loading,
+    profileLoading,
   };
   
   console.log("[AuthProvider] Context values updated - User:", user ? user.uid : null, "Loading:", loading, "ProfileLoading:", profileLoading);
