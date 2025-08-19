@@ -1,5 +1,4 @@
 // functions/src/logic.ts
-// Este arquivo contém toda a lógica pesada e as importações.
 import { HttpsError, CallableRequest } from "firebase-functions/v2/https";
 import { logger } from "firebase-functions/v2";
 import * as admin from "firebase-admin";
@@ -168,7 +167,6 @@ async function drawTextWithWrapping(page: any, text: string, options: { x: numbe
 
 // --- LÓGICA DE CADA FUNÇÃO (HANDLERS) ---
 
-// [FUNÇÃO ATUALIZADA]
 export const onUserCreatedSetClaimsHandler = async (event: FirestoreEvent<DocumentSnapshot | undefined, { userId: string }>) => {
     const userSnap = event.data;
     if (!userSnap) {
@@ -191,21 +189,18 @@ export const onUserCreatedSetClaimsHandler = async (event: FirestoreEvent<Docume
         logger.warn(`Utilizador ${userId} criado sem um 'userType'. Claims não serão definidos.`);
         return;
     }
-    
+
     const claims = { role: userType, hospitalId: hospitalId };
     const profileUpdate: { displayName_lowercase?: string } = {};
 
-    // Adiciona o campo de busca em minúsculas se for um médico
     if (userType === 'doctor' && displayName) {
         profileUpdate.displayName_lowercase = displayName.toLowerCase();
     }
 
     try {
-        // Define as permissões (claims)
         await auth.setCustomUserClaims(userId, claims);
         logger.info(`Claims definidos com sucesso para o utilizador ${userId}:`, claims);
 
-        // Se houver atualizações no perfil (como o campo de busca), aplica-as
         if (Object.keys(profileUpdate).length > 0) {
             await userSnap.ref.update(profileUpdate);
             logger.info(`Perfil do utilizador ${userId} atualizado com campo de busca.`);
@@ -773,7 +768,7 @@ export const registerTimeRecordHandler = async (request: CallableRequest) => {
         }
         
         const hospitalId = contractSnap.data()?.hospitalId;
-        const recordId = `${contractId}_${doctorId}`; // ID determinístico
+        const recordId = `${contractId}_${doctorId}`;
 
         const bucket = storage.bucket();
         const filePath = `timeRecords/${recordId}_checkin.jpg`;
@@ -1203,5 +1198,55 @@ export const onContractFinalizedLinkDoctorHandler = async (event: FirestoreEvent
         } catch (error) {
             logger.error(`Falha ao criar vínculo automático para o Contrato ${event.params.contractId}:`, error);
         }
+    }
+};
+
+/**
+ * NOVA FUNÇÃO DE MANUTENÇÃO
+ * Esta função percorre todos os utilizadores do tipo 'doctor' e garante que eles
+ * tenham o campo 'displayName_lowercase' para otimizar as buscas.
+ */
+export const backfillLowercaseNamesHandler = async (request: CallableRequest) => {
+    // Apenas administradores podem executar esta função de manutenção
+    if (request.auth?.token?.role !== 'admin') {
+        throw new HttpsError("permission-denied", "Apenas administradores podem executar esta função.");
+    }
+    
+    logger.info("Iniciando backfill para 'displayName_lowercase' em todos os médicos.");
+    
+    try {
+        const usersRef = db.collection('users');
+        const doctorsQuery = usersRef.where('userType', '==', 'doctor');
+        const snapshot = await doctorsQuery.get();
+
+        if (snapshot.empty) {
+            logger.info("Nenhum médico encontrado para atualizar.");
+            return { success: true, message: "Nenhum médico encontrado para atualizar.", count: 0 };
+        }
+
+        const batch = db.batch();
+        let updatedCount = 0;
+        
+        snapshot.forEach(doc => {
+            const data = doc.data();
+            // Apenas atualiza se o campo não existir E se o campo displayName existir
+            if (data.displayName && !data.displayName_lowercase) {
+                batch.update(doc.ref, { displayName_lowercase: data.displayName.toLowerCase() });
+                updatedCount++;
+            }
+        });
+
+        // Apenas commita o batch se houver algo para atualizar
+        if (updatedCount > 0) {
+            await batch.commit();
+        }
+
+        const message = `Backfill concluído. ${updatedCount} perfis de médico foram atualizados.`;
+        logger.info(message);
+        return { success: true, message: message, count: updatedCount };
+
+    } catch (error) {
+        logger.error("Erro durante o backfill de nomes em minúsculas:", error);
+        throw new HttpsError("internal", "Falha ao executar o script de backfill.");
     }
 };

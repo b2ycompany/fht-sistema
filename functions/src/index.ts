@@ -98,3 +98,12 @@ export const associateDoctorToUnit = onCall({ cors: true },
 export const onContractFinalizedLinkDoctor = onDocumentWritten("contracts/{contractId}",
     (event: FirestoreEvent<Change<DocumentSnapshot> | undefined, { contractId: string }>) => import("./logic").then(api => api.onContractFinalizedLinkDoctorHandler(event))
 );
+
+/**
+ * NOVA FUNÇÃO ADICIONADA
+ * Lançador para a função de manutenção que garante que os médicos
+ * existentes tenham o campo displayName_lowercase.
+ */
+export const backfillLowercaseNames = onCall({ cors: true },
+    (request: CallableRequest) => import("./logic").then(api => api.backfillLowercaseNamesHandler(request))
+);

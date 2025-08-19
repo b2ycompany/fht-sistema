@@ -8,16 +8,15 @@ import { httpsCallable } from 'firebase/functions';
 import { functions } from '@/lib/firebase';
 import { getStaffForHospital, type UserProfile } from '@/lib/auth-service';
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardFooter, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogTrigger } from '@/components/ui/dialog';
 import { Loader2, UserPlus, Search, Link as LinkIcon } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
+import { useDebounce } from '@/hooks/use-debounce'; // Importe o hook de debounce
 
 /**
- * Componente de Diálogo para Buscar e Associar Médicos
- * Este componente encapsula a lógica de busca (chamando a Cloud Function 'searchPlatformDoctors')
- * e a lógica de associação (chamando 'associateDoctorToUnit').
+ * Componente de Diálogo para Buscar e Associar Médicos (com busca em tempo real)
  */
 const AssociateDoctorDialog = ({ onAssociationSuccess }: { onAssociationSuccess: () => void }) => {
     const { toast } = useToast();
@@ -26,36 +25,39 @@ const AssociateDoctorDialog = ({ onAssociationSuccess }: { onAssociationSuccess:
     const [isLoading, setIsLoading] = useState(false);
     const [isAssociating, setIsAssociating] = useState<string | null>(null);
 
-    /**
-     * Função para buscar médicos na plataforma.
-     * Só é acionada se o termo de busca tiver 3 ou mais caracteres.
-     */
-    const handleSearch = useCallback(async () => {
-        if (searchTerm.length < 3) return;
-        setIsLoading(true);
-        try {
-            const searchFunction = httpsCallable(functions, 'searchPlatformDoctors');
-            const result = await searchFunction({ searchTerm });
-            // O resultado da função callable vem dentro de `result.data`
-            setSearchResults((result.data as any).doctors);
-        } catch (error: any) {
-            toast({ title: "Erro na Busca", description: error.message, variant: "destructive" });
-        } finally {
-            setIsLoading(false);
-        }
-    }, [searchTerm, toast]);
+    // Usa o hook useDebounce para evitar chamadas à API em cada tecla pressionada
+    const debouncedSearchTerm = useDebounce(searchTerm, 500); // 500ms de espera
 
-    /**
-     * Função para associar um médico específico à unidade do gestor.
-     * @param doctorId - O UID do médico a ser associado.
-     */
+    // Este useEffect é acionado sempre que o 'debouncedSearchTerm' muda
+    useEffect(() => {
+        const handleSearch = async () => {
+            // Se o termo for muito curto, limpa os resultados e pára
+            if (debouncedSearchTerm.length < 3) {
+                setSearchResults([]);
+                return;
+            }
+            setIsLoading(true);
+            try {
+                const searchFunction = httpsCallable(functions, 'searchPlatformDoctors');
+                const result = await searchFunction({ searchTerm: debouncedSearchTerm });
+                setSearchResults((result.data as any).doctors);
+            } catch (error: any) {
+                toast({ title: "Erro na Busca", description: error.message, variant: "destructive" });
+            } finally {
+                setIsLoading(false);
+            }
+        };
+
+        handleSearch();
+    }, [debouncedSearchTerm, toast]); // Dependências do useEffect
+
     const handleAssociate = async (doctorId: string) => {
         setIsAssociating(doctorId);
         try {
             const associateFunction = httpsCallable(functions, 'associateDoctorToUnit');
             await associateFunction({ doctorId });
             toast({ title: "Sucesso!", description: "Médico associado à sua unidade.", className: "bg-green-600 text-white" });
-            onAssociationSuccess(); // Chama a função de callback para fechar o modal e atualizar a lista
+            onAssociationSuccess();
         } catch (error: any) {
             toast({ title: "Erro ao Associar", description: error.message, variant: "destructive" });
         } finally {
@@ -69,19 +71,24 @@ const AssociateDoctorDialog = ({ onAssociationSuccess }: { onAssociationSuccess:
                 <DialogTitle>Associar Médico da Plataforma</DialogTitle>
                 <DialogDescription>Procure por um médico já cadastrado na FHT pelo nome, CRM ou email para associá-lo à sua unidade.</DialogDescription>
             </DialogHeader>
-            <div className="flex items-center space-x-2 py-4">
-                <Input placeholder="Digite nome, CRM ou email (mín. 3 caracteres)" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
-                <Button onClick={handleSearch} disabled={isLoading || searchTerm.length < 3}>
-                    {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
-                </Button>
+            <div className="relative py-4">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+                <Input 
+                    placeholder="Digite nome, CRM ou email (mín. 3 caracteres)" 
+                    value={searchTerm} 
+                    onChange={(e) => setSearchTerm(e.target.value)} 
+                    className="pl-9" // Padding à esquerda para não sobrepor o ícone
+                />
             </div>
             <div className="mt-4 max-h-64 overflow-y-auto space-y-2">
-                {searchResults.length > 0 ? (
+                {isLoading && <div className="flex justify-center p-4"><Loader2 className="h-6 w-6 animate-spin" /></div>}
+                
+                {!isLoading && searchResults.length > 0 && (
                     searchResults.map(doctor => (
                         <div key={doctor.uid} className="flex items-center justify-between p-3 border rounded-md">
                             <div>
                                 <p className="font-semibold">{doctor.name}</p>
-                                <p className="text-sm text-muted-foreground">CRM: {doctor.crm}</p>
+                                <p className="text-sm text-muted-foreground">CRM: {doctor.crm || 'Não informado'}</p>
                             </div>
                             <Button size="sm" onClick={() => handleAssociate(doctor.uid)} disabled={isAssociating === doctor.uid}>
                                 {isAssociating === doctor.uid ? <Loader2 className="h-4 w-4 animate-spin" /> : <LinkIcon className="mr-2 h-4 w-4" />}
@@ -89,8 +96,10 @@ const AssociateDoctorDialog = ({ onAssociationSuccess }: { onAssociationSuccess:
                             </Button>
                         </div>
                     ))
-                ) : (
-                    !isLoading && <p className="text-center text-sm text-muted-foreground py-4">Nenhum resultado encontrado.</p>
+                )}
+
+                {!isLoading && searchResults.length === 0 && debouncedSearchTerm.length >= 3 && (
+                     <p className="text-center text-sm text-muted-foreground py-4">Nenhum resultado encontrado.</p>
                 )}
             </div>
         </DialogContent>
@@ -99,7 +108,6 @@ const AssociateDoctorDialog = ({ onAssociationSuccess }: { onAssociationSuccess:
 
 /**
  * Componente principal da página de Gestão de Médicos.
- * Exibe a lista de médicos já associados e o botão para iniciar o fluxo de associação.
  */
 export default function HospitalDoctorsPage() {
     const { user } = useAuth();
@@ -107,15 +115,10 @@ export default function HospitalDoctorsPage() {
     const [isLoading, setIsLoading] = useState(true);
     const [isDialogOpen, setIsDialogOpen] = useState(false);
 
-    /**
-     * Busca os médicos e outros funcionários associados ao hospital e filtra apenas os médicos.
-     */
     const fetchAssociatedDoctors = useCallback(async () => {
         if (!user) return;
         setIsLoading(true);
         try {
-            // A função getStaffForHospital pode retornar outros tipos de funcionários,
-            // então filtramos para garantir que estamos mostrando apenas médicos.
             const staff = await getStaffForHospital(user.uid);
             setAssociatedDoctors(staff.filter(s => s.userType === 'doctor'));
         } catch (error) {
@@ -125,7 +128,6 @@ export default function HospitalDoctorsPage() {
         }
     }, [user]);
 
-    // Busca os médicos quando o componente é montado ou o usuário muda
     useEffect(() => {
         fetchAssociatedDoctors();
     }, [fetchAssociatedDoctors]);
@@ -139,8 +141,8 @@ export default function HospitalDoctorsPage() {
                         <Button><UserPlus className="mr-2 h-4 w-4" /> Associar Médico</Button>
                     </DialogTrigger>
                     <AssociateDoctorDialog onAssociationSuccess={() => {
-                        setIsDialogOpen(false); // Fecha o diálogo
-                        fetchAssociatedDoctors(); // E atualiza a lista de médicos associados
+                        setIsDialogOpen(false);
+                        fetchAssociatedDoctors();
                     }} />
                 </Dialog>
             </div>
@@ -159,7 +161,6 @@ export default function HospitalDoctorsPage() {
                                         <CardHeader>
                                             <CardTitle>{doctor.displayName}</CardTitle>
                                             <CardDescription>
-                                                {/* É preciso fazer um type assertion para acessar campos específicos do médico */}
                                                 {(doctor as any).professionalCrm || 'CRM não informado'}
                                             </CardDescription>
                                         </CardHeader>
