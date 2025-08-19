@@ -4,13 +4,23 @@
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
-// CORRIGIDO: Agora importa 'Consultation' diretamente do patient-service, onde definimos a interface completa.
-import { getPatientById, getConsultationsForPatient, type Patient, type Consultation } from '@/lib/patient-service';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
+import { getPatientById, type Patient } from '@/lib/patient-service';
+import { getConsultationsForPatient, type Consultation } from '@/lib/consultation-service'; 
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button'; // <-- CORREÇÃO ADICIONADA AQUI
 import { Loader2, AlertTriangle, ArrowLeft, User, Calendar, Stethoscope, FileText } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
+
+// Função para formatar a data de YYYY-MM-DD para DD/MM/YYYY
+const formatDate = (dateStr?: string) => {
+    if (!dateStr) return 'Não informada';
+    const parts = dateStr.split('-');
+    if (parts.length !== 3) return dateStr;
+    const [year, month, day] = parts;
+    return `${day}/${month}/${year}`;
+};
+
 
 export default function PatientDetailPage() {
     const params = useParams();
@@ -74,9 +84,8 @@ export default function PatientDetailPage() {
                 </CardHeader>
                 <CardContent className="grid sm:grid-cols-2 md:grid-cols-3 gap-4 text-sm">
                     <div><p className="font-semibold">CPF</p><p>{patient.cpf || 'Não informado'}</p></div>
-                    <div><p className="font-semibold">Data de Nascimento</p><p>{patient.dateOfBirth ? patient.dateOfBirth.toDate().toLocaleDateString('pt-BR') : 'Não informada'}</p></div>
+                    <div><p className="font-semibold">Data de Nascimento</p><p>{formatDate(patient.dob)}</p></div>
                     <div><p className="font-semibold">Telefone</p><p>{patient.phone || 'Não informado'}</p></div>
-                    <div><p className="font-semibold">Email</p><p>{patient.email || 'Não informado'}</p></div>
                 </CardContent>
             </Card>
 

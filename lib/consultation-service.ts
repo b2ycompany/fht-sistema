@@ -48,8 +48,9 @@ export interface ConsultationDetailsPayload {
 
 export const createConsultationFromQueue = async (queueEntry: ServiceQueueEntry, doctor: Pick<DoctorProfile, 'uid' | 'displayName'>): Promise<string> => {
     const batch = writeBatch(db);
+    
     const newConsultationRef = doc(collection(db, "consultations"));
-
+    
     const newConsultationData: Omit<Consultation, 'id' | 'contractId'> = {
         patientId: queueEntry.patientId,
         patientName: queueEntry.patientName,
@@ -58,12 +59,13 @@ export const createConsultationFromQueue = async (queueEntry: ServiceQueueEntry,
         doctorId: doctor.uid,
         doctorName: doctor.displayName,
         hospitalId: queueEntry.unitId,
-        hospitalName: "Nome da Unidade",
+        hospitalName: "Nome da Unidade", // Idealmente, este nome deveria ser buscado do perfil do hospital
         serviceType: "Presencial",
         status: 'IN_PROGRESS',
         createdAt: serverTimestamp() as Timestamp,
         triageData: queueEntry.triageData || {},
     };
+
     batch.set(newConsultationRef, newConsultationData);
 
     const queueDocRef = doc(db, "serviceQueue", queueEntry.id);
@@ -78,7 +80,7 @@ export const createConsultationFromQueue = async (queueEntry: ServiceQueueEntry,
 
 export const completeConsultation = async (consultation: Consultation): Promise<void> => {
     const batch = writeBatch(db);
-
+    
     const consultationRef = doc(db, "consultations", consultation.id);
     batch.update(consultationRef, { status: 'COMPLETED' });
 
@@ -96,6 +98,33 @@ export const getConsultationById = async (consultationId: string): Promise<Consu
     try {
         const docSnap = await getDoc(consultRef);
         return docSnap.exists() ? { id: docSnap.id, ...docSnap.data() } as Consultation : null;
+    } catch (error) {
+        throw new Error("Falha ao carregar os dados da consulta.");
+    }
+};
+
+export const getConsultationsForPatient = async (patientId: string): Promise<Consultation[]> => {
+    const consultsRef = collection(db, "consultations");
+    const q = query(
+        consultsRef,
+        where("patientId", "==", patientId),
+        orderBy("createdAt", "desc")
+    );
+    const querySnapshot = await getDocs(q);
+    return querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Consultation));
+};
+
+export const getConsultationByContractId = async (contractId: string): Promise<Consultation | null> => {
+    if (!contractId) return null;
+    const consultsRef = collection(db, "consultations");
+    const q = query(consultsRef, where("contractId", "==", contractId), limit(1));
+    try {
+        const querySnapshot = await getDocs(q);
+        if (querySnapshot.empty) {
+            return null;
+        }
+        const docSnap = querySnapshot.docs[0];
+        return { id: docSnap.id, ...docSnap.data() } as Consultation;
     } catch (error) {
         throw new Error("Falha ao carregar os dados da consulta.");
     }

@@ -1,15 +1,16 @@
 // app/caravan/reception/page.tsx
 "use client";
 
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect } from 'react';
 import { db } from '@/lib/firebase';
-import { collection, query, getDocs, addDoc, serverTimestamp } from 'firebase/firestore';
+import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
 import { useToast } from '@/hooks/use-toast';
-import { addPatient, getPatientsByHospital, type Patient, type PatientPayload } from '@/lib/patient-service';
+import { useAuth } from '@/components/auth-provider'; // CORREÇÃO FINAL: Caminho correto
+import { createPatient, searchPatients, type Patient, type PatientPayload } from '@/lib/patient-service';
 
 // Componentes da UI
 import { Button } from '@/components/ui/button';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, DialogClose } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
@@ -17,29 +18,50 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Loader2, PlusCircle, UserPlus } from 'lucide-react';
 
-// --- NOVO: Componente para o formulário de criação de paciente ---
+
 const NewPatientForm: React.FC<{ onPatientCreated: (patient: Patient) => void }> = ({ onPatientCreated }) => {
     const { toast } = useToast();
+    const { user, userProfile } = useAuth(); // CORREÇÃO: userProfile contém os dados
     const [name, setName] = useState('');
     const [cpf, setCpf] = useState('');
-    const [dob, setDob] = useState(''); // Date of Birth as string
+    const [dob, setDob] = useState('');
     const [isCreating, setIsCreating] = useState(false);
 
     const handleCreate = async () => {
+        // CORREÇÃO: Verifica user e userProfile, e usa hospitalId de userProfile
+        if (!user || !userProfile || !userProfile.hospitalId) { 
+            toast({ title: "Erro de Autenticação", description: "Utilizador ou unidade não identificada.", variant: "destructive" });
+            return;
+        }
         if (!name) {
             toast({ title: "Nome Obrigatório", description: "O nome do paciente é necessário.", variant: "destructive" });
             return;
         }
         setIsCreating(true);
         try {
-            const payload: PatientPayload = { name, cpf };
-            if (dob) {
-                payload.dateOfBirth = new Date(dob);
-            }
-            const newPatientId = await addPatient(payload);
-            const newPatient: Patient = { id: newPatientId, name, cpf, createdAt: new Date() as any, hospitalId: '' };
+            const payload: PatientPayload = { 
+                name, 
+                cpf,
+                dob: dob || undefined,
+                unitId: userProfile.hospitalId, // Usa hospitalId do perfil
+                createdBy: user.uid 
+            };
+            
+            const newPatientId = await createPatient(payload);
+
+            const newPatient: Patient = { 
+                id: newPatientId, 
+                name, 
+                cpf,
+                dob,
+                name_lowercase: name.toLowerCase(),
+                createdAt: new Date() as any,
+                unitId: userProfile.hospitalId,
+                createdBy: user.uid,
+            };
+
             toast({ title: "Paciente Cadastrado!", description: `${name} foi adicionado(a) com sucesso.`, className: "bg-green-600 text-white" });
-            onPatientCreated(newPatient); // Retorna o paciente recém-criado
+            onPatientCreated(newPatient);
         } catch (error: any) {
             console.error("Erro ao criar paciente:", error);
             toast({ title: "Erro ao Cadastrar", description: error.message, variant: "destructive" });
@@ -62,43 +84,50 @@ const NewPatientForm: React.FC<{ onPatientCreated: (patient: Patient) => void }>
                 <Label htmlFor="new-patient-dob">Data de Nascimento (Opcional)</Label>
                 <Input id="new-patient-dob" type="date" value={dob} onChange={e => setDob(e.target.value)} />
             </div>
-            <Button onClick={handleCreate} disabled={isCreating} className="w-full">
+            <Button onClick={handleCreate} disabled={isCreating || !userProfile} className="w-full">
                 {isCreating ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : null} Salvar Paciente
             </Button>
         </div>
     );
 };
 
-// Componente Auxiliar para Seleção de Paciente
 const PatientSelectionDialog: React.FC<{ onPatientSelect: (patient: Patient) => void, onCancel: () => void }> = ({ onPatientSelect, onCancel }) => {
     const [patients, setPatients] = useState<Patient[]>([]);
-    const [isLoading, setIsLoading] = useState(true);
+    const [isLoading, setIsLoading] = useState(false);
     const [searchTerm, setSearchTerm] = useState("");
     const [isNewPatientModalOpen, setIsNewPatientModalOpen] = useState(false);
     const { toast } = useToast();
+    const { userProfile } = useAuth(); // CORREÇÃO: Usa userProfile
 
-    const fetchPatients = useCallback(async () => {
-        setIsLoading(true);
-        try {
-            const patientList = await getPatientsByHospital(); 
-            setPatients(patientList);
-        } catch (error) {
-            toast({ title: "Erro", description: "Não foi possível carregar a lista de pacientes.", variant: "destructive" });
-        } finally {
-            setIsLoading(false);
-        }
-    }, [toast]);
+    useEffect(() => {
+        const fetchPatients = async () => {
+             // CORREÇÃO: Valida com userProfile
+            if (!userProfile || !userProfile.hospitalId || searchTerm.length < 2) {
+                setPatients([]);
+                return;
+            }
+            setIsLoading(true);
+            try {
+                const patientList = await searchPatients(searchTerm, userProfile.hospitalId); 
+                setPatients(patientList);
+            } catch (error) {
+                toast({ title: "Erro", description: "Não foi possível carregar a lista de pacientes.", variant: "destructive" });
+            } finally {
+                setIsLoading(false);
+            }
+        };
 
-    useEffect(() => { fetchPatients(); }, [fetchPatients]);
+        const debounceTimer = setTimeout(() => {
+            fetchPatients();
+        }, 300);
 
-    const filteredPatients = useMemo(() => {
-        if (!searchTerm) return patients;
-        return patients.filter(p => p.name.toLowerCase().includes(searchTerm.toLowerCase()) || p.cpf?.includes(searchTerm));
-    }, [patients, searchTerm]);
+        return () => clearTimeout(debounceTimer);
+
+    }, [searchTerm, userProfile, toast]);
 
     const handlePatientCreated = (newPatient: Patient) => {
         setIsNewPatientModalOpen(false);
-        onPatientSelect(newPatient); // Seleciona automaticamente o novo paciente
+        onPatientSelect(newPatient);
     };
 
     return (
@@ -109,7 +138,7 @@ const PatientSelectionDialog: React.FC<{ onPatientSelect: (patient: Patient) => 
             </DialogHeader>
             <div className="py-4">
                 <Input
-                    placeholder="Buscar por nome ou CPF..."
+                    placeholder="Buscar por nome ou CPF (mínimo 2 letras)..."
                     value={searchTerm}
                     onChange={e => setSearchTerm(e.target.value)}
                     className="mb-4"
@@ -119,21 +148,23 @@ const PatientSelectionDialog: React.FC<{ onPatientSelect: (patient: Patient) => 
                         <TableHeader><TableRow><TableHead>Nome</TableHead><TableHead>CPF</TableHead></TableRow></TableHeader>
                         <TableBody>
                             {isLoading && <TableRow><TableCell colSpan={2} className="h-24 text-center"><Loader2 className="mx-auto h-6 w-6 animate-spin" /></TableCell></TableRow>}
-                            {!isLoading && filteredPatients.map(patient => (
+                            {!isLoading && searchTerm.length < 2 && (
+                                <TableRow><TableCell colSpan={2} className="h-24 text-center text-muted-foreground">Digite ao menos 2 caracteres para buscar.</TableCell></TableRow>
+                            )}
+                            {!isLoading && searchTerm.length >= 2 && patients.length === 0 && (
+                                <TableRow><TableCell colSpan={2} className="h-24 text-center">Nenhum paciente encontrado.</TableCell></TableRow>
+                            )}
+                            {!isLoading && patients.map(patient => (
                                 <TableRow key={patient.id} className="cursor-pointer hover:bg-muted" onClick={() => onPatientSelect(patient)}>
                                     <TableCell className="font-medium">{patient.name}</TableCell>
                                     <TableCell>{patient.cpf || 'N/A'}</TableCell>
                                 </TableRow>
                             ))}
-                             {!isLoading && filteredPatients.length === 0 && (
-                                <TableRow><TableCell colSpan={2} className="h-24 text-center">Nenhum paciente encontrado.</TableCell></TableRow>
-                            )}
                         </TableBody>
                     </Table>
                 </div>
             </div>
              <DialogFooter className="sm:justify-between">
-                {/* --- BOTÃO ADICIONADO --- */}
                 <Dialog open={isNewPatientModalOpen} onOpenChange={setIsNewPatientModalOpen}>
                     <Button type="button" variant="secondary" onClick={() => setIsNewPatientModalOpen(true)}>
                         <UserPlus className="mr-2 h-4 w-4" /> Cadastrar Novo Paciente
@@ -152,7 +183,7 @@ const PatientSelectionDialog: React.FC<{ onPatientSelect: (patient: Patient) => 
 };
 
 
-// Componente Principal da Página de Recepção
+// Componente Principal
 export default function CaravanReceptionPage() {
     const { toast } = useToast();
     const [isModalOpen, setIsModalOpen] = useState(false);
@@ -189,6 +220,7 @@ export default function CaravanReceptionPage() {
             const newConsultation = {
                 patientId: selectedPatient.id,
                 patientName: selectedPatient.name,
+                unitId: selectedPatient.unitId,
                 chiefComplaint,
                 specialty: selectedSpecialty,
                 serviceType: serviceType,

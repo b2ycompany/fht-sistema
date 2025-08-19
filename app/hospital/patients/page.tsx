@@ -1,39 +1,55 @@
 // app/hospital/patients/page.tsx
 "use client";
 
-import React, { useState, useEffect, useMemo } from 'react';
-import { useRouter } from 'next/navigation'; // Importado para navegação
+import React, { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import { useToast } from "@/hooks/use-toast";
-import { addPatient, getPatientsByHospital, type Patient } from "@/lib/patient-service";
+import { useAuth } from '@/components/auth-provider'; // CORREÇÃO FINAL: Caminho correto
+import { createPatient, searchPatients, type Patient, type PatientPayload } from "@/lib/patient-service";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, DialogClose, DialogTrigger } from '@/components/ui/dialog';
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Loader2, PlusCircle, User, Users, AlertTriangle } from 'lucide-react';
-import { Timestamp } from 'firebase/firestore';
+import { Loader2, PlusCircle, AlertTriangle } from 'lucide-react';
+
+// Função para formatar a data de YYYY-MM-DD para DD/MM/YYYY
+const formatDate = (dateStr?: string) => {
+    if (!dateStr) return 'N/A';
+    const parts = dateStr.split('-');
+    if (parts.length !== 3) return dateStr;
+    const [year, month, day] = parts;
+    return `${day}/${month}/${year}`;
+};
 
 const AddPatientDialog: React.FC<{ onPatientAdded: () => void }> = ({ onPatientAdded }) => {
     const [name, setName] = useState('');
     const [cpf, setCpf] = useState('');
     const [dob, setDob] = useState('');
     const [phone, setPhone] = useState('');
-    const [email, setEmail] = useState('');
     const [isSubmitting, setIsSubmitting] = useState(false);
     const { toast } = useToast();
+    const { user, userProfile } = useAuth(); // CORREÇÃO: usa user e userProfile
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
+        // CORREÇÃO: Valida com user e userProfile
+        if (!user || !userProfile || !userProfile.hospitalId) {
+            toast({ title: "Erro de Autenticação", description: "Utilizador ou unidade não identificada.", variant: "destructive" });
+            return;
+        }
         setIsSubmitting(true);
         try {
-            await addPatient({
+            const payload: PatientPayload = {
                 name,
-                cpf,
-                dateOfBirth: dob ? new Date(dob) : undefined,
-                phone,
-                email,
-            });
+                cpf: cpf || undefined,
+                dob: dob || undefined,
+                phone: phone || undefined,
+                unitId: userProfile.hospitalId,
+                createdBy: user.uid,
+            };
+            await createPatient(payload);
             toast({ title: "Paciente Adicionado!", description: `${name} foi cadastrado com sucesso.`, variant: 'success' });
             onPatientAdded();
         } catch (error: any) {
@@ -67,14 +83,10 @@ const AddPatientDialog: React.FC<{ onPatientAdded: () => void }> = ({ onPatientA
                         <Label htmlFor="phone" className="text-right">Telefone</Label>
                         <Input id="phone" value={phone} onChange={e => setPhone(e.target.value)} className="col-span-3" />
                     </div>
-                    <div className="grid grid-cols-4 items-center gap-4">
-                        <Label htmlFor="email" className="text-right">Email</Label>
-                        <Input id="email" type="email" value={email} onChange={e => setEmail(e.target.value)} className="col-span-3" />
-                    </div>
                 </div>
                 <DialogFooter>
                     <DialogClose asChild><Button type="button" variant="outline">Cancelar</Button></DialogClose>
-                    <Button type="submit" disabled={isSubmitting}>
+                    <Button type="submit" disabled={isSubmitting || !userProfile}>
                         {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                         Salvar Paciente
                     </Button>
@@ -85,47 +97,55 @@ const AddPatientDialog: React.FC<{ onPatientAdded: () => void }> = ({ onPatientA
 };
 
 export default function PatientsPage() {
-    const router = useRouter(); // Hook para navegação
+    const router = useRouter();
+    const { userProfile, profileLoading } = useAuth(); // CORREÇÃO: usa userProfile
+    const { toast } = useToast();
     const [patients, setPatients] = useState<Patient[]>([]);
-    const [isLoading, setIsLoading] = useState(true);
+    const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [searchTerm, setSearchTerm] = useState("");
     const [isDialogOpen, setIsDialogOpen] = useState(false);
 
-    const fetchPatients = async () => {
-        setIsLoading(true);
-        setError(null);
-        try {
-            const patientList = await getPatientsByHospital();
-            setPatients(patientList);
-        } catch (err: any) {
-            setError(err.message);
-        } finally {
-            setIsLoading(false);
-        }
-    };
-
     useEffect(() => {
-        fetchPatients();
-    }, []);
+        const performSearch = async () => {
+             // CORREÇÃO: Valida com userProfile
+            if (!userProfile || !userProfile.hospitalId || searchTerm.length < 2) {
+                setPatients([]);
+                return;
+            }
+            setIsLoading(true);
+            setError(null);
+            try {
+                const patientList = await searchPatients(searchTerm, userProfile.hospitalId);
+                setPatients(patientList);
+            } catch (err: any) {
+                setError(err.message);
+                toast({ title: "Erro na Busca", description: err.message, variant: "destructive" });
+            } finally {
+                setIsLoading(false);
+            }
+        };
 
-    const filteredPatients = useMemo(() => {
-        if (!searchTerm) return patients;
-        return patients.filter(p =>
-            p.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            p.cpf?.includes(searchTerm)
-        );
-    }, [patients, searchTerm]);
+        const debounceTimer = setTimeout(() => {
+            performSearch();
+        }, 300);
+
+        return () => clearTimeout(debounceTimer);
+    }, [searchTerm, userProfile, toast]);
 
     const handlePatientAdded = () => {
         setIsDialogOpen(false);
-        fetchPatients();
+        setSearchTerm(''); 
+        setPatients([]);
     };
 
-    // Função para navegar para a página de detalhes do paciente
     const handleRowClick = (patientId: string) => {
         router.push(`/hospital/patients/${patientId}`);
     };
+
+    if (profileLoading) {
+        return <div className="flex h-32 justify-center items-center"><Loader2 className="h-6 w-6 animate-spin" /></div>
+    }
 
     return (
         <div className="space-y-6">
@@ -142,11 +162,11 @@ export default function PatientsPage() {
             <Card>
                 <CardHeader>
                     <CardTitle>Lista de Pacientes</CardTitle>
-                    <CardDescription>Busque ou selecione um paciente para ver seu prontuário.</CardDescription>
+                    <CardDescription>Busque por nome ou CPF (mínimo de 2 caracteres).</CardDescription>
                 </CardHeader>
                 <CardContent>
                     <Input
-                        placeholder="Buscar por nome ou CPF..."
+                        placeholder="Buscar por nome..."
                         value={searchTerm}
                         onChange={e => setSearchTerm(e.target.value)}
                         className="max-w-sm mb-4"
@@ -166,10 +186,12 @@ export default function PatientsPage() {
                                     <TableRow><TableCell colSpan={4} className="h-24 text-center"><Loader2 className="mx-auto h-6 w-6 animate-spin" /></TableCell></TableRow>
                                 ) : error ? (
                                     <TableRow><TableCell colSpan={4} className="h-24 text-center text-red-600"><AlertTriangle className="mx-auto mb-2"/>{error}</TableCell></TableRow>
-                                ) : filteredPatients.length === 0 ? (
-                                    <TableRow><TableCell colSpan={4} className="h-24 text-center">Nenhum paciente encontrado.</TableCell></TableRow>
+                                ) : searchTerm.length < 2 ? (
+                                    <TableRow><TableCell colSpan={4} className="h-24 text-center text-muted-foreground">Digite ao menos 2 caracteres para buscar.</TableCell></TableRow>
+                                ) : patients.length === 0 ? (
+                                     <TableRow><TableCell colSpan={4} className="h-24 text-center">Nenhum paciente encontrado.</TableCell></TableRow>
                                 ) : (
-                                    filteredPatients.map(patient => (
+                                    patients.map(patient => (
                                         <TableRow 
                                             key={patient.id} 
                                             className="cursor-pointer hover:bg-gray-50"
@@ -177,8 +199,8 @@ export default function PatientsPage() {
                                         >
                                             <TableCell className="font-medium">{patient.name}</TableCell>
                                             <TableCell>{patient.cpf || 'N/A'}</TableCell>
-                                            <TableCell>{patient.dateOfBirth ? patient.dateOfBirth.toDate().toLocaleDateString('pt-BR') : 'N/A'}</TableCell>
-                                            <TableCell>{patient.phone || patient.email || 'N/A'}</TableCell>
+                                            <TableCell>{formatDate(patient.dob)}</TableCell>
+                                            <TableCell>{patient.phone || 'N/A'}</TableCell>
                                         </TableRow>
                                     ))
                                 )}

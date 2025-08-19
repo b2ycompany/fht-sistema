@@ -14,47 +14,32 @@ import {
   getDoc,
   updateDoc,
   limit,
-  startAt,
   onSnapshot,
-  Unsubscribe,
+  type Unsubscribe,
 } from "firebase/firestore";
-import { db, auth } from "./firebase";
+import { db } from "./firebase";
 
-// --- INTERFACES ALINHADAS COM A ESTRUTURA FHIR (SIMPLIFICADA) ---
-export interface PatientName {
-  use: 'official' | 'usual' | 'nickname';
-  family: string; // Apelido
-  given: string[]; // Nomes próprios
-}
-
-export interface PatientIdentifier {
-  system: string; // Ex: "CPF", "RG"
-  value: string;
-}
-
+// --- INTERFACES SIMPLIFICADAS ---
 export interface Patient {
   id: string;
   unitId: string;
-  name: PatientName[];
-  identifier: PatientIdentifier[];
-  gender: 'male' | 'female' | 'other' | 'unknown';
-  birthDate: string; // Formato YYYY-MM-DD
-  telecom?: { system: 'phone' | 'email', value: string }[];
+  name: string;
   name_lowercase: string;
+  cpf?: string;
+  dob?: string; // Formato YYYY-MM-DD
+  phone?: string;
   createdAt: Timestamp;
   createdBy: string;
 }
 
 export interface PatientPayload {
-  name: PatientName[];
-  identifier: PatientIdentifier[];
-  gender: 'male' | 'female' | 'other' | 'unknown';
-  birthDate: string;
-  telecom?: { system: 'phone' | 'email', value: string }[];
+  name: string;
+  cpf?: string;
+  dob?: string;
+  phone?: string;
   unitId: string;
   createdBy: string;
 }
-
 
 export interface TriageData {
     chiefComplaint: string;
@@ -79,17 +64,13 @@ export interface ServiceQueueEntry {
     doctorId?: string;
 }
 
-/**
- * Função ATUALIZADA para criar um paciente com a nova estrutura de dados.
- */
 export const createPatient = async (patientData: PatientPayload): Promise<string> => {
     try {
         const patientsRef = collection(db, "patients");
-        const fullName = `${patientData.name[0].given.join(' ')} ${patientData.name[0].family}`;
         
         const docRef = await addDoc(patientsRef, {
             ...patientData,
-            name_lowercase: fullName.toLowerCase(),
+            name_lowercase: patientData.name.toLowerCase(),
             createdAt: serverTimestamp(),
         });
         return docRef.id;
@@ -120,10 +101,7 @@ export const searchPatients = async (searchTerm: string, unitId: string): Promis
     }
 };
 
-/**
- * Função ATUALIZADA para lidar com o novo formato de nome do paciente.
- */
-export const addPatientToServiceQueue = async (patient: Patient, unitId: string): Promise<string> => {
+export const addPatientToServiceQueue = async (patient: Pick<Patient, 'id' | 'name'>, unitId: string): Promise<string> => {
     try {
         const queueRef = collection(db, "serviceQueue");
         const today = new Date();
@@ -133,12 +111,9 @@ export const addPatientToServiceQueue = async (patient: Patient, unitId: string)
         const todayQueueSnapshot = await getDocs(todayQueueQuery);
         const nextTicketNumber = `A${(todayQueueSnapshot.size + 1).toString().padStart(2, '0')}`;
 
-        // Constrói o nome completo a partir da estrutura FHIR para salvar na fila
-        const patientFullName = `${patient.name[0].given.join(' ')} ${patient.name[0].family}`;
-
         const queueEntry = {
             ticketNumber: nextTicketNumber,
-            patientName: patientFullName,
+            patientName: patient.name, // Usando a estrutura simplificada
             patientId: patient.id,
             status: 'Aguardando Triagem',
             unitId,
@@ -194,4 +169,11 @@ export const submitTriage = async (queueId: string, triageData: TriageData): Pro
     } catch (error) {
         throw new Error("Não foi possível finalizar a triagem.");
     }
+};
+
+export const getPatientById = async (patientId: string): Promise<Patient | null> => {
+    if (!patientId) return null;
+    const patientRef = doc(db, "patients", patientId);
+    const docSnap = await getDoc(patientRef);
+    return docSnap.exists() ? { id: docSnap.id, ...docSnap.data() } as Patient : null;
 };

@@ -24,7 +24,7 @@ const ServiceQueueCard = () => {
     useEffect(() => {
         const doctorProfile = userProfile as DoctorProfile;
         if (doctorProfile?.healthUnitIds && doctorProfile.healthUnitIds.length > 0) {
-            const unitId = doctorProfile.healthUnitIds[0];
+            const unitId = doctorProfile.healthUnitIds[0]; // Assume a primeira unidade de saúde associada
             const unsubscribe = listenToServiceQueue(unitId, 'Aguardando Atendimento', (entries) => {
                 setQueue(entries);
                 setIsLoading(false);
