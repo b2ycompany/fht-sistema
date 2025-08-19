@@ -4,11 +4,23 @@ import { logger } from "firebase-functions/v2";
 import * as admin from "firebase-admin";
 import { UserRecord } from "firebase-admin/auth";
 import { Change } from "firebase-functions";
-import { DocumentSnapshot, FieldValue, getFirestore, Query, GeoPoint } from "firebase-admin/firestore";
+import { DocumentSnapshot, FieldValue, getFirestore, Query, GeoPoint, DocumentData } from "firebase-admin/firestore";
 import { getStorage } from "firebase-admin/storage";
 import { FirestoreEvent } from "firebase-functions/v2/firestore";
 
 // --- INTERFACES E TIPOS ---
+
+interface UserProfile extends DocumentData {
+    uid: string;
+    userType: 'doctor' | 'hospital' | 'admin' | 'receptionist' | 'triage_nurse' | 'caravan_admin';
+    displayName?: string;
+    displayName_lowercase?: string;
+    email?: string;
+    professionalCrm?: string;
+    specialties?: string[];
+    healthUnitIds?: string[];
+}
+
 interface ShiftRequirementData {
   hospitalId: string;
   hospitalName?: string;
@@ -1092,52 +1104,6 @@ export const onUserDeletedCleanupHandler = async (user: UserRecord) => {
     return;
 };
 
-export const searchPlatformDoctorsHandler = async (request: CallableRequest) => {
-    if (request.auth?.token?.role !== 'hospital') {
-        throw new HttpsError("permission-denied", "Apenas gestores de unidade podem buscar médicos.");
-    }
-    const { searchTerm } = request.data;
-    if (typeof searchTerm !== 'string' || searchTerm.length < 3) {
-        throw new HttpsError("invalid-argument", "O termo de busca deve ter pelo menos 3 caracteres.");
-    }
-
-    try {
-        const lowerCaseSearchTerm = searchTerm.toLowerCase();
-        
-        const nameQuery = db.collection('users').where('userType', '==', 'doctor').where('displayName_lowercase', '>=', lowerCaseSearchTerm).where('displayName_lowercase', '<=', lowerCaseSearchTerm + '\uf8ff');
-        const crmQuery = db.collection('users').where('userType', '==', 'doctor').where('professionalCrm', '==', searchTerm.toUpperCase());
-        const emailQuery = db.collection('users').where('userType', '==', 'doctor').where('email', '==', lowerCaseSearchTerm);
-
-        const [nameSnap, crmSnap, emailSnap] = await Promise.all([nameQuery.get(), crmQuery.get(), emailQuery.get()]);
-
-        const resultsMap = new Map();
-        const processSnapshot = (snap: admin.firestore.QuerySnapshot) => {
-            snap.forEach(doc => {
-                const data = doc.data();
-                if (!resultsMap.has(doc.id)) {
-                    resultsMap.set(doc.id, {
-                        uid: doc.id,
-                        name: data.displayName,
-                        crm: data.professionalCrm,
-                        specialties: data.specialties || [],
-                    });
-                }
-            });
-        };
-
-        processSnapshot(nameSnap);
-        processSnapshot(crmSnap);
-        processSnapshot(emailSnap);
-        
-        const results = Array.from(resultsMap.values());
-        return { success: true, doctors: results };
-
-    } catch (error) {
-        logger.error("Erro ao buscar médicos na plataforma:", error);
-        throw new HttpsError("internal", "Ocorreu um erro ao realizar a busca.");
-    }
-};
-
 export const associateDoctorToUnitHandler = async (request: CallableRequest) => {
     if (request.auth?.token?.role !== 'hospital') {
         throw new HttpsError("permission-denied", "Apenas gestores de unidade podem associar médicos.");
@@ -1201,52 +1167,110 @@ export const onContractFinalizedLinkDoctorHandler = async (event: FirestoreEvent
     }
 };
 
-/**
- * NOVA FUNÇÃO DE MANUTENÇÃO
- * Esta função percorre todos os utilizadores do tipo 'doctor' e garante que eles
- * tenham o campo 'displayName_lowercase' para otimizar as buscas.
- */
-export const backfillLowercaseNamesHandler = async (request: CallableRequest) => {
-    // Apenas administradores podem executar esta função de manutenção
+
+// --- NOVA FUNÇÃO DE MIGRAÇÃO ---
+export const migrateDoctorProfilesToUsersHandler = async (request: CallableRequest) => {
     if (request.auth?.token?.role !== 'admin') {
         throw new HttpsError("permission-denied", "Apenas administradores podem executar esta função.");
     }
     
-    logger.info("Iniciando backfill para 'displayName_lowercase' em todos os médicos.");
+    logger.info("Iniciando migração da coleção 'doctorProfiles' para 'users'.");
     
     try {
+        const doctorProfilesRef = db.collection('doctorProfiles');
         const usersRef = db.collection('users');
-        const doctorsQuery = usersRef.where('userType', '==', 'doctor');
-        const snapshot = await doctorsQuery.get();
+        const snapshot = await doctorProfilesRef.get();
 
         if (snapshot.empty) {
-            logger.info("Nenhum médico encontrado para atualizar.");
-            return { success: true, message: "Nenhum médico encontrado para atualizar.", count: 0 };
+            return { success: true, message: "Nenhum perfil encontrado em 'doctorProfiles' para migrar.", count: 0 };
         }
 
         const batch = db.batch();
-        let updatedCount = 0;
+        let migratedCount = 0;
         
         snapshot.forEach(doc => {
-            const data = doc.data();
-            // Apenas atualiza se o campo não existir E se o campo displayName existir
-            if (data.displayName && !data.displayName_lowercase) {
-                batch.update(doc.ref, { displayName_lowercase: data.displayName.toLowerCase() });
-                updatedCount++;
-            }
+            const { professional, name, ...restOfData } = doc.data();
+            const userId = doc.id;
+
+            const newUserProfile = {
+                ...restOfData,
+                uid: userId,
+                userType: 'doctor' as const,
+                displayName: name || '',
+                displayName_lowercase: name ? name.toLowerCase() : '',
+                professionalCrm: professional?.crm || '',
+                specialties: professional?.specialties || [],
+                createdAt: FieldValue.serverTimestamp(),
+                updatedAt: FieldValue.serverTimestamp(),
+            };
+
+            const userDocRef = usersRef.doc(userId);
+            batch.set(userDocRef, newUserProfile, { merge: true });
+            migratedCount++;
         });
 
-        // Apenas commita o batch se houver algo para atualizar
-        if (updatedCount > 0) {
-            await batch.commit();
-        }
+        await batch.commit();
 
-        const message = `Backfill concluído. ${updatedCount} perfis de médico foram atualizados.`;
+        const message = `Migração concluída. ${migratedCount} perfis de médico foram migrados/atualizados para a coleção 'users'.`;
         logger.info(message);
-        return { success: true, message: message, count: updatedCount };
+        return { success: true, message: message, count: migratedCount };
 
     } catch (error) {
-        logger.error("Erro durante o backfill de nomes em minúsculas:", error);
-        throw new HttpsError("internal", "Falha ao executar o script de backfill.");
+        logger.error("Erro crítico durante a migração de perfis de médico:", error);
+        throw new HttpsError("internal", "Falha ao executar o script de migração.");
+    }
+};
+
+// --- NOVA FUNÇÃO DE BUSCA INTELIGENTE ---
+export const searchAssociatedDoctorsHandler = async (request: CallableRequest) => {
+    if (request.auth?.token?.role !== 'hospital') {
+        throw new HttpsError("permission-denied", "Apenas gestores de unidade podem buscar médicos.");
+    }
+
+    const hospitalId = request.auth.uid;
+    const { searchTerm, specialtiesFilter } = request.data;
+    
+    logger.info(`Hospital ${hospitalId} está a buscar médicos. Termo: '${searchTerm}', Especialidades:`, specialtiesFilter);
+
+    try {
+        let doctorsQuery: Query = db.collection('users').where('healthUnitIds', 'array-contains', hospitalId);
+        
+        if (specialtiesFilter && Array.isArray(specialtiesFilter) && specialtiesFilter.length > 0) {
+            doctorsQuery = doctorsQuery.where('specialties', 'array-contains-any', specialtiesFilter);
+        }
+
+        const snapshot = await doctorsQuery.get();
+        if (snapshot.empty) {
+            logger.info(`Nenhum médico vinculado encontrado para o hospital ${hospitalId} com os filtros aplicados.`);
+            return { success: true, doctors: [] };
+        }
+
+        let results: UserProfile[] = snapshot.docs.map(doc => ({
+            ...(doc.data() as UserProfile),
+            uid: doc.id,
+        }));
+
+        if (searchTerm && typeof searchTerm === 'string' && searchTerm.length > 0) {
+            const lowerCaseSearchTerm = searchTerm.toLowerCase();
+            results = results.filter(doctor => {
+                const nameMatch = doctor.displayName_lowercase?.includes(lowerCaseSearchTerm);
+                const crmMatch = doctor.professionalCrm?.toLowerCase().includes(lowerCaseSearchTerm);
+                const emailMatch = doctor.email?.toLowerCase().includes(lowerCaseSearchTerm);
+                return nameMatch || crmMatch || emailMatch;
+            });
+        }
+        
+        const finalDoctorsList = results.map(doc => ({
+            uid: doc.uid,
+            name: doc.displayName,
+            crm: doc.professionalCrm,
+            specialties: doc.specialties || [],
+        }));
+
+        return { success: true, doctors: finalDoctorsList };
+
+    } catch (error) {
+        logger.error(`Erro ao buscar médicos para o hospital ${hospitalId}:`, error);
+        throw new HttpsError("internal", "Ocorreu um erro ao realizar a busca.");
     }
 };

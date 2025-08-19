@@ -17,7 +17,6 @@ setGlobalOptions({ region: "us-central1", memory: "512MiB" });
 
 
 // --- DEFINIÇÃO DOS GATILHOS (TRIGGERS) ---
-// Cada trigger importa dinamicamente e executa o handler correspondente do logic.ts
 
 export const onUserCreatedSetClaims = onDocumentCreated("users/{userId}",
     (event: FirestoreEvent<DocumentSnapshot | undefined, { userId: string }>) => import("./logic").then(api => api.onUserCreatedSetClaimsHandler(event))
@@ -87,10 +86,6 @@ export const onUserDeletedCleanup = functions.auth.user().onDelete(
     (user: UserRecord) => import("./logic").then(api => api.onUserDeletedCleanupHandler(user))
 );
 
-export const searchPlatformDoctors = onCall({ cors: true },
-    (request: CallableRequest) => import("./logic").then(api => api.searchPlatformDoctorsHandler(request))
-);
-
 export const associateDoctorToUnit = onCall({ cors: true },
     (request: CallableRequest) => import("./logic").then(api => api.associateDoctorToUnitHandler(request))
 );
@@ -99,11 +94,14 @@ export const onContractFinalizedLinkDoctor = onDocumentWritten("contracts/{contr
     (event: FirestoreEvent<Change<DocumentSnapshot> | undefined, { contractId: string }>) => import("./logic").then(api => api.onContractFinalizedLinkDoctorHandler(event))
 );
 
-/**
- * NOVA FUNÇÃO ADICIONADA
- * Lançador para a função de manutenção que garante que os médicos
- * existentes tenham o campo displayName_lowercase.
- */
-export const backfillLowercaseNames = onCall({ cors: true },
-    (request: CallableRequest) => import("./logic").then(api => api.backfillLowercaseNamesHandler(request))
+// --- NOVAS FUNÇÕES ADICIONADAS ---
+
+// Função de migração de dados (executar uma vez)
+export const migrateDoctorProfilesToUsers = onCall({ cors: true },
+    (request: CallableRequest) => import("./logic").then(api => api.migrateDoctorProfilesToUsersHandler(request))
+);
+
+// Nova função de busca segura e contextual
+export const searchAssociatedDoctors = onCall({ cors: true },
+    (request: CallableRequest) => import("./logic").then(api => api.searchAssociatedDoctorsHandler(request))
 );
