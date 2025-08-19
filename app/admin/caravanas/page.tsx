@@ -3,9 +3,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-// --- ALTERAÇÃO: Importado o 'functions' e 'httpsCallable' ---
-import { db, functions } from '@/lib/firebase'; 
-import { httpsCallable } from 'firebase/functions';
+import { db } from '@/lib/firebase';
 import { collection, query, onSnapshot, addDoc, serverTimestamp, Timestamp, orderBy } from 'firebase/firestore';
 import { useAuth } from '@/components/auth-provider';
 import { useToast } from '@/hooks/use-toast';
@@ -34,62 +32,6 @@ interface CaravanEvent {
     status: 'PLANEJAMENTO' | 'ATIVA' | 'CONCLUIDA';
     createdAt: Timestamp;
 }
-
-
-// --- INÍCIO DO CÓDIGO ADICIONADO: COMPONENTE TEMPORÁRIO PARA CORREÇÃO ---
-const AdminCorrectionHelper = () => {
-    const [isLoading, setIsLoading] = useState(false);
-    const { toast } = useToast();
-
-    const runBackfill = async () => {
-        if (!confirm('Tem a certeza que deseja executar o script de correção de dados? Esta ação só precisa de ser feita uma vez.')) {
-            return;
-        }
-
-        setIsLoading(true);
-        try {
-            const backfillFunction = httpsCallable(functions, 'backfillLowercaseNames');
-            const result = await backfillFunction();
-            
-            console.log('Resultado da função:', result.data);
-            toast({
-                title: "Sucesso!",
-                description: `${(result.data as any).message}`,
-                className: "bg-green-600 text-white",
-            });
-        } catch (error: any) {
-            console.error("Erro ao executar a função:", error);
-            toast({
-                title: "Erro ao executar script",
-                description: error.message,
-                variant: "destructive",
-            });
-        } finally {
-            setIsLoading(false);
-        }
-    };
-
-    return (
-        <Card className="mb-6 bg-yellow-50 border-yellow-300">
-            <CardHeader>
-                <CardTitle>Ferramenta de Manutenção de Administrador</CardTitle>
-                <CardDescription>Esta ferramenta é temporária. Use-a para executar ações de correção na base de dados.</CardDescription>
-            </CardHeader>
-            <CardContent>
-                <p className="text-sm mb-4">
-                    Clique no botão abaixo para executar o script que adiciona nomes em minúsculas a todos os médicos.
-                    Isto é necessário para a funcionalidade de busca funcionar corretamente.
-                </p>
-                <Button onClick={runBackfill} disabled={isLoading}>
-                    {isLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                    {isLoading ? 'Aguarde, a executar...' : 'Executar Correção de Nomes de Médicos'}
-                </Button>
-            </CardContent>
-        </Card>
-    );
-};
-// --- FIM DO CÓDIGO ADICIONADO ---
-
 
 // --- COMPONENTE PRINCIPAL ---
 export default function CaravanManagementPage() {
@@ -167,10 +109,6 @@ export default function CaravanManagementPage() {
 
     return (
         <div className="container mx-auto p-4 sm:p-6 space-y-6">
-            
-            {/* --- ALTERAÇÃO: Componente de ajuda adicionado aqui --- */}
-            <AdminCorrectionHelper />
-
             <div className="flex items-center justify-between">
                 <div>
                     <h1 className="text-3xl font-bold tracking-tight">Gestão Multirão</h1>
