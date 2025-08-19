@@ -91,7 +91,9 @@ export interface DoctorRegistrationPayload
   isSpecialist: boolean;
   documents: Partial<DoctorDocumentsRef>; 
   specialistDocuments: Partial<SpecialistDocumentsRef>;
-  registrationObjective?: 'caravan' | 'match'; 
+  registrationObjective?: 'caravan' | 'match';
+  // --- ALTERAÇÃO ADICIONADA ---
+  invitationToken?: string; 
 }
 export interface HospitalRegistrationPayload {
   cnpj: string;
@@ -226,13 +228,17 @@ export const completeUserRegistration = async (
   let userProfileDataSpecific: any = {};
 
   if (userType === "doctor") {
-    const { documents, specialistDocuments, ...doctorDetails } = registrationData as DoctorRegistrationPayload;
+    // --- ALTERAÇÃO ADICIONADA ---
+    // Agora desestruturamos o token junto com os outros dados.
+    const { documents, specialistDocuments, invitationToken, ...doctorDetails } = registrationData as DoctorRegistrationPayload;
     userProfileDataSpecific = {
       ...doctorDetails,
       documents,
       specialistDocuments,
       documentVerificationStatus: "PENDING_REVIEW",
       adminVerificationNotes: "",
+      // E garantimos que ele seja salvo (ou nulo, se não existir).
+      invitationToken: invitationToken || null,
     };
   } else if (userType === "hospital") {
     const { hospitalDocs, legalRepDocuments, ...hospitalDetails } = registrationData as HospitalRegistrationPayload;

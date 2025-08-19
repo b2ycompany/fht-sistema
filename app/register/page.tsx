@@ -1,6 +1,7 @@
 // app/register/page.tsx
 "use client";
 
+// Suspense é a chave para a correção do erro de deploy
 import React, {
   useState,
   useMemo,
@@ -8,9 +9,10 @@ import React, {
   useEffect,
   useCallback,
   ReactNode,
+  Suspense,
 } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useIMask } from 'react-imask';
@@ -36,18 +38,20 @@ import {
 import { uploadFileToStorage } from "@/lib/storage-service";
 import { FirebaseError } from "firebase/app";
 import { cn } from "@/lib/utils";
-import { auth } from "@/lib/firebase";
 import {
   Loader2, Check, AlertTriangle, Info, Stethoscope, Building,
   FileUp, XCircleIcon, ExternalLink, CheckCircle, HeartPulse, Briefcase, Search, X
 } from "lucide-react";
 import { useAuth as useAuthHook } from "@/components/auth-provider";
-import { Checkbox } from "@/components/ui/checkbox";
 import { getSpecialtiesList, type Specialty } from "@/lib/specialty-service";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { Badge } from "@/components/ui/badge";
 
+// ============================================================================
+// 1. A LÓGICA FOI MOVIDA PARA UM NOVO COMPONENTE INTERNO (RegisterForm)
+//    Isto isola o uso de 'useSearchParams' e permite que o Suspense funcione.
+// ============================================================================
 
 // Interfaces e constantes
 interface Credentials { password: string; confirmPassword: string; }
@@ -74,13 +78,13 @@ const initialSpecialistDocsStateValue: SpecialistDocumentsState = createInitialD
 const initialHospitalDocsStateValue: HospitalDocumentsState = createInitialDocState(hospitalDocKeysArray, DOCUMENT_LABELS as any);
 const initialLegalRepDocsStateValue: LegalRepDocumentsState = createInitialDocState(legalRepDocKeysArray, DOCUMENT_LABELS as any);
 
-const LoadingPage = ({ message = "Carregando..." }: { message?: string }) => (
-  <div className="flex min-h-screen flex-col items-center justify-center bg-gray-100 p-6">
-    <Loader2 className="h-12 w-12 animate-spin text-blue-600 mb-4" />
-    <p className="text-gray-700">{message}</p>
-  </div>
+const LoadingForm = ({ message = "A carregar formulário..." }: { message?: string }) => (
+    <div className="flex flex-col items-center justify-center min-h-[350px]">
+      <Loader2 className="h-10 w-10 animate-spin text-blue-600 mb-4" />
+      <p className="text-gray-600">{message}</p>
+    </div>
 );
-LoadingPage.displayName = "LoadingPage";
+LoadingForm.displayName = "LoadingForm";
 
 interface StepIndicatorProps { steps: string[]; currentStep: number; }
 const StepIndicator: React.FC<StepIndicatorProps> = ({ steps, currentStep }) => {
@@ -113,7 +117,7 @@ const StepIndicator: React.FC<StepIndicatorProps> = ({ steps, currentStep }) => 
 };
 
 type SummaryData = {
-    personalInfo?: PersonalInfo & { professionalCrm?: string }; // Adicionado CRM aqui
+    personalInfo?: PersonalInfo & { professionalCrm?: string };
     addressInfo?: AddressInfo;
     doctorDocuments?: DoctorDocumentsState;
     isSpecialist?: boolean;
@@ -297,7 +301,6 @@ const RegistrationSummary: React.FC<RegistrationSummaryProps> = ({ role, data, o
     );
 };
 
-
 interface InputWithIMaskProps extends Omit<React.InputHTMLAttributes<HTMLInputElement>, 'onAccept' | 'value' | 'defaultValue'> {
     maskOptions: any;
     onAccept: (value: string, maskRef: any) => void;
@@ -309,7 +312,7 @@ const InputWithIMask: React.FC<InputWithIMaskProps> = ({ maskOptions, onAccept, 
 };
 
 
-export default function RegisterPage() {
+function RegisterForm() {
     const [step, setStep] = useState(0);
     const [role, setRole] = useState<UserType | null>(null);
     const [isLoading, setIsLoading] = useState(false);
@@ -318,13 +321,14 @@ export default function RegisterPage() {
     const { user: authUser, loading: authLoading } = useAuthHook();
     const [doctorObjective, setDoctorObjective] = useState<'caravan' | 'match' | null>(null);
     
+    const [invitationToken, setInvitationToken] = useState<string | null>(null);
+
     const [availableSpecialties, setAvailableSpecialties] = useState<Specialty[]>([]);
     const [selectedSpecialties, setSelectedSpecialties] = useState<string[]>([]);
     const [isLoadingSpecialties, setIsLoadingSpecialties] = useState(true);
     const [specialtiesError, setSpecialtiesError] = useState<string | null>(null);
     const [openSpecialtySearch, setOpenSpecialtySearch] = useState(false);
 
-    // CORREÇÃO 1: Adicionar 'professionalCrm' ao estado de 'personalInfo'
     const [personalInfo, setPersonalInfo] = useState<PersonalInfo & { professionalCrm: string }>({ 
         name: "", dob: "", rg: "", cpf: "", phone: "", email: "", professionalCrm: "" 
     });
@@ -343,6 +347,23 @@ export default function RegisterPage() {
 
     const [isCepLoading, setIsCepLoading] = useState(false);
     const [isHospitalCepLoading, setIsHospitalCepLoading] = useState(false);
+
+    const searchParams = useSearchParams();
+
+    useEffect(() => {
+        const token = searchParams.get('invitationToken');
+        if (token) {
+            setInvitationToken(token);
+            setRole('doctor');
+            setDoctorObjective('match'); 
+            setStep(2);
+            toast({
+                title: "Convite Reconhecido!",
+                description: "Você foi convidado para se juntar à plataforma. Por favor, complete o seu cadastro.",
+                duration: 6000,
+            });
+        }
+    }, [searchParams, toast]);
 
     useEffect(() => {
         if (!authLoading && authUser) {
@@ -840,7 +861,6 @@ export default function RegisterPage() {
             if (role === 'doctor') {
                 const { name: _pName, email: _pEmail, ...personalDetails } = personalInfo;
                 
-                // CORREÇÃO 3: Usar o 'professionalCrm' do estado
                 const doctorData: DoctorRegistrationPayload = {
                     ...personalDetails,
                     professionalCrm: personalInfo.professionalCrm,
@@ -850,6 +870,10 @@ export default function RegisterPage() {
                     specialistDocuments: isSpecialist ? finalDocRefs.specialistDocuments : {},
                     registrationObjective: doctorObjective || 'match',
                 };
+
+                if (invitationToken) {
+                    doctorData.invitationToken = invitationToken;
+                }
 
                 if (doctorObjective === 'match') {
                     doctorData.address = { ...addressInfo, cep: addressInfo.cep.replace(/\D/g, "") };
@@ -875,8 +899,11 @@ export default function RegisterPage() {
             let retries = 5;
             
             while (retries > 0) {
-                await firebaseUser.getIdToken(true);
-                const idTokenResult = await firebaseUser.getIdTokenResult();
+                const user = (await import("@/lib/firebase")).auth.currentUser;
+                if (!user) throw new Error("Usuário não encontrado para verificação de permissões.");
+
+                await user.getIdToken(true);
+                const idTokenResult = await user.getIdTokenResult();
                 claims = idTokenResult.claims;
                 
                 if (claims.role === role) {
@@ -923,6 +950,15 @@ export default function RegisterPage() {
         }
         switch (currentStepConfig.id) {
             case 'role':
+                if (invitationToken) {
+                    return (
+                        <div className="flex flex-col items-center justify-center min-h-[200px] text-gray-600">
+                            <Loader2 className="h-10 w-10 animate-spin text-blue-600 mb-4" />
+                            <p className="font-semibold text-lg">Processando convite...</p>
+                            <p className="text-sm">A redirecionar para o formulário de médico.</p>
+                        </div>
+                    );
+                }
                 return (
                     <div className="space-y-4 animate-fade-in">
                         <Label className="text-base font-semibold block text-center mb-6">Selecione o tipo de cadastro:</Label>
@@ -970,7 +1006,6 @@ export default function RegisterPage() {
                             <div className="space-y-1"><Label htmlFor="dob">Nascimento*</Label><Input id="dob" type="date" value={personalInfo.dob} onChange={handleInputChangeCallback(setPersonalInfo, 'dob')} required max={new Date().toISOString().split("T")[0]}/></div>
                             <div className="space-y-1"><Label htmlFor="rg">RG*</Label><Input id="rg" value={personalInfo.rg} onChange={handleInputChangeCallback(setPersonalInfo, 'rg')} required /></div>
                             <div className="space-y-1"><Label htmlFor="cpf">CPF*</Label><InputWithIMask id="cpf" maskOptions={{ mask: '000.000.000-00' }} defaultValue={personalInfo.cpf} onAccept={handleIMaskAcceptCallback(setPersonalInfo, 'cpf')} required placeholder="000.000.000-00" /></div>
-                            {/* CORREÇÃO 2: Adicionar o campo de input para o CRM */}
                             <div className="space-y-1"><Label htmlFor="professionalCrm">CRM*</Label><Input id="professionalCrm" value={personalInfo.professionalCrm} onChange={handleInputChangeCallback(setPersonalInfo, 'professionalCrm')} required /></div>
                             <div className="space-y-1"><Label htmlFor="phone">Telefone Celular*</Label><InputWithIMask id="phone" maskOptions={{ mask: [{ mask: '(00) 0000-0000' }, { mask: '(00) 00000-0000' }] }} defaultValue={personalInfo.phone} onAccept={handleIMaskAcceptCallback(setPersonalInfo, 'phone')} required placeholder="(00) 90000-0000" type="tel" /></div>
                             <div className="space-y-1 md:col-span-2"><Label htmlFor="email">Email (Login)*</Label><Input id="email" type="email" value={personalInfo.email} onChange={handleInputChangeCallback(setPersonalInfo, 'email')} required /></div>
@@ -1232,61 +1267,76 @@ export default function RegisterPage() {
     };
 
     if (authLoading || authUser) {
-        return <LoadingPage message="Verificando sessão..." />;
+        return <LoadingForm message="A verificar sessão..." />;
     }
 
     return (
-        <div className="container mx-auto px-4 py-8 sm:py-12 max-w-4xl">
-             <h1 className="text-2xl sm:text-3xl font-bold text-center mb-3 text-gray-800">Formulário de Cadastro</h1>
-             <p className="text-center text-gray-600 text-sm sm:text-base mb-8 sm:mb-10">
-                 Siga as etapas para completar seu registro. Já tem conta?{" "}
-                 <Link href="/login" className="text-blue-600 hover:underline font-medium">Faça login</Link>
-             </p>
-             <StepIndicator steps={stepsConfig.map(s => s.label)} currentStep={currentStepIndex} />
+        <>
+            <StepIndicator steps={stepsConfig.map(s => s.label)} currentStep={currentStepIndex} />
 
-             <div className="bg-white p-4 sm:p-6 md:p-8 rounded-lg shadow-xl border border-gray-200 min-h-[350px] relative">
-                 {isLoading && (
-                      <div className="absolute inset-0 bg-white/80 backdrop-blur-sm flex flex-col items-center justify-center z-20 rounded-lg">
-                          <Loader2 className="h-10 w-10 sm:h-12 sm:w-12 animate-spin text-blue-600" />
-                          <p className="mt-4 text-base sm:text-lg font-medium text-gray-700">
-                              Processando cadastro...
-                          </p>
-                          <p className="mt-1 text-sm text-gray-500">Por favor, aguarde um momento...</p>
-                      </div>
-                 )}
-                 <div className={cn("transition-opacity duration-300", isLoading && "opacity-30 pointer-events-none")}>
-                     {renderCurrentStep()}
-                 </div>
-             </div>
+            <div className="bg-white p-4 sm:p-6 md:p-8 rounded-lg shadow-xl border border-gray-200 min-h-[350px] relative">
+                {isLoading && (
+                     <div className="absolute inset-0 bg-white/80 backdrop-blur-sm flex flex-col items-center justify-center z-20 rounded-lg">
+                         <Loader2 className="h-10 w-10 sm:h-12 sm:w-12 animate-spin text-blue-600" />
+                         <p className="mt-4 text-base sm:text-lg font-medium text-gray-700">
+                             Processando cadastro...
+                         </p>
+                         <p className="mt-1 text-sm text-gray-500">Por favor, aguarde um momento...</p>
+                     </div>
+                )}
+                <div className={cn("transition-opacity duration-300", isLoading && "opacity-30 pointer-events-none")}>
+                    {renderCurrentStep()}
+                </div>
+            </div>
 
-             <div className="flex flex-col sm:flex-row justify-between mt-8 sm:mt-10 gap-3 sm:gap-4">
-                 <Button
-                     variant="outline"
-                     onClick={handlePrevStep}
-                     disabled={step === 0 || isLoading || isCepLoading || isHospitalCepLoading }
-                     className="w-full sm:w-auto px-6 py-3 text-sm sm:text-base"
-                 >
-                     Voltar
-                 </Button>
-                 {currentStepConfig?.id === 'summary' ? (
-                     <Button
-                         onClick={handleSubmit}
-                         disabled={isLoading || !role || isCepLoading || isHospitalCepLoading }
-                         className="w-full sm:w-auto bg-green-600 hover:bg-green-700 text-white px-6 py-3 text-sm sm:text-base"
-                     >
-                         {isLoading ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <Check className="mr-2 h-5 w-5" />}
-                         {isLoading ? 'Finalizando...' : 'Confirmar e Finalizar Cadastro'}
-                     </Button>
-                 ) : (
-                     <Button
-                         onClick={handleNextStep}
-                         disabled={ (currentStepConfig?.id === 'role' && !role) || (currentStepConfig?.id === 'doctorObjective' && !doctorObjective) || isLoading || isCepLoading || isHospitalCepLoading || isLoadingSpecialties }
-                         className="w-full sm:w-auto px-6 py-3 text-sm sm:text-base bg-blue-600 hover:bg-blue-700 text-white"
-                     >
-                         Próximo
-                     </Button>
-                 )}
-             </div>
-        </div>
+            <div className="flex flex-col sm:flex-row justify-between mt-8 sm:mt-10 gap-3 sm:gap-4">
+                <Button
+                    variant="outline"
+                    onClick={handlePrevStep}
+                    disabled={step === 0 || isLoading || isCepLoading || isHospitalCepLoading || !!invitationToken }
+                    className="w-full sm:w-auto px-6 py-3 text-sm sm:text-base"
+                >
+                    Voltar
+                </Button>
+                {currentStepConfig?.id === 'summary' ? (
+                    <Button
+                        onClick={handleSubmit}
+                        disabled={isLoading || !role || isCepLoading || isHospitalCepLoading }
+                        className="w-full sm:w-auto bg-green-600 hover:bg-green-700 text-white px-6 py-3 text-sm sm:text-base"
+                    >
+                        {isLoading ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <Check className="mr-2 h-5 w-5" />}
+                        {isLoading ? 'Finalizando...' : 'Confirmar e Finalizar Cadastro'}
+                    </Button>
+                ) : (
+                    <Button
+                        onClick={handleNextStep}
+                        disabled={ (currentStepConfig?.id === 'role' && !role) || (currentStepConfig?.id === 'doctorObjective' && !doctorObjective) || isLoading || isCepLoading || isHospitalCepLoading || isLoadingSpecialties }
+                        className="w-full sm:w-auto px-6 py-3 text-sm sm:text-base bg-blue-600 hover:bg-blue-700 text-white"
+                    >
+                        Próximo
+                    </Button>
+                )}
+            </div>
+        </>
     );
+}
+
+// ============================================================================
+// 2. O COMPONENTE PRINCIPAL (EXPORTADO) AGORA USA O SUSPENSE
+//    Ele mostra um estado de carregamento ('fallback') enquanto espera
+//    o componente RegisterForm ser renderizado no navegador.
+// ============================================================================
+export default function RegisterPage() {
+  return (
+    <div className="container mx-auto px-4 py-8 sm:py-12 max-w-4xl">
+         <h1 className="text-2xl sm:text-3xl font-bold text-center mb-3 text-gray-800">Formulário de Cadastro</h1>
+         <p className="text-center text-gray-600 text-sm sm:text-base mb-8 sm:mb-10">
+             Siga as etapas para completar seu registro. Já tem conta?{" "}
+             <Link href="/login" className="text-blue-600 hover:underline font-medium">Faça login</Link>
+         </p>
+        <Suspense fallback={<LoadingForm />}>
+            <RegisterForm />
+        </Suspense>
+    </div>
+  );
 }
