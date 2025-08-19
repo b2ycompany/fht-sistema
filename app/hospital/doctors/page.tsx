@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '@/components/auth-provider';
 import { useToast } from '@/hooks/use-toast';
 import { httpsCallable } from 'firebase/functions';
@@ -28,7 +28,7 @@ interface DoctorSearchResult {
 }
 
 /**
- * Componente de Diálogo para Buscar e Associar Médicos (com busca em tempo real)
+ * Componente de Diálogo para Buscar e Associar Médicos
  */
 const AssociateDoctorDialog = ({ onAssociationSuccess }: { onAssociationSuccess: () => void }) => {
     const { toast } = useToast();
@@ -38,9 +38,7 @@ const AssociateDoctorDialog = ({ onAssociationSuccess }: { onAssociationSuccess:
     const [searchResults, setSearchResults] = useState<DoctorSearchResult[]>([]);
     const [isLoading, setIsLoading] = useState(false);
     const [isAssociating, setIsAssociating] = useState<string | null>(null);
-
     const debouncedSearchTerm = useDebounce(searchTerm, 500);
-
     const hospitalId = useAuth().user?.uid;
 
     // Efeito para buscar as especialidades disponíveis entre os médicos associados
@@ -53,7 +51,6 @@ const AssociateDoctorDialog = ({ onAssociationSuccess }: { onAssociationSuccess:
                 const doctors = (result.data as any).doctors as DoctorSearchResult[];
                 
                 const allSpecs = doctors.flatMap(doc => doc.specialties || []);
-                // --- CORREÇÃO 1: Trocado [...new Set()] por Array.from() para maior compatibilidade ---
                 const uniqueSpecs = Array.from(new Set(allSpecs)).sort();
                 setAvailableSpecialties(uniqueSpecs);
             } catch (error: any) {
@@ -85,7 +82,6 @@ const AssociateDoctorDialog = ({ onAssociationSuccess }: { onAssociationSuccess:
                 setIsLoading(false);
             }
         };
-
         handleSearch();
     }, [debouncedSearchTerm, specialtiesFilter, toast]);
 
@@ -245,13 +241,11 @@ export default function HospitalDoctorsPage() {
                                         <CardHeader>
                                             <CardTitle>{doctor.displayName}</CardTitle>
                                             <CardDescription>
-                                                {/* --- CORREÇÃO 2: Adicionado '(doctor as any)' para resolver o erro de tipo --- */}
                                                 {(doctor as any).professionalCrm || 'CRM não informado'}
                                             </CardDescription>
                                         </CardHeader>
                                         <CardContent>
                                             <div className="flex flex-wrap gap-1">
-                                                {/* --- CORREÇÃO 3: Adicionado '(doctor as any)' para resolver o erro de tipo --- */}
                                                 {(doctor as any).specialties?.map((spec: string) => <Badge key={spec} variant="secondary">{spec}</Badge>)}
                                             </div>
                                         </CardContent>

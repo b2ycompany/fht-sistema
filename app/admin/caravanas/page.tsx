@@ -1,11 +1,8 @@
-// app/admin/caravanas/page.tsx
 "use client";
 
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-// --- ALTERAÇÃO: Importado 'functions' e 'httpsCallable' ---
-import { db, functions } from '@/lib/firebase';
-import { httpsCallable } from 'firebase/functions';
+import { db } from '@/lib/firebase';
 import { collection, query, onSnapshot, addDoc, serverTimestamp, Timestamp, orderBy } from 'firebase/firestore';
 import { useAuth } from '@/components/auth-provider';
 import { useToast } from '@/hooks/use-toast';
@@ -34,58 +31,6 @@ interface CaravanEvent {
     status: 'PLANEJAMENTO' | 'ATIVA' | 'CONCLUIDA';
     createdAt: Timestamp;
 }
-
-// --- INÍCIO DO CÓDIGO ADICIONADO: COMPONENTE TEMPORÁRIO DE MIGRAÇÃO ---
-const AdminMigrationHelper = () => {
-    const [isLoading, setIsLoading] = useState(false);
-    const { toast } = useToast();
-
-    const runMigration = async () => {
-        if (!confirm('Tem a certeza de que deseja migrar todos os perfis de `doctorProfiles` para `users`? Esta ação deve ser executada apenas uma vez.')) {
-            return;
-        }
-
-        setIsLoading(true);
-        try {
-            const migrationFunction = httpsCallable(functions, 'migrateDoctorProfilesToUsers');
-            const result = await migrationFunction();
-            
-            console.log('Resultado da migração:', result.data);
-            toast({
-                title: "Migração Sucesso!",
-                description: `${(result.data as any).message}`,
-                className: "bg-green-600 text-white",
-                duration: 9000,
-            });
-        } catch (error: any) {
-            console.error("Erro ao executar a migração:", error);
-            toast({
-                title: "Erro na Migração",
-                description: error.message,
-                variant: "destructive",
-            });
-        } finally {
-            setIsLoading(false);
-        }
-    };
-
-    return (
-        <Card className="mb-6 bg-blue-50 border-blue-300">
-            <CardHeader>
-                <CardTitle>Ferramenta de Migração de Dados</CardTitle>
-                <CardDescription>Use este botão uma única vez para mover e corrigir todos os perfis de médicos para a nova estrutura.</CardDescription>
-            </CardHeader>
-            <CardContent>
-                <Button onClick={runMigration} disabled={isLoading}>
-                    {isLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                    {isLoading ? 'A migrar dados...' : 'Executar Migração de Médicos'}
-                </Button>
-            </CardContent>
-        </Card>
-    );
-};
-// --- FIM DO CÓDIGO ADICIONADO ---
-
 
 // --- COMPONENTE PRINCIPAL ---
 export default function CaravanManagementPage() {
@@ -163,10 +108,6 @@ export default function CaravanManagementPage() {
 
     return (
         <div className="container mx-auto p-4 sm:p-6 space-y-6">
-            
-            {/* --- O componente temporário é adicionado aqui --- */}
-            <AdminMigrationHelper />
-
             <div className="flex items-center justify-between">
                 <div>
                     <h1 className="text-3xl font-bold tracking-tight">Gestão Multirão</h1>
