@@ -1,6 +1,10 @@
 // components/auth-provider.tsx
 "use client";
 
+// --- SINALIZADOR DE TESTE ---
+console.log("--- CARREGANDO O FICHEIRO auth-provider.tsx (VERSÃO COM SINALIZADOR) ---");
+// --- FIM DO SINALIZADOR ---
+
 import React, { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 import { onAuthStateChanged, type User } from "firebase/auth";
 import { auth } from "@/lib/firebase";
@@ -34,8 +38,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
           setUserProfile(profile);
           console.log("[AuthProvider] onAuthStateChanged: Profile fetched after user state change:", profile);
 
-          // --- BLOCO DE DEPURACÃO ADICIONADO ---
-          // Estas linhas são cruciais para descobrirmos o problema
+          // --- BLOCO DE DEPURACÃO ---
           console.log("--- DEBUGGING AUTH PROVIDER ---");
           console.log("Perfil recebido do Firestore:", profile);
           console.log("Tipo de utilizador (userType):", profile?.userType);
