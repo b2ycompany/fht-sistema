@@ -6,7 +6,6 @@ import {
   sendPasswordResetEmail,
   updateProfile,
   type User as FirebaseUser,
-  type UserCredential,
 } from "firebase/auth";
 import {
   doc,
@@ -19,7 +18,6 @@ import {
   query,
   where,
   getDocs,
-  documentId,
 } from "firebase/firestore";
 import { auth, db, functions } from "./firebase";
 import { httpsCallable } from "firebase/functions";
@@ -92,7 +90,6 @@ export interface DoctorRegistrationPayload
   documents: Partial<DoctorDocumentsRef>; 
   specialistDocuments: Partial<SpecialistDocumentsRef>;
   registrationObjective?: 'caravan' | 'match';
-  // --- ALTERAÇÃO ADICIONADA ---
   invitationToken?: string; 
 }
 export interface HospitalRegistrationPayload {
@@ -225,54 +222,66 @@ export const completeUserRegistration = async (
   userType: UserType,
   registrationData: DoctorRegistrationPayload | HospitalRegistrationPayload,
 ): Promise<void> => {
-  let userProfileDataSpecific: any = {};
-
-  if (userType === "doctor") {
-    // --- ALTERAÇÃO ADICIONADA ---
-    // Agora desestruturamos o token junto com os outros dados.
-    const { documents, specialistDocuments, invitationToken, ...doctorDetails } = registrationData as DoctorRegistrationPayload;
-    userProfileDataSpecific = {
-      ...doctorDetails,
-      documents,
-      specialistDocuments,
-      documentVerificationStatus: "PENDING_REVIEW",
-      adminVerificationNotes: "",
-      // E garantimos que ele seja salvo (ou nulo, se não existir).
-      invitationToken: invitationToken || null,
-    };
-  } else if (userType === "hospital") {
-    const { hospitalDocs, legalRepDocuments, ...hospitalDetails } = registrationData as HospitalRegistrationPayload;
-    userProfileDataSpecific = {
-      companyInfo: {
-        cnpj: (hospitalDetails as any).cnpj,
-        stateRegistration: (hospitalDetails as any).stateRegistration,
-        phone: (hospitalDetails as any).phone,
-        address: (hospitalDetails as any).address,
-      },
-      legalRepresentativeInfo: (hospitalDetails as any).legalRepresentativeInfo,
-      hospitalDocs,
-      legalRepDocuments,
-      documentVerificationStatus: "PENDING_REVIEW",
-      adminVerificationNotes: "",
-    };
-  } else if (["receptionist", "triage_nurse", "caravan_admin", "admin", "backoffice"].includes(userType)) {
-    userProfileDataSpecific = {};
-  } else {
-    throw new Error("Tipo de perfil de registro inválido.");
-  }
   
-  const finalProfileData = {
-    uid: userId,
-    email,
-    displayName,
-    userType: userType,
-    createdAt: serverTimestamp(),
-    updatedAt: serverTimestamp(),
-    ...userProfileDataSpecific
-  };
+  // --- BLOCO DE DEPURACÃO ADICIONADO ---
+  console.log("--- DEBUGGING: DENTRO DE completeUserRegistration ---");
+  console.log("Tentando criar perfil para o Utilizador ID:", userId);
+  console.log("Payload de dados recebido:", registrationData);
+  console.log("-------------------------------------------------");
+  // --- FIM DO BLOCO DE DEPURACÃO ---
 
-  await setDoc(doc(db, "users", userId), finalProfileData);
-  console.log(`[AuthService] Perfil ${userType} salvo para UID: ${userId}`);
+  try {
+    let userProfileDataSpecific: any = {};
+
+    if (userType === "doctor") {
+      const { documents, specialistDocuments, invitationToken, ...doctorDetails } = registrationData as DoctorRegistrationPayload;
+      userProfileDataSpecific = {
+        ...doctorDetails,
+        documents,
+        specialistDocuments,
+        invitationToken: invitationToken || null,
+      };
+    } else if (userType === "hospital") {
+      const { hospitalDocs, legalRepDocuments, ...hospitalDetails } = registrationData as HospitalRegistrationPayload;
+      userProfileDataSpecific = {
+        companyInfo: {
+          cnpj: (hospitalDetails as any).cnpj,
+          stateRegistration: (hospitalDetails as any).stateRegistration,
+          phone: (hospitalDetails as any).phone,
+          address: (hospitalDetails as any).address,
+        },
+        legalRepresentativeInfo: (hospitalDetails as any).legalRepresentativeInfo,
+        hospitalDocs,
+        legalRepDocuments,
+      };
+    } else if (["receptionist", "triage_nurse", "caravan_admin", "admin", "backoffice"].includes(userType)) {
+      userProfileDataSpecific = {};
+    } else {
+      throw new Error("Tipo de perfil de registro inválido.");
+    }
+    
+    const finalProfileData = {
+      uid: userId,
+      email,
+      displayName,
+      userType: userType,
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+      documentVerificationStatus: "PENDING_REVIEW", // Status inicial padrão
+      adminVerificationNotes: "",
+      ...userProfileDataSpecific
+    };
+
+    const userProfileRef = doc(db, "users", userId);
+    await setDoc(userProfileRef, finalProfileData);
+
+    console.log(`[AuthService] Perfil para ${userId} criado com SUCESSO no Firestore.`);
+
+  } catch (error) {
+      console.error("[AuthService] ERRO CRÍTICO ao tentar criar o perfil no Firestore:", error);
+      // É crucial que o erro seja relançado para que o frontend saiba que falhou
+      throw error;
+  }
 };
 
 export const loginUser = async (email: string, password: string): Promise<FirebaseUser> => {
