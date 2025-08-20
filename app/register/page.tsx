@@ -38,13 +38,13 @@ import {
 import { uploadFileToStorage } from "@/lib/storage-service";
 import { FirebaseError } from "firebase/app";
 import { cn } from "@/lib/utils";
-import { auth } from "@/lib/firebase"; // Import adicionado
+import { auth } from "@/lib/firebase";
 import {
   Loader2, Check, AlertTriangle, Info, Stethoscope, Building,
   FileUp, XCircleIcon, ExternalLink, CheckCircle, HeartPulse, Briefcase, Search, X
 } from "lucide-react";
 import { useAuth as useAuthHook } from "@/components/auth-provider";
-import { Checkbox } from "@/components/ui/checkbox"; // Import adicionado
+import { Checkbox } from "@/components/ui/checkbox";
 import { getSpecialtiesList, type Specialty } from "@/lib/specialty-service";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
@@ -352,17 +352,16 @@ function RegisterForm() {
 
     const searchParams = useSearchParams();
 
+    // Lógica de convite REFEITA para ser mais robusta
     useEffect(() => {
         const token = searchParams.get('invitationToken');
         if (token) {
             setInvitationToken(token);
             setRole('doctor');
-            setDoctorObjective('match'); 
-            setStep(2);
+            setDoctorObjective('match'); // Um convite é sempre para o fluxo completo
             toast({
                 title: "Convite Reconhecido!",
-                description: "Você foi convidado para se juntar à plataforma. Por favor, complete o seu cadastro.",
-                duration: 6000,
+                description: "As opções de cadastro foram pré-selecionadas. Por favor, prossiga.",
             });
         }
     }, [searchParams, toast]);
@@ -761,7 +760,6 @@ function RegisterForm() {
         }
     };
     
-    // --- FUNÇÃO handleSubmit COM A CORREÇÃO FINAL ---
     const handleSubmit = async () => {
         if (!role || currentStepConfig?.id !== 'summary') {
             toast({ variant: "destructive", title: "Erro ao Finalizar", description: "Não é possível finalizar nesta etapa." });
@@ -878,6 +876,7 @@ function RegisterForm() {
                     registrationObjective: doctorObjective || 'match',
                 };
 
+                // Adiciona o token ao payload se ele existir
                 if (invitationToken) {
                     doctorData.invitationToken = invitationToken;
                 }
@@ -907,10 +906,7 @@ function RegisterForm() {
                 duration: 4000
             });
             
-            // --- CORREÇÃO DEFINITIVA ---
-            // Forçamos um redirecionamento completo para o dashboard.
-            // Ao carregar a nova página, o AuthProvider irá executar novamente,
-            // mas desta vez, o perfil no Firestore JÁ EXISTE e será encontrado.
+            // Correção final para o problema da "condição de corrida"
             const newDashboardPath = role === 'doctor' ? '/dashboard' : '/hospital/dashboard';
             window.location.assign(newDashboardPath);
 
@@ -924,9 +920,8 @@ function RegisterForm() {
                 }
             }
             toast({ variant: "destructive", title: title, description: description, duration: 7000 });
-            setIsLoading(false); // Garante que o loading para em caso de erro
+            setIsLoading(false);
         }
-        // O setIsLoading(false) foi movido para o bloco catch, pois o sucesso leva a um reload da página.
     };
 
     const renderCurrentStep = () => {
@@ -935,45 +930,46 @@ function RegisterForm() {
         }
         switch (currentStepConfig.id) {
             case 'role':
-                if (invitationToken) {
-                    return (
-                        <div className="flex flex-col items-center justify-center min-h-[200px] text-gray-600">
-                            <Loader2 className="h-10 w-10 animate-spin text-blue-600 mb-4" />
-                            <p className="font-semibold text-lg">Processando convite...</p>
-                            <p className="text-sm">A redirecionar para o formulário de médico.</p>
-                        </div>
-                    );
-                }
                 return (
                     <div className="space-y-4 animate-fade-in">
                         <Label className="text-base font-semibold block text-center mb-6">Selecione o tipo de cadastro:</Label>
-                        <RadioGroup value={role ?? ""} onValueChange={(value) => { setRole(value as UserType); setStep(s => s + 1); }} className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <Label htmlFor="role-doctor" className={cn("flex flex-col items-center justify-center p-6 border rounded-lg cursor-pointer transition-colors hover:bg-blue-50 hover:border-blue-400", role === 'doctor' ? "bg-blue-50 border-blue-500 ring-2 ring-blue-500" : "bg-white border-gray-300")}>
+                        <RadioGroup 
+                            value={role ?? ""} 
+                            onValueChange={(value) => { setRole(value as UserType); setStep(s => s + 1); }} 
+                            className="grid grid-cols-1 md:grid-cols-2 gap-4"
+                            disabled={!!invitationToken}
+                        >
+                            <Label htmlFor="role-doctor" className={cn("flex flex-col items-center justify-center p-6 border rounded-lg transition-colors", !!invitationToken ? "cursor-not-allowed opacity-70 bg-gray-50" : "cursor-pointer hover:bg-blue-50 hover:border-blue-400", role === 'doctor' ? "bg-blue-50 border-blue-500 ring-2 ring-blue-500" : "bg-white border-gray-300")}>
                                 <RadioGroupItem value="doctor" id="role-doctor" className="sr-only" />
                                 <Stethoscope className={cn("h-10 w-10 mb-3", role === 'doctor' ? "text-blue-700" : "text-gray-500")} />
                                 <span className={cn("font-medium", role === 'doctor' ? "text-blue-800" : "text-gray-700")}>Sou Médico(a) / Profissional</span>
                             </Label>
-                            <Label htmlFor="role-hospital" className={cn("flex flex-col items-center justify-center p-6 border rounded-lg cursor-pointer transition-colors hover:bg-blue-50 hover:border-blue-400", role === 'hospital' ? "bg-blue-50 border-blue-500 ring-2 ring-blue-500" : "bg-white border-gray-300")}>
+                            <Label htmlFor="role-hospital" className={cn("flex flex-col items-center justify-center p-6 border rounded-lg transition-colors", !!invitationToken ? "cursor-not-allowed opacity-70 bg-gray-50" : "cursor-pointer hover:bg-blue-50 hover:border-blue-400", role === 'hospital' ? "bg-blue-50 border-blue-500 ring-2 ring-blue-500" : "bg-white border-gray-300")}>
                                 <RadioGroupItem value="hospital" id="role-hospital" className="sr-only" />
                                 <Building className={cn("h-10 w-10 mb-3", role === 'hospital' ? "text-blue-700" : "text-gray-500")} />
                                 <span className={cn("font-medium", role === 'hospital' ? "text-blue-800" : "text-gray-700")}>Sou Empresa / Hospital</span>
                             </Label>
                         </RadioGroup>
-                        {!role && step === 0 && <p className="text-sm text-red-600 pt-4 text-center">Selecione uma opção para iniciar.</p>}
+                        {!role && step === 0 && !invitationToken && <p className="text-sm text-red-600 pt-4 text-center">Selecione uma opção para iniciar.</p>}
                     </div>
                 );
             case 'doctorObjective':
                 return (
                      <div className="space-y-4 animate-fade-in">
                         <Label className="text-base font-semibold block text-center mb-6">Qual seu objetivo principal na plataforma?</Label>
-                        <RadioGroup value={doctorObjective ?? ""} onValueChange={(value) => setDoctorObjective(value as 'caravan' | 'match')} className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <Label htmlFor="objective-caravan" className={cn("flex flex-col items-center justify-center p-6 border rounded-lg cursor-pointer transition-colors hover:bg-blue-50 hover:border-blue-400", doctorObjective === 'caravan' ? "bg-blue-50 border-blue-500 ring-2 ring-blue-500" : "bg-white border-gray-300")}>
+                        <RadioGroup 
+                            value={doctorObjective ?? ""} 
+                            onValueChange={(value) => setDoctorObjective(value as 'caravan' | 'match')} 
+                            className="grid grid-cols-1 md:grid-cols-2 gap-4"
+                            disabled={!!invitationToken}
+                        >
+                            <Label htmlFor="objective-caravan" className={cn("flex flex-col items-center justify-center p-6 border rounded-lg transition-colors", !!invitationToken ? "cursor-not-allowed opacity-70 bg-gray-50" : "cursor-pointer hover:bg-blue-50 hover:border-blue-400", doctorObjective === 'caravan' ? "bg-blue-50 border-blue-500 ring-2 ring-blue-500" : "bg-white border-gray-300")}>
                                 <RadioGroupItem value="caravan" id="objective-caravan" className="sr-only" />
                                 <HeartPulse className={cn("h-10 w-10 mb-3", doctorObjective === 'caravan' ? "text-blue-700" : "text-gray-500")} />
                                 <span className={cn("font-medium text-center", doctorObjective === 'caravan' ? "text-blue-800" : "text-gray-700")}>Participar de projetos da Saúde</span>
                                 <span className="text-xs text-gray-500 mt-1">Cadastro rápido e focado.</span>
                             </Label>
-                            <Label htmlFor="objective-match" className={cn("flex flex-col items-center justify-center p-6 border rounded-lg cursor-pointer transition-colors hover:bg-blue-50 hover:border-blue-400", doctorObjective === 'match' ? "bg-blue-50 border-blue-500 ring-2 ring-blue-500" : "bg-white border-gray-300")}>
+                            <Label htmlFor="objective-match" className={cn("flex flex-col items-center justify-center p-6 border rounded-lg transition-colors", !!invitationToken ? "cursor-not-allowed opacity-70 bg-gray-50" : "cursor-pointer hover:bg-blue-50 hover:border-blue-400", doctorObjective === 'match' ? "bg-blue-50 border-blue-500 ring-2 ring-blue-500" : "bg-white border-gray-300")}>
                                 <RadioGroupItem value="match" id="objective-match" className="sr-only" />
                                 <Briefcase className={cn("h-10 w-10 mb-3", doctorObjective === 'match' ? "text-blue-700" : "text-gray-500")} />
                                 <span className={cn("font-medium text-center", doctorObjective === 'match' ? "text-blue-800" : "text-gray-700")}>Buscar oportunidades de plantão</span>
