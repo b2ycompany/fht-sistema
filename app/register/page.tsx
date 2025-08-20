@@ -137,6 +137,7 @@ interface RegistrationSummaryProps {
     role: UserType;
     data: SummaryData;
     onEdit: (stepId: string) => void;
+    isInvitation: boolean; // NOVO: Prop para saber se é um convite
 }
 
 const SummaryField: React.FC<{ label: string; value: string | undefined | null }> = ({ label, value }) => {
@@ -170,7 +171,8 @@ const SummaryFileField: React.FC<{ label: string; fileProgress: FileWithProgress
     );
 };
 
-const RegistrationSummary: React.FC<RegistrationSummaryProps> = ({ role, data, onEdit }) => {
+// ATUALIZADO: O componente de Resumo agora sabe se é um fluxo de convite
+const RegistrationSummary: React.FC<RegistrationSummaryProps> = ({ role, data, onEdit, isInvitation }) => {
     if (!role || !data || Object.keys(data).length === 0) {
         return (
             <div className="p-4 border-2 border-dashed border-yellow-400 bg-yellow-50 rounded-md">
@@ -206,7 +208,13 @@ const RegistrationSummary: React.FC<RegistrationSummaryProps> = ({ role, data, o
     return (
         <div className="space-y-4 bg-gray-50 p-4 sm:p-6 rounded-lg animate-fade-in">
             <h2 className="text-xl sm:text-2xl font-bold text-center text-gray-800 mb-4 sm:mb-6">Revise seus Dados</h2>
-            {role === 'doctor' && data.personalInfo && data.doctorDocuments && data.credentials && (
+             {isInvitation && (
+                <div className="p-3 rounded-md text-sm mb-4 bg-blue-50 border border-blue-200 text-blue-800 flex items-start gap-2">
+                    <Info size={18} className="shrink-0 relative top-0.5" />
+                    <p>Você está a finalizar um registo simplificado via convite. Os documentos poderão ser enviados posteriormente através do seu painel.</p>
+                </div>
+            )}
+            {role === 'doctor' && data.personalInfo && data.credentials && (
                 <>
                     {renderSection("Dados Pessoais", "personalInfo", (<>
                         <SummaryField label="Nome" value={data.personalInfo.name} />
@@ -217,7 +225,7 @@ const RegistrationSummary: React.FC<RegistrationSummaryProps> = ({ role, data, o
                         <SummaryField label="Telefone" value={formatDoc(data.personalInfo.phone, 'phone')} />
                         <SummaryField label="Email (Login)" value={data.personalInfo.email} />
                     </>))}
-                    {data.registrationObjective === 'match' && data.addressInfo && renderSection("Endereço Pessoal", "addressInfo", (<>
+                    {data.addressInfo && renderSection("Endereço Pessoal", "addressInfo", (<>
                         <SummaryField label="CEP" value={formatDoc(data.addressInfo.cep, 'cep')} />
                         <SummaryField label="Rua" value={data.addressInfo.street} />
                         <SummaryField label="Número" value={data.addressInfo.number} />
@@ -226,25 +234,27 @@ const RegistrationSummary: React.FC<RegistrationSummaryProps> = ({ role, data, o
                         <SummaryField label="Cidade" value={data.addressInfo.city} />
                         <SummaryField label="Estado" value={data.addressInfo.state} />
                     </>))}
-                    {data.doctorDocuments && data.registrationObjective === 'caravan' && renderSection("Documentos Essenciais", "essentialDocsCaravan", (<>
+
+                    {/* Lógica de exibição de documentos ajustada */}
+                    {data.doctorDocuments && data.registrationObjective === 'caravan' && !isInvitation && renderSection("Documentos Essenciais", "essentialDocsCaravan", (<>
                         {(['personalRg', 'personalCpf', 'professionalCrm'] as DoctorDocKeys[]).map(key => (
                             <SummaryFileField key={key} label={DOCUMENT_LABELS[key]} fileProgress={data.doctorDocuments![key]} />
                         ))}
                     </>))}
-                    {data.doctorDocuments && data.registrationObjective === 'match' && renderSection("Documentos Essenciais", "essentialDocs", (<>
+                    {data.doctorDocuments && data.registrationObjective === 'match' && !isInvitation && renderSection("Documentos Essenciais", "essentialDocs", (<>
                         {(Object.keys(data.doctorDocuments) as DoctorDocKeys[]).filter(k => DOCUMENT_LABELS[k].includes('*') && ['personalRg','personalCpf','professionalCrm','addressProof','graduationCertificate','photo3x4'].includes(k)).map(key => (
                             <SummaryFileField key={key} label={DOCUMENT_LABELS[key]} fileProgress={data.doctorDocuments![key]} />
                         ))}
                     </>))}
-                     {data.doctorDocuments && data.registrationObjective === 'match' && renderSection("Certidões e CV", "certsAndCvDocs", (<>
+                     {data.doctorDocuments && data.registrationObjective === 'match' && !isInvitation && renderSection("Certidões e CV", "certsAndCvDocs", (<>
                         {(Object.keys(data.doctorDocuments) as DoctorDocKeys[]).filter(k => ['criminalRecordCert','ethicalCert','debtCert','cv'].includes(k)).map(key => (
                             <SummaryFileField key={key} label={DOCUMENT_LABELS[key]} fileProgress={data.doctorDocuments![key]} />
                         ))}
                     </>))}
-                    {data.registrationObjective === 'match' && renderSection("Especialidade", "isSpecialist", (
+                    {renderSection("Especialidade", "isSpecialist", (
                         <p className="text-sm"><strong className="font-medium">É especialista com RQE?</strong> <span className="ml-1">{data.isSpecialist ? "Sim" : "Não"}</span></p>
                     ))}
-                    {data.registrationObjective === 'match' && data.isSpecialist && data.specialistDocuments && renderSection("Docs Especialista", "specialistDocs", (<>
+                    {data.isSpecialist && data.specialistDocuments && !isInvitation && renderSection("Docs Especialista", "specialistDocs", (<>
                         {(Object.keys(data.specialistDocuments) as SpecialistDocKeys[]).map(key => (
                             <SummaryFileField key={key} label={DOCUMENT_LABELS[key]} fileProgress={data.specialistDocuments![key]} />
                         ))}
@@ -303,6 +313,7 @@ const RegistrationSummary: React.FC<RegistrationSummaryProps> = ({ role, data, o
     );
 };
 
+
 interface InputWithIMaskProps extends Omit<React.InputHTMLAttributes<HTMLInputElement>, 'onAccept' | 'value' | 'defaultValue'> {
     maskOptions: any;
     onAccept: (value: string, maskRef: any) => void;
@@ -322,46 +333,38 @@ function RegisterForm() {
     const { toast } = useToast();
     const { user: authUser, loading: authLoading } = useAuthHook();
     const [doctorObjective, setDoctorObjective] = useState<'caravan' | 'match' | null>(null);
-    
     const [invitationToken, setInvitationToken] = useState<string | null>(null);
-
     const [availableSpecialties, setAvailableSpecialties] = useState<Specialty[]>([]);
     const [selectedSpecialties, setSelectedSpecialties] = useState<string[]>([]);
     const [isLoadingSpecialties, setIsLoadingSpecialties] = useState(true);
     const [specialtiesError, setSpecialtiesError] = useState<string | null>(null);
     const [openSpecialtySearch, setOpenSpecialtySearch] = useState(false);
-
-    const [personalInfo, setPersonalInfo] = useState<PersonalInfo & { professionalCrm: string }>({ 
-        name: "", dob: "", rg: "", cpf: "", phone: "", email: "", professionalCrm: "" 
-    });
-
+    const [personalInfo, setPersonalInfo] = useState<PersonalInfo & { professionalCrm: string }>({ name: "", dob: "", rg: "", cpf: "", phone: "", email: "", professionalCrm: "" });
     const [addressInfo, setAddressInfo] = useState<AddressInfo>({ cep: "", street: "", number: "", complement: "", neighborhood: "", city: "", state: "" });
     const [isSpecialist, setIsSpecialist] = useState<boolean>(false);
     const [hospitalInfo, setHospitalInfo] = useState<HospitalInfo>({ companyName: "", cnpj: "", stateRegistration: "", phone: "", email: ""});
     const [hospitalAddressInfo, setHospitalAddressInfo] = useState<AddressInfo>({ cep: "", street: "", number: "", complement: "", neighborhood: "", city: "", state: "" });
     const [legalRepresentativeInfo, setLegalRepresentativeInfo] = useState<LegalRepresentativeInfo>({ name: "", dob: "", rg: "", cpf: "", phone: "", email: "", position: "" });
     const [credentials, setCredentials] = useState<Credentials>({ password: "", confirmPassword: "" });
-    
     const [doctorDocuments, setDoctorDocuments] = useState<DoctorDocumentsState>(initialDoctorDocsStateValue);
     const [specialistDocuments, setSpecialistDocuments] = useState<SpecialistDocumentsState>(initialSpecialistDocsStateValue);
     const [hospitalDocuments, setHospitalDocuments] = useState<HospitalDocumentsState>(initialHospitalDocsStateValue);
     const [legalRepDocuments, setLegalRepDocuments] = useState<LegalRepDocumentsState>(initialLegalRepDocsStateValue);
-
     const [isCepLoading, setIsCepLoading] = useState(false);
     const [isHospitalCepLoading, setIsHospitalCepLoading] = useState(false);
 
     const searchParams = useSearchParams();
 
-    // Lógica de convite REFEITA para ser mais robusta
     useEffect(() => {
         const token = searchParams.get('invitationToken');
         if (token) {
             setInvitationToken(token);
             setRole('doctor');
-            setDoctorObjective('match'); // Um convite é sempre para o fluxo completo
+            setDoctorObjective('match');
             toast({
                 title: "Convite Reconhecido!",
-                description: "As opções de cadastro foram pré-selecionadas. Por favor, prossiga.",
+                description: "As opções de cadastro foram pré-selecionadas para si. Por favor, prossiga.",
+                duration: 5000,
             });
         }
     }, [searchParams, toast]);
@@ -393,6 +396,17 @@ function RegisterForm() {
     }, []);
 
     const stepsConfig = useMemo(() => {
+        if (invitationToken) {
+            const baseSteps = [
+                { id: 'role', label: 'Tipo' },
+                { id: 'doctorObjective', label: 'Objetivo' },
+                { id: 'personalInfo', label: 'Dados Pessoais' },
+                { id: 'addressInfo', label: 'Endereço' },
+                { id: 'isSpecialist', label: 'Especialidade?' }
+            ];
+            return [...baseSteps, { id: 'specialties', label: 'Especialidades' }, { id: 'credentials', label: 'Senha' }, { id: 'summary', label: 'Revisão' }];
+        }
+
         if (!role) return [{ id: 'role', label: 'Tipo' }];
         
         if (role === 'doctor') {
@@ -422,7 +436,7 @@ function RegisterForm() {
         }
         
         return [ { id: 'role', label: 'Tipo' }, { id: 'hospitalInfo', label: 'Dados Empresa' }, { id: 'hospitalAddress', label: 'Endereço Empresa' }, { id: 'hospitalDocs', label: 'Docs Empresa' }, { id: 'legalRepInfo', label: 'Responsável' }, { id: 'legalRepDocs', label: 'Docs Responsável' }, { id: 'credentials', label: 'Senha' }, { id: 'summary', label: 'Revisão' } ];
-    }, [role, doctorObjective, isSpecialist]);
+    }, [role, doctorObjective, isSpecialist, invitationToken]);
 
     const currentStepIndex = step;
     const currentStepConfig = stepsConfig[currentStepIndex];
@@ -445,7 +459,7 @@ function RegisterForm() {
     }, []);
 
     const handleIMaskAcceptCallback = useCallback((setState: React.Dispatch<React.SetStateAction<any>>, field: string) =>
-        (value: string, maskRef: any) => {
+        (value: string) => {
             setState((prev: any) => ({ ...prev, [field]: value.replace(/[^\d]/g, "") }));
     }, []);
 
@@ -751,7 +765,7 @@ function RegisterForm() {
         } else {
             toast({ variant: "destructive", title: errorTitle, description: errorDescription });
         }
-    }, [step, totalSteps, currentStepConfig, role, personalInfo, addressInfo, doctorDocuments, isSpecialist, specialistDocuments, hospitalInfo, hospitalAddressInfo, hospitalDocuments, legalRepresentativeInfo, legalRepDocuments, credentials, toast, doctorObjective, selectedSpecialties, stepsConfig]);
+    }, [step, totalSteps, currentStepConfig, role, personalInfo, addressInfo, doctorDocuments, isSpecialist, specialistDocuments, hospitalInfo, hospitalAddressInfo, hospitalDocuments, legalRepresentativeInfo, legalRepDocuments, credentials, toast, doctorObjective, selectedSpecialties]);
 
     const handlePrevStep = () => {
         if (step > 0) {
@@ -771,133 +785,148 @@ function RegisterForm() {
         const displayName = role === 'doctor' ? personalInfo.name : hospitalInfo.companyName;
 
         try {
-            // Etapa 1: Criar conta de autenticação
-            toast({ title: "Etapa 1/3: Criando sua conta...", duration: 3000 });
+            toast({ title: "Etapa 1: Criando sua conta...", duration: 4000 });
             const firebaseUser = await createAuthUser(loginEmail, credentials.password, displayName);
             const userId = firebaseUser.uid;
 
-            // Etapa 2: Fazer o upload de todos os ficheiros
-            toast({ title: "Etapa 2/3: Enviando documentos...", duration: 3000 });
-            const finalDocRefs: {
-                documents: Partial<DoctorDocumentsRef>; specialistDocuments: Partial<SpecialistDocumentsRef>;
-                hospitalDocs: Partial<HospitalDocumentsRef>; legalRepDocuments: Partial<LegalRepDocumentsRef>;
-            } = { documents: {}, specialistDocuments: {}, hospitalDocs: {}, legalRepDocuments: {} };
-
-            const filesToProcess: { docKey: AllDocumentKeys, fileState: FileWithProgress, typePathFragment: string, subFolder?: string }[] = [];
-            
-            if (role === 'doctor') {
-                if(doctorObjective === 'caravan') {
-                    const caravanKeys: DoctorDocKeys[] = ['personalRg', 'personalCpf', 'professionalCrm'];
-                    caravanKeys.forEach(key => {
-                        if (doctorDocuments[key].file) filesToProcess.push({ docKey: key, fileState: doctorDocuments[key], typePathFragment: "doctor_documents" });
-                        else if (doctorDocuments[key].url) (finalDocRefs.documents as any)[key] = doctorDocuments[key].url;
-                    });
-                }
-                if (doctorObjective === 'match') {
-                    doctorDocKeysArray.forEach(key => {
-                        if (doctorDocuments[key].file) filesToProcess.push({ docKey: key, fileState: doctorDocuments[key], typePathFragment: "doctor_documents" });
-                        else if (doctorDocuments[key].url) (finalDocRefs.documents as any)[key] = doctorDocuments[key].url;
-                    });
-                    if (isSpecialist) {
-                        specialistDocKeysArray.forEach(key => {
-                            if (specialistDocuments[key].file) filesToProcess.push({ docKey: key, fileState: specialistDocuments[key], typePathFragment: "doctor_documents", subFolder: "specialist" });
-                            else if (specialistDocuments[key].url) (finalDocRefs.specialistDocuments as any)[key] = specialistDocuments[key].url;
-                        });
-                    }
-                }
-            } else if (role === 'hospital') {
-                hospitalDocKeysArray.forEach(key => {
-                    if (hospitalDocuments[key].file) filesToProcess.push({ docKey: key, fileState: hospitalDocuments[key], typePathFragment: "hospital_documents" });
-                    else if (hospitalDocuments[key].url) (finalDocRefs.hospitalDocs as any)[key] = hospitalDocuments[key].url;
-                });
-                legalRepDocKeysArray.forEach(key => {
-                    if (legalRepDocuments[key].file) filesToProcess.push({ docKey: key, fileState: legalRepDocuments[key], typePathFragment: "hospital_documents", subFolder: "legal_rep" });
-                    else if (legalRepDocuments[key].url) (finalDocRefs.legalRepDocuments as any)[key] = legalRepDocuments[key].url;
-                });
-            }
-            
-            let allUploadsSuccessful = true;
-            if (filesToProcess.length > 0) {
-                const uploadPromises = filesToProcess.map(item => {
-                    updateFileState(item.docKey, prev => ({ ...prev, isUploading: true, progress: 0, error: undefined }));
-                    const fileName = `${item.docKey}_${Date.now()}_${item.fileState.file!.name}`;
-                    const storagePath = item.subFolder ?
-                        `${item.typePathFragment}/${userId}/${item.subFolder}/${fileName}` :
-                        `${item.typePathFragment}/${userId}/${fileName}`;
-
-                    return uploadFileToStorage(item.fileState.file!, storagePath, (progress) => {
-                        updateFileState(item.docKey, prev => ({ ...prev, progress }));
-                    }).then(url => {
-                        updateFileState(item.docKey, prev => ({ ...prev, url, isUploading: false, file: null, name: prev.name || item.fileState.file!.name }));
-                        return { key: item.docKey, url, typePathFragment: item.typePathFragment, subFolder: item.subFolder };
-                    }).catch(uploadError => {
-                        allUploadsSuccessful = false;
-                        const errorMessage = (uploadError as Error).message || "Falha no upload.";
-                        updateFileState(item.docKey, prev => ({ ...prev, isUploading: false, error: errorMessage }));
-                        toast({ title: `Erro Upload (${DOCUMENT_LABELS[item.docKey].replace('*','')})`, description: errorMessage, variant: "destructive", duration: 7000});
-                        return null;
-                    });
-                });
-                const uploadResults = await Promise.all(uploadPromises);
-
-                if (uploadResults.some(r => r === null)) allUploadsSuccessful = false;
-
-                uploadResults.forEach(result => {
-                    if (result) {
-                        if (result.typePathFragment === "doctor_documents") {
-                            if (result.subFolder === "specialist") (finalDocRefs.specialistDocuments as any)[result.key] = result.url;
-                            else (finalDocRefs.documents as any)[result.key] = result.url;
-                        } else if (result.typePathFragment === "hospital_documents") {
-                            if (result.subFolder === "legal_rep") (finalDocRefs.legalRepDocuments as any)[result.key] = result.url;
-                            else (finalDocRefs.hospitalDocs as any)[result.key] = result.url;
-                        }
-                    }
-                });
-            }
-
-            if (!allUploadsSuccessful) {
-                throw new Error("Um ou mais uploads de documentos falharam. Verifique os arquivos e tente novamente.");
-            }
-            
-            // Etapa 3: Preparar os dados e salvar o perfil no Firestore
-            toast({ title: "Etapa 3/3: Finalizando o cadastro...", duration: 3000 });
             let registrationData: DoctorRegistrationPayload | HospitalRegistrationPayload;
 
-            if (role === 'doctor') {
+            if (invitationToken && role === 'doctor') {
+                console.log("Executando fluxo de registo simplificado para médico convidado...");
+                toast({ title: "Etapa 2: Finalizando registo...", duration: 4000 });
+
                 const { name: _pName, email: _pEmail, ...personalDetails } = personalInfo;
-                
-                const doctorData: DoctorRegistrationPayload = {
+
+                registrationData = {
                     ...personalDetails,
                     professionalCrm: personalInfo.professionalCrm,
                     specialties: selectedSpecialties,
                     isSpecialist: isSpecialist,
-                    documents: finalDocRefs.documents,
-                    specialistDocuments: isSpecialist ? finalDocRefs.specialistDocuments : {},
-                    registrationObjective: doctorObjective || 'match',
+                    address: { ...addressInfo, cep: addressInfo.cep.replace(/\D/g, "") },
+                    registrationObjective: 'match',
+                    invitationToken: invitationToken,
+                    documents: {},
+                    specialistDocuments: {},
                 };
+            } 
+            else {
+                console.log("Executando fluxo de registo completo com upload de documentos...");
+                
+                toast({ title: "Etapa 2/3: Enviando documentos...", duration: 3000 });
+                const finalDocRefs: {
+                    documents: Partial<DoctorDocumentsRef>; specialistDocuments: Partial<SpecialistDocumentsRef>;
+                    hospitalDocs: Partial<HospitalDocumentsRef>; legalRepDocuments: Partial<LegalRepDocumentsRef>;
+                } = { documents: {}, specialistDocuments: {}, hospitalDocs: {}, legalRepDocuments: {} };
 
-                // Adiciona o token ao payload se ele existir
-                if (invitationToken) {
-                    doctorData.invitationToken = invitationToken;
-                }
-
-                if (doctorObjective === 'match') {
-                    doctorData.address = { ...addressInfo, cep: addressInfo.cep.replace(/\D/g, "") };
+                const filesToProcess: { docKey: AllDocumentKeys, fileState: FileWithProgress, typePathFragment: string, subFolder?: string }[] = [];
+                
+                if (role === 'doctor') {
+                    if(doctorObjective === 'caravan') {
+                        const caravanKeys: DoctorDocKeys[] = ['personalRg', 'personalCpf', 'professionalCrm'];
+                        caravanKeys.forEach(key => {
+                            if (doctorDocuments[key].file) filesToProcess.push({ docKey: key, fileState: doctorDocuments[key], typePathFragment: "doctor_documents" });
+                            else if (doctorDocuments[key].url) (finalDocRefs.documents as any)[key] = doctorDocuments[key].url;
+                        });
+                    }
+                    if (doctorObjective === 'match') {
+                        doctorDocKeysArray.forEach(key => {
+                            if (doctorDocuments[key].file) filesToProcess.push({ docKey: key, fileState: doctorDocuments[key], typePathFragment: "doctor_documents" });
+                            else if (doctorDocuments[key].url) (finalDocRefs.documents as any)[key] = doctorDocuments[key].url;
+                        });
+                        if (isSpecialist) {
+                            specialistDocKeysArray.forEach(key => {
+                                if (specialistDocuments[key].file) filesToProcess.push({ docKey: key, fileState: specialistDocuments[key], typePathFragment: "doctor_documents", subFolder: "specialist" });
+                                else if (specialistDocuments[key].url) (finalDocRefs.specialistDocuments as any)[key] = specialistDocuments[key].url;
+                            });
+                        }
+                    }
+                } else if (role === 'hospital') {
+                    hospitalDocKeysArray.forEach(key => {
+                        if (hospitalDocuments[key].file) filesToProcess.push({ docKey: key, fileState: hospitalDocuments[key], typePathFragment: "hospital_documents" });
+                        else if (hospitalDocuments[key].url) (finalDocRefs.hospitalDocs as any)[key] = hospitalDocuments[key].url;
+                    });
+                    legalRepDocKeysArray.forEach(key => {
+                        if (legalRepDocuments[key].file) filesToProcess.push({ docKey: key, fileState: legalRepDocuments[key], typePathFragment: "hospital_documents", subFolder: "legal_rep" });
+                        else if (legalRepDocuments[key].url) (finalDocRefs.legalRepDocuments as any)[key] = legalRepDocuments[key].url;
+                    });
                 }
                 
-                registrationData = doctorData;
+                let allUploadsSuccessful = true;
+                if (filesToProcess.length > 0) {
+                    const uploadPromises = filesToProcess.map(item => {
+                        updateFileState(item.docKey, prev => ({ ...prev, isUploading: true, progress: 0, error: undefined }));
+                        const fileName = `${item.docKey}_${Date.now()}_${item.fileState.file!.name}`;
+                        const storagePath = item.subFolder ?
+                            `${item.typePathFragment}/${userId}/${item.subFolder}/${fileName}` :
+                            `${item.typePathFragment}/${userId}/${fileName}`;
 
-            } else { // Hospital
-                const { companyName: _cName, email: _hEmail, ...hospitalDetails } = hospitalInfo;
-                registrationData = {
-                    ...hospitalDetails,
-                    address: { ...hospitalAddressInfo, cep: hospitalAddressInfo.cep.replace(/\D/g, "") },
-                    legalRepresentativeInfo: legalRepresentativeInfo,
-                    hospitalDocs: finalDocRefs.hospitalDocs,
-                    legalRepDocuments: finalDocRefs.legalRepDocuments,
-                };
+                        return uploadFileToStorage(item.fileState.file!, storagePath, (progress) => {
+                            updateFileState(item.docKey, prev => ({ ...prev, progress }));
+                        }).then(url => {
+                            updateFileState(item.docKey, prev => ({ ...prev, url, isUploading: false, file: null, name: prev.name || item.fileState.file!.name }));
+                            return { key: item.docKey, url, typePathFragment: item.typePathFragment, subFolder: item.subFolder };
+                        }).catch(uploadError => {
+                            allUploadsSuccessful = false;
+                            const errorMessage = (uploadError as Error).message || "Falha no upload.";
+                            updateFileState(item.docKey, prev => ({ ...prev, isUploading: false, error: errorMessage }));
+                            toast({ title: `Erro Upload (${DOCUMENT_LABELS[item.docKey].replace('*','')})`, description: errorMessage, variant: "destructive", duration: 7000});
+                            return null;
+                        });
+                    });
+                    const uploadResults = await Promise.all(uploadPromises);
+
+                    if (uploadResults.some(r => r === null)) allUploadsSuccessful = false;
+
+                    uploadResults.forEach(result => {
+                        if (result) {
+                            if (result.typePathFragment === "doctor_documents") {
+                                if (result.subFolder === "specialist") (finalDocRefs.specialistDocuments as any)[result.key] = result.url;
+                                else (finalDocRefs.documents as any)[result.key] = result.url;
+                            } else if (result.typePathFragment === "hospital_documents") {
+                                if (result.subFolder === "legal_rep") (finalDocRefs.legalRepDocuments as any)[result.key] = result.url;
+                                else (finalDocRefs.hospitalDocs as any)[result.key] = result.url;
+                            }
+                        }
+                    });
+                }
+
+                if (!allUploadsSuccessful) {
+                    throw new Error("Um ou mais uploads de documentos falharam. Verifique os arquivos e tente novamente.");
+                }
+                
+                toast({ title: "Etapa 3/3: Finalizando o cadastro...", duration: 3000 });
+                
+                if (role === 'doctor') {
+                    const { name: _pName, email: _pEmail, ...personalDetails } = personalInfo;
+                    
+                    const doctorData: DoctorRegistrationPayload = {
+                        ...personalDetails,
+                        professionalCrm: personalInfo.professionalCrm,
+                        specialties: selectedSpecialties,
+                        isSpecialist: isSpecialist,
+                        documents: finalDocRefs.documents,
+                        specialistDocuments: isSpecialist ? finalDocRefs.specialistDocuments : {},
+                        registrationObjective: doctorObjective || 'match',
+                    };
+
+                    if (doctorObjective === 'match') {
+                        doctorData.address = { ...addressInfo, cep: addressInfo.cep.replace(/\D/g, "") };
+                    }
+                    
+                    registrationData = doctorData;
+
+                } else { // Hospital
+                    const { companyName: _cName, email: _hEmail, ...hospitalDetails } = hospitalInfo;
+                    registrationData = {
+                        ...hospitalDetails,
+                        address: { ...hospitalAddressInfo, cep: hospitalAddressInfo.cep.replace(/\D/g, "") },
+                        legalRepresentativeInfo: legalRepresentativeInfo,
+                        hospitalDocs: finalDocRefs.hospitalDocs,
+                        legalRepDocuments: finalDocRefs.legalRepDocuments,
+                    };
+                }
             }
-
+            
             await completeUserRegistration(userId, loginEmail, displayName, role, registrationData);
 
             toast({
@@ -906,7 +935,6 @@ function RegisterForm() {
                 duration: 4000
             });
             
-            // Correção final para o problema da "condição de corrida"
             const newDashboardPath = role === 'doctor' ? '/dashboard' : '/hospital/dashboard';
             window.location.assign(newDashboardPath);
 
@@ -1000,7 +1028,7 @@ function RegisterForm() {
                         <h3 className="text-lg font-semibold border-b pb-2 mb-4">Documentos Essenciais</h3>
                         <p className="text-xs text-gray-500 mb-3">Para participar dos projetos, precisamos que envie alguns documentos básicos para verificação. Formatos: PDF, JPG, PNG. Máx: 5MB.</p>
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-5">
-                            {caravanDocKeys.map(key => renderFileInput(key as AllDocumentKeys))}
+                            {caravanDocKeys.map(key => renderFileInput(key))}
                         </div>
                     </div>
                 );
@@ -1108,7 +1136,7 @@ function RegisterForm() {
                         <h3 className="text-lg font-semibold border-b pb-2 mb-4">Documentos Essenciais</h3>
                         <p className="text-xs text-gray-500 mb-3">Formatos: PDF, JPG, PNG. Máx: 5MB.</p>
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-5">
-                            {essentialDocKeysForRender.map(key => renderFileInput(key as AllDocumentKeys))}
+                            {essentialDocKeysForRender.map(key => renderFileInput(key))}
                         </div>
                     </div>
                 );
@@ -1119,7 +1147,7 @@ function RegisterForm() {
                         <h3 className="text-lg font-semibold border-b pb-2 mb-4">Certidões e Currículo</h3>
                         <p className="text-xs text-gray-500 mb-3">Formatos: PDF, JPG, PNG. Máx: 5MB.</p>
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-5">
-                             {certsDocKeysForRender.map(key => renderFileInput(key as AllDocumentKeys))}
+                             {certsDocKeysForRender.map(key => renderFileInput(key))}
                         </div>
                     </div>
                 );
@@ -1144,7 +1172,7 @@ function RegisterForm() {
                         <h3 className="text-lg font-semibold border-b pb-2 mb-4">Documentos de Especialista</h3>
                         <p className="text-xs text-gray-500 mb-3">Envie RQE, Cert. Pós-Graduação, Título. Carta de Recomendação é opcional.</p>
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-5">
-                            {specialistDocKeysForRender.map(key => renderFileInput(key as AllDocumentKeys))}
+                            {specialistDocKeysForRender.map(key => renderFileInput(key))}
                         </div>
                     </div>
                 );
@@ -1187,7 +1215,7 @@ function RegisterForm() {
                         <h3 className="text-lg font-semibold border-b pb-2 mb-4">Documentos da Empresa</h3>
                         <p className="text-xs text-gray-500 mb-3">Formatos: PDF, JPG, PNG. Máx: 5MB.</p>
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-5">
-                           {hospitalDocKeysForRender.map(key => renderFileInput(key as AllDocumentKeys))}
+                           {hospitalDocKeysForRender.map(key => renderFileInput(key))}
                         </div>
                     </div>
                 );
@@ -1213,7 +1241,7 @@ function RegisterForm() {
                         <h3 className="text-lg font-semibold border-b pb-2 mb-4">Documentos do Responsável Legal</h3>
                         <p className="text-xs text-gray-500 mb-3">Formatos: PDF, JPG, PNG. Máx: 5MB.</p>
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-5">
-                            {legalRepDocKeysForRender.map(key => renderFileInput(key as AllDocumentKeys))}
+                            {legalRepDocKeysForRender.map(key => renderFileInput(key))}
                         </div>
                     </div>
                 );
@@ -1241,7 +1269,7 @@ function RegisterForm() {
                 const summaryDataToRender: SummaryData = role === 'doctor' ?
                     { registrationObjective: doctorObjective, personalInfo, addressInfo, doctorDocuments, isSpecialist, specialistDocuments, credentials } :
                     { hospitalInfo, hospitalAddressInfo, hospitalDocuments, legalRepresentativeInfo, legalRepDocuments, credentials };
-                return <RegistrationSummary role={role} data={summaryDataToRender} onEdit={handleEditStep} />;
+                return <RegistrationSummary role={role} data={summaryDataToRender} onEdit={handleEditStep} isInvitation={!!invitationToken}/>;
             default:
                 return <p>Etapa desconhecida.</p>;
         }
