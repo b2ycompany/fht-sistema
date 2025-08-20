@@ -765,16 +765,21 @@ function RegisterForm() {
             return;
         }
         setIsLoading(true);
+        console.log("--- DEBUG handleSubmit: INICIADO ---"); // NOVO LOG
 
         const loginEmail = role === 'doctor' ? personalInfo.email : legalRepresentativeInfo.email;
         const displayName = role === 'doctor' ? personalInfo.name : hospitalInfo.companyName;
 
         try {
             toast({ title: "Etapa 1/3: Criando sua conta...", duration: 3000 });
+            console.log("--- DEBUG handleSubmit: Etapa 1 - Criando Auth User... ---"); // NOVO LOG
             const firebaseUser = await createAuthUser(loginEmail, credentials.password, displayName);
             const userId = firebaseUser.uid;
+            console.log("--- DEBUG handleSubmit: Etapa 1 - Auth User criado com sucesso. UID:", userId); // NOVO LOG
 
             toast({ title: "Etapa 2/3: Enviando documentos...", duration: 3000 });
+            console.log("--- DEBUG handleSubmit: Etapa 2 - Preparando uploads... ---"); // NOVO LOG
+            
             const finalDocRefs: {
                 documents: Partial<DoctorDocumentsRef>; specialistDocuments: Partial<SpecialistDocumentsRef>;
                 hospitalDocs: Partial<HospitalDocumentsRef>; legalRepDocuments: Partial<LegalRepDocumentsRef>;
@@ -813,6 +818,8 @@ function RegisterForm() {
                 });
             }
             
+            console.log(`--- DEBUG handleSubmit: Encontrados ${filesToProcess.length} ficheiros para upload.`); // NOVO LOG
+            
             let allUploadsSuccessful = true;
             if (filesToProcess.length > 0) {
                 const uploadPromises = filesToProcess.map(item => {
@@ -836,6 +843,8 @@ function RegisterForm() {
                     });
                 });
                 const uploadResults = await Promise.all(uploadPromises);
+                console.log("--- DEBUG handleSubmit: Resultado dos uploads:", uploadResults); // NOVO LOG
+
                 if (uploadResults.some(r => r === null)) allUploadsSuccessful = false;
 
                 uploadResults.forEach(result => {
@@ -852,10 +861,14 @@ function RegisterForm() {
             }
 
             if (!allUploadsSuccessful) {
+                console.error("--- DEBUG handleSubmit: Falha detetada no upload de ficheiros. Abortando."); // NOVO LOG
                 throw new Error("Um ou mais uploads de documentos falharam. Verifique os arquivos e tente novamente.");
             }
 
+            console.log("--- DEBUG handleSubmit: Uploads concluídos com sucesso."); // NOVO LOG
             toast({ title: "Etapa 3/3: Finalizando e aplicando permissões...", duration: 3000 });
+            console.log("--- DEBUG handleSubmit: Etapa 3 - Preparando payload do perfil... ---"); // NOVO LOG
+            
             let registrationData: DoctorRegistrationPayload | HospitalRegistrationPayload;
 
             if (role === 'doctor') {
@@ -892,7 +905,9 @@ function RegisterForm() {
                 };
             }
             
+            console.log("--- DEBUG handleSubmit: Payload final pronto. A chamar completeUserRegistration..."); // NOVO LOG
             await completeUserRegistration(userId, loginEmail, displayName, role, registrationData);
+            console.log("--- DEBUG handleSubmit: completeUserRegistration executado com sucesso."); // NOVO LOG
             
             const delay = (ms: number) => new Promise(res => setTimeout(res, ms));
             let claims;
@@ -928,6 +943,8 @@ function RegisterForm() {
             router.push(newDashboardPath);
 
         } catch (error: any) {
+            // --- BLOCO DE CATCH ATUALIZADO ---
+            console.error("--- DEBUG handleSubmit: ERRO NO BLOCO CATCH PRINCIPAL ---", error); // NOVO LOG
             let title = "Erro no Cadastro";
             let description = error.message || "Ocorreu um erro inesperado.";
             if (error instanceof FirebaseError) {
@@ -941,6 +958,7 @@ function RegisterForm() {
             toast({ variant: "destructive", title: title, description: description, duration: 7000 });
         } finally {
             setIsLoading(false);
+            console.log("--- DEBUG handleSubmit: FINALIZADO ---"); // NOVO LOG
         }
     };
 
