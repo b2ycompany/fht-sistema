@@ -33,7 +33,7 @@ export const onTimeSlotDelete = onDocumentDeleted("doctorTimeSlots/{timeSlotId}"
     (event: FirestoreEvent<DocumentSnapshot | undefined, { timeSlotId: string }>) => import("./logic").then(api => api.onTimeSlotDeleteHandler(event))
 );
 
-export const generateContractPdf = onCall({ cors: [/fhtgestao\.com\.br$/, "https://fht-sistema.web.app"] },
+export const generateContractPdf = onCall({ cors: ["https://fhtgestao.com.br", "https://fht-sistema.web.app"] },
     (request: CallableRequest) => import("./logic").then(api => api.generateContractPdfHandler(request))
 );
 
@@ -65,15 +65,15 @@ export const registerCheckout = onCall({ cors: true },
     (request: CallableRequest) => import("./logic").then(api => api.registerCheckoutHandler(request))
 );
 
-export const setAdminClaim = onCall({ region: "us-central1", cors: ["http://localhost:3000", "https://fht-sistema.web.app", "https://fht-sistema.firebaseapp.com"] },
+export const setAdminClaim = onCall({ cors: ["https://fhtgestao.com.br", "http://localhost:3000", "https://fht-sistema.web.app", "https://fht-sistema.firebaseapp.com"] },
     (request: CallableRequest) => import("./logic").then(api => api.setAdminClaimHandler(request))
 );
 
-export const createStaffUser = onCall({ cors: [/fhtgestao\.com\.br$/, "https://fht-sistema.web.app", "http://localhost:3000"] },
+export const createStaffUser = onCall({ cors: ["https://fhtgestao.com.br", "https://fht-sistema.web.app", "http://localhost:3000"] },
     (request: CallableRequest) => import("./logic").then(api => api.createStaffUserHandler(request))
 );
 
-export const createConsultationRoom = onCall({ cors: ["http://localhost:3000", "https://fht-sistema.web.app", "https://fht-sistema.firebaseapp.com"], secrets: ["DAILY_APIKEY"] },
+export const createConsultationRoom = onCall({ cors: ["https://fhtgestao.com.br", "http://localhost:3000", "https://fht-sistema.web.app", "https://fht-sistema.firebaseapp.com"], secrets: ["DAILY_APIKEY"] },
     (request: CallableRequest) => import("./logic").then(api => api.createConsultationRoomHandler(request))
 );
 
