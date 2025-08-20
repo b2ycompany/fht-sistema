@@ -38,11 +38,13 @@ import {
 import { uploadFileToStorage } from "@/lib/storage-service";
 import { FirebaseError } from "firebase/app";
 import { cn } from "@/lib/utils";
+import { auth } from "@/lib/firebase"; // Import adicionado
 import {
   Loader2, Check, AlertTriangle, Info, Stethoscope, Building,
   FileUp, XCircleIcon, ExternalLink, CheckCircle, HeartPulse, Briefcase, Search, X
 } from "lucide-react";
 import { useAuth as useAuthHook } from "@/components/auth-provider";
+import { Checkbox } from "@/components/ui/checkbox"; // Import adicionado
 import { getSpecialtiesList, type Specialty } from "@/lib/specialty-service";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
@@ -606,7 +608,7 @@ function RegisterForm() {
                 targetStateSetter(prev => ({
                     ...prev,
                     cep: cleanedCep,
-                    street: data.logradouro || "",
+                    street: data.logouro || "",
                     neighborhood: data.bairro || "",
                     city: data.localidade || "",
                     state: data.uf || "",
@@ -758,35 +760,33 @@ function RegisterForm() {
             window.scrollTo(0, 0);
         }
     };
-
+    
+    // --- FUNÇÃO handleSubmit COM A CORREÇÃO FINAL ---
     const handleSubmit = async () => {
         if (!role || currentStepConfig?.id !== 'summary') {
             toast({ variant: "destructive", title: "Erro ao Finalizar", description: "Não é possível finalizar nesta etapa." });
             return;
         }
         setIsLoading(true);
-        console.log("--- DEBUG handleSubmit: INICIADO ---"); // NOVO LOG
 
         const loginEmail = role === 'doctor' ? personalInfo.email : legalRepresentativeInfo.email;
         const displayName = role === 'doctor' ? personalInfo.name : hospitalInfo.companyName;
 
         try {
+            // Etapa 1: Criar conta de autenticação
             toast({ title: "Etapa 1/3: Criando sua conta...", duration: 3000 });
-            console.log("--- DEBUG handleSubmit: Etapa 1 - Criando Auth User... ---"); // NOVO LOG
             const firebaseUser = await createAuthUser(loginEmail, credentials.password, displayName);
             const userId = firebaseUser.uid;
-            console.log("--- DEBUG handleSubmit: Etapa 1 - Auth User criado com sucesso. UID:", userId); // NOVO LOG
 
+            // Etapa 2: Fazer o upload de todos os ficheiros
             toast({ title: "Etapa 2/3: Enviando documentos...", duration: 3000 });
-            console.log("--- DEBUG handleSubmit: Etapa 2 - Preparando uploads... ---"); // NOVO LOG
-            
             const finalDocRefs: {
                 documents: Partial<DoctorDocumentsRef>; specialistDocuments: Partial<SpecialistDocumentsRef>;
                 hospitalDocs: Partial<HospitalDocumentsRef>; legalRepDocuments: Partial<LegalRepDocumentsRef>;
             } = { documents: {}, specialistDocuments: {}, hospitalDocs: {}, legalRepDocuments: {} };
 
             const filesToProcess: { docKey: AllDocumentKeys, fileState: FileWithProgress, typePathFragment: string, subFolder?: string }[] = [];
-
+            
             if (role === 'doctor') {
                 if(doctorObjective === 'caravan') {
                     const caravanKeys: DoctorDocKeys[] = ['personalRg', 'personalCpf', 'professionalCrm'];
@@ -818,8 +818,6 @@ function RegisterForm() {
                 });
             }
             
-            console.log(`--- DEBUG handleSubmit: Encontrados ${filesToProcess.length} ficheiros para upload.`); // NOVO LOG
-            
             let allUploadsSuccessful = true;
             if (filesToProcess.length > 0) {
                 const uploadPromises = filesToProcess.map(item => {
@@ -843,7 +841,6 @@ function RegisterForm() {
                     });
                 });
                 const uploadResults = await Promise.all(uploadPromises);
-                console.log("--- DEBUG handleSubmit: Resultado dos uploads:", uploadResults); // NOVO LOG
 
                 if (uploadResults.some(r => r === null)) allUploadsSuccessful = false;
 
@@ -861,14 +858,11 @@ function RegisterForm() {
             }
 
             if (!allUploadsSuccessful) {
-                console.error("--- DEBUG handleSubmit: Falha detetada no upload de ficheiros. Abortando."); // NOVO LOG
                 throw new Error("Um ou mais uploads de documentos falharam. Verifique os arquivos e tente novamente.");
             }
-
-            console.log("--- DEBUG handleSubmit: Uploads concluídos com sucesso."); // NOVO LOG
-            toast({ title: "Etapa 3/3: Finalizando e aplicando permissões...", duration: 3000 });
-            console.log("--- DEBUG handleSubmit: Etapa 3 - Preparando payload do perfil... ---"); // NOVO LOG
             
+            // Etapa 3: Preparar os dados e salvar o perfil no Firestore
+            toast({ title: "Etapa 3/3: Finalizando o cadastro...", duration: 3000 });
             let registrationData: DoctorRegistrationPayload | HospitalRegistrationPayload;
 
             if (role === 'doctor') {
@@ -904,62 +898,35 @@ function RegisterForm() {
                     legalRepDocuments: finalDocRefs.legalRepDocuments,
                 };
             }
-            
-            console.log("--- DEBUG handleSubmit: Payload final pronto. A chamar completeUserRegistration..."); // NOVO LOG
+
             await completeUserRegistration(userId, loginEmail, displayName, role, registrationData);
-            console.log("--- DEBUG handleSubmit: completeUserRegistration executado com sucesso."); // NOVO LOG
-            
-            const delay = (ms: number) => new Promise(res => setTimeout(res, ms));
-            let claims;
-            let retries = 5;
-            
-            while (retries > 0) {
-                const user = (await import("@/lib/firebase")).auth.currentUser;
-                if (!user) throw new Error("Usuário não encontrado para verificação de permissões.");
 
-                await user.getIdToken(true);
-                const idTokenResult = await user.getIdTokenResult();
-                claims = idTokenResult.claims;
-                
-                if (claims.role === role) {
-                    break; 
-                }
-                
-                retries--;
-                if (retries === 0) {
-                    throw new Error("Não foi possível verificar as permissões. Por favor, faça login novamente.");
-                }
-                await delay(2000);
-            }
-            
             toast({
-                variant: "default",
                 title: "Cadastro Realizado com Sucesso!",
-                description: "Permissões verificadas. Redirecionando...",
-                duration: 3000
+                description: "Aguarde, a redirecionar para o seu painel...",
+                duration: 4000
             });
-
+            
+            // --- CORREÇÃO DEFINITIVA ---
+            // Forçamos um redirecionamento completo para o dashboard.
+            // Ao carregar a nova página, o AuthProvider irá executar novamente,
+            // mas desta vez, o perfil no Firestore JÁ EXISTE e será encontrado.
             const newDashboardPath = role === 'doctor' ? '/dashboard' : '/hospital/dashboard';
-            router.push(newDashboardPath);
+            window.location.assign(newDashboardPath);
 
         } catch (error: any) {
-            // --- BLOCO DE CATCH ATUALIZADO ---
-            console.error("--- DEBUG handleSubmit: ERRO NO BLOCO CATCH PRINCIPAL ---", error); // NOVO LOG
             let title = "Erro no Cadastro";
             let description = error.message || "Ocorreu um erro inesperado.";
             if (error instanceof FirebaseError) {
-                switch (error.code) {
-                    case 'auth/email-already-in-use':
-                        title = "Email já Cadastrado";
-                        description = "Este email já está em uso por outra conta.";
-                        break;
+                if (error.code === 'auth/email-already-in-use') {
+                    title = "Email já Cadastrado";
+                    description = "Este email já está em uso por outra conta.";
                 }
             }
             toast({ variant: "destructive", title: title, description: description, duration: 7000 });
-        } finally {
-            setIsLoading(false);
-            console.log("--- DEBUG handleSubmit: FINALIZADO ---"); // NOVO LOG
+            setIsLoading(false); // Garante que o loading para em caso de erro
         }
+        // O setIsLoading(false) foi movido para o bloco catch, pois o sucesso leva a um reload da página.
     };
 
     const renderCurrentStep = () => {
