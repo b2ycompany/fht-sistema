@@ -1,8 +1,11 @@
+// app/admin/caravanas/page.tsx
 "use client";
 
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { db } from '@/lib/firebase';
+// Importação atualizada para incluir 'functions'
+import { db, functions } from '@/lib/firebase'; 
+import { httpsCallable } from 'firebase/functions';
 import { collection, query, onSnapshot, addDoc, serverTimestamp, Timestamp, orderBy } from 'firebase/firestore';
 import { useAuth } from '@/components/auth-provider';
 import { useToast } from '@/hooks/use-toast';
@@ -31,6 +34,60 @@ interface CaravanEvent {
     status: 'PLANEJAMENTO' | 'ATIVA' | 'CONCLUIDA';
     createdAt: Timestamp;
 }
+
+
+// --- FERRAMENTA TEMPORÁRIA ADICIONADA ---
+/**
+ * Componente para definir a permissão de administrador para um utilizador.
+ * Utiliza uma Firebase Cloud Function ('setAdminClaim') para atribuir a permissão.
+ * É uma ferramenta de uso único, ideal para a configuração inicial do sistema.
+ */
+const AdminClaimSetter = () => {
+    const { toast } = useToast();
+    const [isLoading, setIsLoading] = useState(false);
+    // Pré-preenchemos com o e-mail de admin padrão para facilitar.
+    const [adminEmail, setAdminEmail] = useState("admin@fht.com");
+
+    const setClaim = async () => {
+        if (!adminEmail) {
+            toast({ title: "Erro", description: "O campo de e-mail não pode estar vazio.", variant: "destructive" });
+            return;
+        }
+        setIsLoading(true);
+        try {
+            // Prepara a chamada para a Cloud Function 'setAdminClaim'
+            const setAdminClaimFunction = httpsCallable(functions, 'setAdminClaim');
+            // Executa a função, passando o e-mail como parâmetro
+            const result = await setAdminClaimFunction({ email: adminEmail });
+            toast({ title: "Sucesso!", description: (result.data as any).message, className: "bg-green-600 text-white" });
+        } catch (error: any) {
+            toast({ title: "Erro ao definir permissão", description: error.message, variant: "destructive" });
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    return (
+        <Card className="mb-6 bg-yellow-50 border-yellow-300">
+            <CardHeader>
+                <CardTitle>Ferramenta de Administrador: Definir Permissão</CardTitle>
+                <CardDescription>Use esta ferramenta uma única vez para atribuir a permissão de 'admin' ao seu utilizador.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+                <div className="space-y-1.5">
+                    <Label htmlFor="admin-email">E-mail do Administrador</Label>
+                    <Input id="admin-email" value={adminEmail} onChange={(e) => setAdminEmail(e.target.value)} />
+                </div>
+                <Button onClick={setClaim} disabled={isLoading}>
+                    {isLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                    Definir Permissão de Admin
+                </Button>
+            </CardContent>
+        </Card>
+    );
+};
+// --- FIM DA FERRAMENTA TEMPORÁRIA ---
+
 
 // --- COMPONENTE PRINCIPAL ---
 export default function CaravanManagementPage() {
@@ -108,6 +165,9 @@ export default function CaravanManagementPage() {
 
     return (
         <div className="container mx-auto p-4 sm:p-6 space-y-6">
+            {/* O novo componente é adicionado aqui, no topo da página */}
+            <AdminClaimSetter />
+
             <div className="flex items-center justify-between">
                 <div>
                     <h1 className="text-3xl font-bold tracking-tight">Gestão Multirão</h1>
