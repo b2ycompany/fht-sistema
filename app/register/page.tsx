@@ -137,7 +137,7 @@ interface RegistrationSummaryProps {
     role: UserType;
     data: SummaryData;
     onEdit: (stepId: string) => void;
-    isInvitation: boolean; // NOVO: Prop para saber se é um convite
+    isInvitation: boolean; 
 }
 
 const SummaryField: React.FC<{ label: string; value: string | undefined | null }> = ({ label, value }) => {
@@ -171,7 +171,6 @@ const SummaryFileField: React.FC<{ label: string; fileProgress: FileWithProgress
     );
 };
 
-// ATUALIZADO: O componente de Resumo agora sabe se é um fluxo de convite
 const RegistrationSummary: React.FC<RegistrationSummaryProps> = ({ role, data, onEdit, isInvitation }) => {
     if (!role || !data || Object.keys(data).length === 0) {
         return (
@@ -235,7 +234,6 @@ const RegistrationSummary: React.FC<RegistrationSummaryProps> = ({ role, data, o
                         <SummaryField label="Estado" value={data.addressInfo.state} />
                     </>))}
 
-                    {/* Lógica de exibição de documentos ajustada */}
                     {data.doctorDocuments && data.registrationObjective === 'caravan' && !isInvitation && renderSection("Documentos Essenciais", "essentialDocsCaravan", (<>
                         {(['personalRg', 'personalCpf', 'professionalCrm'] as DoctorDocKeys[]).map(key => (
                             <SummaryFileField key={key} label={DOCUMENT_LABELS[key]} fileProgress={data.doctorDocuments![key]} />
@@ -928,15 +926,17 @@ function RegisterForm() {
             }
             
             await completeUserRegistration(userId, loginEmail, displayName, role, registrationData);
-
+            
+            // ALTERAÇÃO REALIZADA: A mensagem foi ajustada para refletir o novo redirecionamento.
             toast({
                 title: "Cadastro Realizado com Sucesso!",
-                description: "Aguarde, a redirecionar para o seu painel...",
+                description: "Redirecionando para a página de login...",
                 duration: 4000
             });
             
-            const newDashboardPath = role === 'doctor' ? '/dashboard' : '/hospital/dashboard';
-            window.location.assign(newDashboardPath);
+            // ALTERAÇÃO REALIZADA: Redirecionamento forçado para /login para resolver o problema da tela branca.
+            // O utilizador fará login novamente, e o AuthProvider cuidará de o redirecionar para o painel correto.
+            window.location.assign('/login');
 
         } catch (error: any) {
             let title = "Erro no Cadastro";
@@ -1302,6 +1302,7 @@ function RegisterForm() {
                 <Button
                     variant="outline"
                     onClick={handlePrevStep}
+                    // ALTERAÇÃO REALIZADA: O botão "Voltar" agora é desativado se for um fluxo de convite.
                     disabled={step === 0 || isLoading || isCepLoading || isHospitalCepLoading || !!invitationToken }
                     className="w-full sm:w-auto px-6 py-3 text-sm sm:text-base"
                 >

@@ -1,7 +1,7 @@
 // app/login/page.tsx
 "use client";
 
-import React, { useState, useEffect, useCallback, ChangeEvent, Suspense } from "react";
+import React, { useState, useEffect, useCallback, Suspense } from "react";
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import Image from 'next/image';
@@ -14,7 +14,29 @@ import { loginUser, getCurrentUserData, type UserProfile } from '@/lib/auth-serv
 import { useAuth } from '@/components/auth-provider';
 import LogoPath from '@/public/logo-fht.svg';
 import { Loader2, LogInIcon } from 'lucide-react';
-import { cn } from '@/lib/utils';
+
+// --- LÓGICA DE REDIRECIONAMENTO CENTRALIZADA E CORRIGIDA ---
+const getRedirectPathForRole = (userRole?: UserProfile['userType']): string => {
+    switch (userRole) {
+        case 'admin':
+        case 'backoffice':
+            return '/admin/caravanas';
+        case 'hospital':
+            return '/hospital/dashboard';
+        case 'doctor':
+            return '/dashboard';
+        case 'receptionist':
+        case 'triage_nurse':
+            // CORRIGIDO: Redireciona para o painel de pacientes do hospital
+            return '/hospital/patients'; 
+        case 'caravan_admin':
+            // APENAS este perfil vai para o portal da caravana/multirão
+            return '/caravan/portal';
+        default:
+            // Rota padrão segura
+            return '/';
+    }
+};
 
 const LoadingPage = ({ message = "Carregando..." }: { message?: string }) => (
     <div className="flex min-h-screen flex-col items-center justify-center bg-gray-100 p-6">
@@ -27,22 +49,9 @@ LoadingPage.displayName = "LoadingPage";
 function LoginLogic() {
   const router = useRouter();
   const { user: authUser, loading: authLoading } = useAuth();
-  const searchParams = useSearchParams();
   const { toast } = useToast();
   const [profileCheckLoading, setProfileCheckLoading] = useState(false);
   const [initialAuthCheckDone, setInitialAuthCheckDone] = useState(false);
-
-  const getRedirectPath = useCallback((userRole?: UserProfile['userType']) => {
-    const explicitRedirect = searchParams.get('redirectUrl');
-    if (explicitRedirect && explicitRedirect.startsWith('/')) return explicitRedirect;
-    
-    if (userRole === 'doctor') return '/dashboard';
-    if (userRole === 'hospital') return '/hospital/dashboard';
-    if (userRole === 'admin' || userRole === 'backoffice') return '/admin/caravanas';
-    if (['receptionist', 'triage_nurse', 'caravan_admin'].includes(userRole || '')) return '/caravan/portal';
-    
-    return '/';
-  }, [searchParams]);
 
   useEffect(() => {
     if (!authLoading) {
@@ -51,10 +60,9 @@ function LoginLogic() {
             getCurrentUserData()
             .then(profile => {
                 if (profile) {
-                    // --- CORREÇÃO: Verifica 'userType' primeiro, depois 'role' ---
-                    const userRole = profile.userType || (profile as any).role;
-                    const redirectPath = getRedirectPath(userRole);
-                    console.log("[LoginLogic] Profile found. Role/UserType:", userRole, "Redirecting to:", redirectPath);
+                    // Usa a nova função centralizada
+                    const redirectPath = getRedirectPathForRole(profile.userType);
+                    console.log("[LoginLogic] Profile found. Role/UserType:", profile.userType, "Redirecting to:", redirectPath);
                     router.push(redirectPath);
                 } else {
                     setProfileCheckLoading(false);
@@ -72,7 +80,7 @@ function LoginLogic() {
             setInitialAuthCheckDone(true);
         }
     }
-  }, [authUser, authLoading, router, getRedirectPath, toast, initialAuthCheckDone]);
+  }, [authUser, authLoading, router, toast, initialAuthCheckDone]);
 
   if (authLoading || (authUser && profileCheckLoading && !initialAuthCheckDone)) {
       return <LoadingPage message="Verificando sua sessão..." />;
@@ -90,14 +98,6 @@ export default function LoginPage() {
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const getRedirectPathForSubmit = (userRole?: UserProfile['userType']) => {
-    if (userRole === 'doctor') return '/dashboard';
-    if (userRole === 'hospital') return '/hospital/dashboard';
-    if (userRole === 'admin' || userRole === 'backoffice') return '/admin/caravanas';
-    if (['receptionist', 'triage_nurse', 'caravan_admin'].includes(userRole || '')) return '/caravan/portal';
-    return '/';
-  };
-
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setError(null);
@@ -107,9 +107,8 @@ export default function LoginPage() {
       const profile = await getCurrentUserData();
       if (profile) {
         toast({ title: "Login bem-sucedido!", description: `Bem-vindo(a) de volta, ${profile.displayName}!`});
-        // --- CORREÇÃO: Verifica 'userType' primeiro, depois 'role' ---
-        const userRole = profile.userType || (profile as any).role;
-        const redirectPath = getRedirectPathForSubmit(userRole);
+        // Usa a nova função centralizada
+        const redirectPath = getRedirectPathForRole(profile.userType);
         router.push(redirectPath);
       } else {
         setError("Perfil do usuário não encontrado após o login. Contate o suporte.");
