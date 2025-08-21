@@ -133,9 +133,14 @@ export interface HospitalProfile extends UserProfileBase {
   legalRepDocuments?: Partial<LegalRepDocumentsRef>;
   documentVerificationStatus?: ProfileStatus;
 }
+
 export interface AdminProfile extends UserProfileBase {
   userType: "admin" | "backoffice" | "receptionist" | "triage_nurse" | "caravan_admin";
   permissions?: string[];
+  // --- CAMPO CRÍTICO ADICIONADO ---
+  // Este campo deve conter o ID do documento da caravana/unidade de saúde
+  // à qual o utilizador (ex: recepcionista) pertence.
+  assignedCaravanId?: string;
 }
 
 export type UserProfile = DoctorProfile | HospitalProfile | AdminProfile;

@@ -4,12 +4,16 @@
 import React, { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 import { onAuthStateChanged, type User } from "firebase/auth";
 import { auth } from "@/lib/firebase";
-import { getCurrentUserData, type UserProfile } from "@/lib/auth-service";
-import { useRouter, usePathname } from "next/navigation"; // Importar useRouter e usePathname
+import { getCurrentUserData, type UserProfile, AdminProfile } from "@/lib/auth-service";
+import { useRouter, usePathname } from "next/navigation";
 
-// Função de redirecionamento centralizada
-const getRedirectPathForRole = (userRole?: UserProfile['userType']): string => {
-    switch (userRole) {
+// --- FUNÇÃO DE REDIRECIONAMENTO AGORA É DINÂMICA ---
+const getRedirectPathForProfile = (profile: UserProfile | null): string => {
+    if (!profile || !profile.userType) {
+        return '/login'; // Rota de segurança
+    }
+
+    switch (profile.userType) {
         case 'admin':
         case 'backoffice':
             return '/admin/caravanas';
@@ -17,15 +21,33 @@ const getRedirectPathForRole = (userRole?: UserProfile['userType']): string => {
             return '/hospital/dashboard';
         case 'doctor':
             return '/dashboard';
+        
         case 'receptionist':
         case 'triage_nurse':
-            return '/hospital/patients'; // Rota correta para a equipa do hospital
+            // Lógica dinâmica: verifica se há uma caravana/unidade associada
+            const adminProfileStaff = profile as AdminProfile;
+            if (adminProfileStaff.assignedCaravanId) {
+                // Constrói a URL para a página de atendimento da unidade específica
+                return `/caravan/${adminProfileStaff.assignedCaravanId}/attendance`;
+            }
+            // Se, por algum motivo, não tiver uma unidade associada, envia para uma página de erro/aviso
+            console.warn(`Utilizador ${profile.uid} (${profile.userType}) não tem uma unidade de saúde associada.`);
+            return '/unassigned'; // Uma página que diz "Contacte o seu gestor"
+
         case 'caravan_admin':
-            return '/caravan/portal';
+            // O admin da caravana também pode precisar ser direcionado para sua caravana específica
+            const adminProfileCaravan = profile as AdminProfile;
+            if (adminProfileCaravan.assignedCaravanId) {
+                // Talvez para o dashboard da caravana em vez da página de atendimento
+                return `/caravan/${adminProfileCaravan.assignedCaravanId}/dashboard`;
+            }
+            return '/'; // Ou para uma página geral de caravanas
+
         default:
             return '/'; // Rota padrão segura
     }
 };
+
 
 interface AuthContextType {
   user: User | null;
@@ -54,21 +76,16 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
           const profile = await getCurrentUserData();
           setUserProfile(profile);
 
-          // --- LÓGICA DE REDIRECIONAMENTO CENTRALIZADA ---
-          if (profile && profile.userType) {
-            const targetPath = getRedirectPathForRole(profile.userType);
-            const publicRoutes = ['/login', '/register', '/reset-password', '/'];
-            
-            // Redireciona apenas se o utilizador estiver numa página pública ou numa rota que não corresponde ao seu perfil
-            // Ex: Um 'doctor' em '/hospital/dashboard' será redirecionado.
-            const currentBaseRoute = `/${pathname.split('/')[1]}`;
-            const targetBaseRoute = `/${targetPath.split('/')[1]}`;
-
-            if (publicRoutes.includes(pathname) || (currentBaseRoute !== targetBaseRoute)) {
-                console.log(`[AuthProvider] Redirecionando utilizador '${profile.userType}' da rota '${pathname}' para: ${targetPath}`);
-                router.push(targetPath);
-            }
+          const targetPath = getRedirectPathForProfile(profile);
+          const publicRoutes = ['/login', '/register', '/reset-password', '/', '/unassigned'];
+          
+          if (pathname === targetPath) {
+              // Já está na página certa, não faz nada para evitar loops
+          } else if (publicRoutes.includes(pathname)) {
+              console.log(`[AuthProvider] Utilizador em rota pública. Redirecionando '${profile?.userType}' para: ${targetPath}`);
+              router.push(targetPath);
           }
+          
         } catch (error) {
           console.error("[AuthProvider] onAuthStateChanged: Error fetching profile:", error);
           setUserProfile(null); 
@@ -76,10 +93,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
           setProfileLoading(false);
         }
       } else {
-        // Se não há utilizador, mas ele está numa página protegida, redireciona para o login
         const protectedRoutesPrefixes = ['/admin', '/hospital', '/dashboard', '/caravan'];
         if (protectedRoutesPrefixes.some(prefix => pathname.startsWith(prefix))) {
-            console.log(`[AuthProvider] Utilizador deslogado em rota protegida '${pathname}'. Redirecionando para /login.`);
             router.push('/login');
         }
         setUserProfile(null);
@@ -89,7 +104,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     });
 
     return () => unsubscribe();
-  }, [router, pathname]); // Adicionado router e pathname às dependências
+  }, [router, pathname]); // Dependências mantidas para reavaliar se o utilizador navegar manualmente
 
   const contextValue = { user, userProfile, loading, profileLoading };
 
