@@ -25,6 +25,10 @@ import { httpsCallable } from "firebase/functions";
 export type UserType = "doctor" | "hospital" | "admin" | "backoffice" | "receptionist" | "triage_nurse" | "caravan_admin";
 export type ProfileStatus = "PENDING_REVIEW" | "APPROVED" | "REJECTED_NEEDS_RESUBMISSION";
 
+// --- TIPO ADICIONADO AQUI ---
+// 1. Exporta o novo tipo para que outras partes da aplicação possam usá-lo.
+export type StaffStatus = 'INVITED' | 'ACTIVE' | 'SUSPENDED';
+
 export interface PersonalInfo {
   name: string;
   dob: string;
@@ -112,6 +116,9 @@ export interface UserProfileBase {
   adminVerificationNotes?: string;
   documentRejectionReasons?: Record<string, string>;
   hospitalId?: string;
+  // --- PROPRIEDADE ADICIONADA AQUI ---
+  // 2. Adiciona o campo 'status' à interface base, tornando-o disponível para todos os tipos de perfil.
+  status?: StaffStatus;
 }
 
 export interface DoctorProfile extends UserProfileBase, DoctorRegistrationPayload {
@@ -166,7 +173,10 @@ export interface StaffCreationPayload {
   hospitalId: string;
 }
 
-const createStaffUserCallable = httpsCallable<Omit<StaffCreationPayload, 'hospitalId'>, { success: boolean, user: UserProfile }>(functions, 'createStaffUser');
+// --- Funções de Serviço ---
+
+const createStaffUserCallable = httpsCallable<StaffCreationPayload, { success: boolean, user: UserProfile }>(functions, 'createStaffUser');
+const confirmUserSetupCallable = httpsCallable<void, { success: boolean }>(functions, 'confirmUserSetup');
 
 export const createStaffMember = async (payload: StaffCreationPayload) => {
     try {
@@ -178,6 +188,14 @@ export const createStaffMember = async (payload: StaffCreationPayload) => {
     } catch (error: any) {
         console.error("[AuthService] Erro ao chamar a função createStaffUser:", error);
         throw new Error(error.message || "Não foi possível adicionar o membro à Equipa.");
+    }
+};
+
+export const confirmFirstLogin = async (): Promise<void> => {
+    try {
+        await confirmUserSetupCallable();
+    } catch (error) {
+        console.warn("Falha ao tentar confirmar o primeiro login:", error);
     }
 };
 
@@ -317,6 +335,27 @@ export const getCurrentUserData = async (): Promise<UserProfile | null> => {
     throw e;
   }
 };
+
+// --- FUNÇÃO ADICIONADA ---
+// Esta função busca o perfil de qualquer utilizador pelo seu ID.
+// É necessária para que o dashboard do médico possa buscar os nomes
+// das unidades de saúde às quais ele está associado.
+export const getUserProfile = async (userId: string): Promise<UserProfile | null> => {
+  if (!userId) return null;
+  try {
+    const docRef = doc(db, "users", userId);
+    const docSnap = await getDoc(docRef);
+    if (docSnap.exists()) {
+      return { uid: docSnap.id, ...docSnap.data() } as UserProfile;
+    }
+    console.warn(`[AuthService] Nenhum perfil encontrado para o ID: ${userId}`);
+    return null;
+  } catch (error) {
+    console.error(`[AuthService] Erro ao buscar perfil para o ID ${userId}:`, error);
+    throw new Error("Não foi possível buscar o perfil do utilizador.");
+  }
+};
+// --- FIM DA FUNÇÃO ADICIONADA ---
 
 export const getDoctorProfileForAdmin = async (doctorId: string): Promise<DoctorProfile | null> => {
   if (!doctorId) return null;

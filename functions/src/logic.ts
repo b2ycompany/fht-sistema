@@ -11,6 +11,7 @@ import { v4 as uuidv4 } from 'uuid';
 
 // --- INTERFACES E TIPOS ---
 
+// Interface consolidada para abranger todos os campos utilizados no arquivo
 interface UserProfile extends DocumentData {
     uid: string;
     userType: 'doctor' | 'hospital' | 'admin' | 'receptionist' | 'triage_nurse' | 'caravan_admin';
@@ -20,8 +21,11 @@ interface UserProfile extends DocumentData {
     professionalCrm?: string;
     specialties?: string[];
     healthUnitIds?: string[];
-    status?: 'active' | 'pending_approval' | 'suspended'; // Adicionado status ao perfil
-    invitationToken?: string; // Adicionado campo para rastrear o convite
+    hospitalId?: string; // Usado por membros da equipa
+    status?: 'INVITED' | 'ACTIVE' | 'SUSPENDED' | 'active' | 'pending_approval' | 'suspended';
+    invitationToken?: string;
+    createdAt?: FieldValue;
+    updatedAt?: FieldValue;
 }
 
 interface ShiftRequirementData {
@@ -914,6 +918,9 @@ export const setAdminClaimHandler = async (request: CallableRequest) => {
     }
 };
 
+/**
+ * ATUALIZADO: Cria um novo utilizador da equipa e envia um convite por email com link para criar a senha.
+ */
 export const createStaffUserHandler = async (request: CallableRequest) => {
     if (!request.auth) {
         throw new HttpsError("unauthenticated", "Apenas gestores autenticados podem adicionar membros à equipa.");
@@ -932,41 +939,49 @@ export const createStaffUserHandler = async (request: CallableRequest) => {
         throw new HttpsError("invalid-argument", "Nome, email e função são obrigatórios.");
     }
 
-    const validStaffRoles = ['receptionist', 'triage_nurse', 'caravan_admin'];
-    if(!validStaffRoles.includes(userType)) {
-        throw new HttpsError("invalid-argument", "Função de utilizador inválida.");
-    }
-
-    logger.info(`Gestor ${managerUid} está a criar um novo profissional '${name}' com a função '${userType}'`);
-
     try {
-        const tempPassword = Math.random().toString(36).slice(-8);
-        
+        // 1. Cria o utilizador na autenticação do Firebase
         const userRecord = await auth.createUser({
             email: email,
-            emailVerified: false,
-            password: tempPassword,
+            emailVerified: true,
             displayName: name,
             disabled: false,
         });
 
-        logger.info(`Utilizador de autenticação criado para ${email} com UID: ${userRecord.uid}`);
-
+        // 2. Cria o perfil do utilizador no Firestore com o status 'INVITED'
         const userProfile = {
-            uid: userRecord.uid,
             displayName: name,
             email: email,
             userType: userType,
             hospitalId: managerUid,
+            status: 'INVITED', // <<< STATUS INICIAL
             createdAt: FieldValue.serverTimestamp(),
             updatedAt: FieldValue.serverTimestamp(),
         };
-
         await db.collection("users").doc(userRecord.uid).set(userProfile);
         
-        logger.info(`TODO: Enviar email de boas-vindas para ${email} com a senha temporária: ${tempPassword}`);
+        // 3. Gera o link para criação/reset de senha
+        const actionCodeSettings = {
+            url: `https://fhtgestao.com.br/login`, // Página para onde o user é redirecionado após criar a senha
+            handleCodeInApp: true,
+        };
+        const passwordCreationLink = await auth.generatePasswordResetLink(email, actionCodeSettings);
 
-        return { success: true, user: userProfile };
+        // 4. Envia o email de boas-vindas (usando a extensão Trigger Email do Firebase)
+        await db.collection("mail").add({
+            to: email,
+            template: {
+                name: "welcome_staff", // Nome do seu template de email
+                data: {
+                    managerName: managerProfile.displayName,
+                    staffName: name,
+                    role: userType.replace('_', ' '),
+                    action_url: passwordCreationLink,
+                },
+            },
+        });
+        
+        return { success: true, user: { uid: userRecord.uid, ...userProfile } };
 
     } catch (error: any) {
         logger.error("Falha ao criar profissional:", error);
@@ -974,6 +989,33 @@ export const createStaffUserHandler = async (request: CallableRequest) => {
             throw new HttpsError("already-exists", "Este endereço de e-mail já está em uso.");
         }
         throw new HttpsError("internal", "Ocorreu um erro inesperado ao criar o profissional.");
+    }
+};
+
+/**
+ * NOVA FUNÇÃO: Atualiza o status de um utilizador de 'INVITED' para 'ACTIVE'.
+ */
+export const confirmUserSetupHandler = async (request: CallableRequest) => {
+    if (!request.auth) {
+        throw new HttpsError("unauthenticated", "Utilizador não autenticado.");
+    }
+
+    const userId = request.auth.uid;
+    const userRef = db.collection("users").doc(userId);
+
+    try {
+        const userDoc = await userRef.get();
+        if (userDoc.exists && userDoc.data()?.status === 'INVITED') {
+            await userRef.update({
+                status: 'ACTIVE',
+                updatedAt: FieldValue.serverTimestamp(),
+            });
+            return { success: true, message: "Status do utilizador atualizado para ativo." };
+        }
+        return { success: false, message: "Nenhuma ação necessária." };
+    } catch (error) {
+        logger.error(`Falha ao confirmar o acesso do utilizador ${userId}:`, error);
+        throw new HttpsError("internal", "Não foi possível atualizar o status do utilizador.");
     }
 };
 

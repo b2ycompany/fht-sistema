@@ -1,21 +1,24 @@
+// app/dashboard/triage/page.tsx
 "use client";
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAuth } from '@/components/auth-provider';
 import { useToast } from '@/hooks/use-toast';
 import { listenToServiceQueue, startTriage, submitTriage, type ServiceQueueEntry, type TriageData } from '@/lib/patient-service';
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { Loader2, User, Clock, ShieldAlert, HeartPulse } from 'lucide-react';
+import { Loader2, Clock, ShieldAlert, HeartPulse } from 'lucide-react';
 import { type UserType } from '@/lib/auth-service';
 import { Timestamp } from 'firebase/firestore';
 
+/**
+ * Formulário para preenchimento dos dados de triagem.
+ */
 const TriageForm = ({ queueEntry, onTriageSubmit }: { queueEntry: ServiceQueueEntry, onTriageSubmit: () => void }) => {
-    const { userProfile } = useAuth();
     const { toast } = useToast();
     const [triageData, setTriageData] = useState<TriageData>({
         chiefComplaint: '', bloodPressure: '', temperature: '', heartRate: '', respiratoryRate: '', oxygenSaturation: '', notes: ''
@@ -35,7 +38,7 @@ const TriageForm = ({ queueEntry, onTriageSubmit }: { queueEntry: ServiceQueueEn
         setIsSubmitting(true);
         try {
             await submitTriage(queueEntry.id, triageData);
-            toast({ title: "Triagem Finalizada!", description: `${queueEntry.patientName} foi encaminhado(a) para o atendimento.` });
+            toast({ title: "Triagem Finalizada!", description: `${queueEntry.patientName} foi encaminhado(a) para o atendimento médico.` });
             onTriageSubmit();
         } catch(error: any) {
             toast({ title: "Erro ao Finalizar", description: error.message, variant: "destructive" });
@@ -64,6 +67,7 @@ const TriageForm = ({ queueEntry, onTriageSubmit }: { queueEntry: ServiceQueueEn
         </div>
     );
 };
+
 
 export default function TriagePage() {
     const { userProfile, loading: authLoading } = useAuth();

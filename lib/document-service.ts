@@ -1,27 +1,26 @@
 // lib/document-service.ts
-"use strict";
-
-import { getFunctions, httpsCallable } from "firebase/functions";
-import { getApp } from "firebase/app";
+import { functions } from "./firebase";
+import { httpsCallable } from "firebase/functions";
 import { Timestamp } from "firebase/firestore";
 
-// Define os tipos de documentos que podemos gerar
-export type DocumentType = 'medicalCertificate' | 'attendanceCertificate';
+// --- INTERFACES E TIPOS ---
 
-// Interface para os dados do documento no banco de dados
-export interface MedicalDocument {
-  id: string;
+export interface Medication {
+  name: string;
+  dosage: string;
+  instructions: string;
+}
+
+export interface PrescriptionPayload {
   consultationId: string;
   patientName: string;
   doctorName: string;
   doctorCrm: string;
-  type: DocumentType;
-  createdAt: Timestamp;
-  pdfUrl: string;
-  details: any; // Armazena dados específicos como 'daysOff' ou 'cid'
+  medications: Medication[];
 }
 
-// Interface para os dados enviados para a Cloud Function
+export type DocumentType = 'medicalCertificate' | 'attendanceCertificate';
+
 export interface DocumentPayload {
   type: DocumentType;
   consultationId: string;
@@ -29,32 +28,53 @@ export interface DocumentPayload {
   doctorName: string;
   doctorCrm: string;
   details: {
-    daysOff?: number; // Para Atestado Médico
-    cid?: string; // Para Atestado Médico
-    consultationPeriod?: string; // Para Declaração de Comparecimento
+    daysOff?: number;
+    cid?: string;
+    consultationPeriod?: string;
   };
 }
+
+interface GenerationResponse {
+    success: boolean;
+    documentId: string;
+    pdfUrl: string;
+}
+
+// --- FUNÇÕES QUE CHAMAM O BACKEND ---
+
+// FUNÇÃO ADICIONADA: Para gerar receitas
+const generatePrescriptionPdfCallable = httpsCallable<PrescriptionPayload, GenerationResponse>(functions, 'generatePrescriptionPdf');
+
+// FUNÇÃO EXISTENTE: Para gerar outros documentos
+const generateDocumentPdfCallable = httpsCallable<DocumentPayload, GenerationResponse>(functions, 'generateDocumentPdf');
+
+/**
+ * Chama a Cloud Function para gerar um PDF de receita médica.
+ */
+export const generatePrescription = async (payload: PrescriptionPayload): Promise<GenerationResponse> => {
+    try {
+        const result = await generatePrescriptionPdfCallable(payload);
+        if (!result.data.success) {
+            throw new Error("O backend retornou uma falha ao gerar a receita.");
+        }
+        return result.data;
+    } catch (error: any) {
+        console.error("Erro ao chamar generatePrescriptionPdf:", error);
+        throw new Error(error.message || "Não foi possível gerar a receita.");
+    }
+};
 
 /**
  * Chama a Cloud Function universal para gerar um PDF de documento (Atestado, Declaração, etc).
  */
-export const generateDocument = async (payload: DocumentPayload): Promise<{success: boolean, documentId: string, pdfUrl: string}> => {
-    const app = getApp();
-    const functions = getFunctions(app, 'us-central1');
-    const generatePdfCallable = httpsCallable(functions, 'generateDocumentPdf');
-
+export const generateDocument = async (payload: DocumentPayload): Promise<GenerationResponse> => {
     try {
-        console.log(`Chamando a Cloud Function 'generateDocumentPdf' para o tipo: ${payload.type}`);
-        const result = await generatePdfCallable(payload);
-        const data = result.data as { success: boolean; documentId: string; pdfUrl: string };
-
-        if (data.success) {
-            console.log("Documento gerado com sucesso:", data);
-            return data;
-        } else {
+        const result = await generateDocumentPdfCallable(payload);
+        if (!result.data.success) {
             throw new Error("A Cloud Function retornou um erro ao gerar o documento.");
         }
-    } catch (error) {
+        return result.data;
+    } catch (error: any) {
         console.error("Erro ao chamar a função generateDocumentPdf:", error);
         throw new Error("Não foi possível gerar o documento em PDF.");
     }

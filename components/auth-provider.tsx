@@ -4,7 +4,7 @@
 import React, { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 import { onAuthStateChanged, type User } from "firebase/auth";
 import { auth } from "@/lib/firebase";
-import { getCurrentUserData, type UserProfile, AdminProfile } from "@/lib/auth-service";
+import { getCurrentUserData, type UserProfile, AdminProfile, confirmFirstLogin } from "@/lib/auth-service";
 import { useRouter, usePathname } from "next/navigation";
 
 // --- FUNÇÃO DE REDIRECIONAMENTO AGORA É DINÂMICA ---
@@ -74,15 +74,19 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         setProfileLoading(true);
         try {
           const profile = await getCurrentUserData();
-          setUserProfile(profile);
-
+          
+          if (profile && profile.status === 'INVITED') {
+            await confirmFirstLogin();
+            // Atualiza o perfil localmente para a UI refletir a mudança imediatamente
+            const updatedProfile = { ...profile, status: 'ACTIVE' as const };
+            setUserProfile(updatedProfile);
+          } else {
+            setUserProfile(profile);
+          }
+          
           const targetPath = getRedirectPathForProfile(profile);
           const publicRoutes = ['/login', '/register', '/reset-password', '/', '/unassigned'];
-          
-          if (pathname === targetPath) {
-              // Já está na página certa, não faz nada para evitar loops
-          } else if (publicRoutes.includes(pathname)) {
-              console.log(`[AuthProvider] Utilizador em rota pública. Redirecionando '${profile?.userType}' para: ${targetPath}`);
+          if (publicRoutes.includes(pathname)) {
               router.push(targetPath);
           }
           
@@ -104,7 +108,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     });
 
     return () => unsubscribe();
-  }, [router, pathname]); // Dependências mantidas para reavaliar se o utilizador navegar manualmente
+  }, [router, pathname]);
 
   const contextValue = { user, userProfile, loading, profileLoading };
 

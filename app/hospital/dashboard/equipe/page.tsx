@@ -1,4 +1,4 @@
-// app/hospital/dashboard/Equipa/page.tsx
+// app/hospital/dashboard/Equipe/page.tsx
 "use client";
 
 import React, { useState, useEffect, useCallback } from 'react';
@@ -9,19 +9,20 @@ import { useAuth } from '@/components/auth-provider';
 import { useToast } from '@/hooks/use-toast';
 
 // Tipos
-import { type UserProfile, type UserType } from '@/lib/auth-service';
+import { type UserProfile, type UserType, type StaffStatus } from '@/lib/auth-service';
 
 // Componentes da UI
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, DialogTrigger } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Loader2, PlusCircle, UserPlus, Users } from 'lucide-react';
+import { Badge } from '@/components/ui/badge'; // <<< IMPORTAÇÃO ADICIONADA
+import { Loader2, PlusCircle, UserPlus, Users, BadgeCheck, MailWarning, ShieldAlert } from 'lucide-react'; // <<< ÍCONES ADICIONADOS
 
-// Componente para o formulário de adição de novo membro
+// Componente para o formulário de adição de novo membro (sem alterações)
 const NewStaffForm: React.FC<{ hospitalId: string; onStaffAdded: () => void }> = ({ hospitalId, onStaffAdded }) => {
     const { toast } = useToast();
     const [name, setName] = useState('');
@@ -37,14 +38,9 @@ const NewStaffForm: React.FC<{ hospitalId: string; onStaffAdded: () => void }> =
         setIsSubmitting(true);
         try {
             const createStaffUser = httpsCallable(functions, 'createStaffUser');
-            await createStaffUser({
-                hospitalId,
-                name,
-                email,
-                userType,
-            });
+            await createStaffUser({ hospitalId, name, email, userType });
             toast({ title: "Sucesso!", description: `Um convite foi enviado para ${name}.`, className: "bg-green-600 text-white" });
-            onStaffAdded(); // Fecha o modal
+            onStaffAdded();
         } catch (error: any) {
             console.error("Erro ao criar profissional:", error);
             toast({ title: "Erro ao criar profissional", description: error.message, variant: "destructive" });
@@ -55,16 +51,9 @@ const NewStaffForm: React.FC<{ hospitalId: string; onStaffAdded: () => void }> =
 
     return (
         <div className="grid gap-4 py-4">
-            <div className="space-y-1.5">
-                <Label htmlFor="name">Nome Completo</Label>
-                <Input id="name" value={name} onChange={(e) => setName(e.target.value)} />
-            </div>
-            <div className="space-y-1.5">
-                <Label htmlFor="email">Email</Label>
-                <Input id="email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
-            </div>
-            <div className="space-y-1.5">
-                <Label htmlFor="userType">Papel / Função</Label>
+            <div className="space-y-1.5"><Label htmlFor="name">Nome Completo</Label><Input id="name" value={name} onChange={(e) => setName(e.target.value)} /></div>
+            <div className="space-y-1.5"><Label htmlFor="email">Email</Label><Input id="email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} /></div>
+            <div className="space-y-1.5"><Label htmlFor="userType">Papel / Função</Label>
                 <Select value={userType} onValueChange={(value) => setUserType(value as UserType)}>
                     <SelectTrigger><SelectValue placeholder="Selecione um papel..." /></SelectTrigger>
                     <SelectContent>
@@ -98,19 +87,14 @@ export default function TeamManagementPage() {
         const q = query(collection(db, "users"), where("hospitalId", "==", user.uid));
 
         const unsubscribe = onSnapshot(q, (snapshot) => {
-            // --- LINHA CORRIGIDA ---
-            // Fazemos uma conversão de tipo mais segura, garantindo que os campos essenciais existam.
             const list = snapshot.docs.map(doc => {
                 const data = doc.data();
-                // Esta é uma conversão de tipo segura. Criamos um objeto com os campos que sabemos que vamos usar
-                // e damos valores padrão para evitar erros de 'undefined'.
-                // O 'as UserProfile' no final informa ao TypeScript que confiamos que este objeto
-                // tem a estrutura mínima necessária para ser tratado como um UserProfile na nossa UI.
                 return {
                     uid: doc.id,
                     displayName: data.displayName || 'Nome não informado',
                     email: data.email || 'Email não informado',
                     userType: data.userType || 'Não definido',
+                    status: data.status || 'INVITED', // <<< CAMPO STATUS ADICIONADO
                     createdAt: data.createdAt,
                     updatedAt: data.updatedAt,
                     hospitalId: data.hospitalId,
@@ -132,7 +116,7 @@ export default function TeamManagementPage() {
             <div className="flex items-center justify-between">
                 <div>
                     <h1 className="text-3xl font-bold tracking-tight">Gestão de Equipa</h1>
-                    <p className="text-muted-foreground">Adicione e gerencie os profissionais da sua unidade.</p>
+                    <p className="text-muted-foreground">Adicione e gira os profissionais da sua unidade.</p>
                 </div>
                 <Button onClick={() => setIsModalOpen(true)}>
                     <PlusCircle className="mr-2 h-4 w-4" />
@@ -151,6 +135,8 @@ export default function TeamManagementPage() {
                                 <TableHead>Nome</TableHead>
                                 <TableHead>Email</TableHead>
                                 <TableHead>Papel</TableHead>
+                                {/* --- COLUNA DE STATUS ADICIONADA --- */}
+                                <TableHead>Status</TableHead>
                             </TableRow>
                         </TableHeader>
                         <TableBody>
@@ -160,11 +146,18 @@ export default function TeamManagementPage() {
                                         <TableCell className="font-medium">{staff.displayName}</TableCell>
                                         <TableCell>{staff.email}</TableCell>
                                         <TableCell className="capitalize">{staff.userType?.replace(/_/g, ' ') || 'N/A'}</TableCell>
+                                        {/* --- CÉLULA DE STATUS COM BADGE CONDICIONAL --- */}
+                                        <TableCell>
+                                            {staff.status === 'ACTIVE' && <Badge variant="default" className="bg-green-100 text-green-800 border-green-200"><BadgeCheck className="mr-1.5 h-3.5 w-3.5"/>Ativo</Badge>}
+                                            {staff.status === 'INVITED' && <Badge variant="secondary" className="bg-yellow-100 text-yellow-800 border-yellow-200"><MailWarning className="mr-1.5 h-3.5 w-3.5"/>Convidado</Badge>}
+                                            {staff.status === 'SUSPENDED' && <Badge variant="destructive"><ShieldAlert className="mr-1.5 h-3.5 w-3.5"/>Suspenso</Badge>}
+                                        </TableCell>
                                     </TableRow>
                                 ))
                             ) : (
                                 <TableRow>
-                                    <TableCell colSpan={3} className="h-24 text-center">
+                                    {/* --- COLSPAN ATUALIZADO DE 3 PARA 4 --- */}
+                                    <TableCell colSpan={4} className="h-24 text-center">
                                         Nenhum profissional cadastrado ainda.
                                     </TableCell>
                                 </TableRow>
