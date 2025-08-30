@@ -3,7 +3,7 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // --- Funções Auxiliares (Melhor Prática) ---
+    // --- Funções Auxiliares ---
     function isSignedIn() {
       return request.auth != null;
     }
@@ -16,9 +16,6 @@ service cloud.firestore {
     function isUnitManager(unitId) {
       return hasRole('hospital') && request.auth.uid == unitId;
     }
-    
-    // --- FUNÇÃO CORRIGIDA ---
-    // A verificação 'hasattr' foi substituída pela sintaxe correta '"hospitalId" in request.auth.token'.
     function isStaffOfUnit(unitId) {
       return isSignedIn() && "hospitalId" in request.auth.token && request.auth.token.hospitalId == unitId;
     }
@@ -26,7 +23,12 @@ service cloud.firestore {
     // --- REGRAS PARA UTILIZADORES ---
     match /users/{userId} {
       allow get: if hasRole('admin') || isOwner(userId) || (hasRole('hospital') && resource.data.hospitalId == request.auth.uid);
-      allow list: if hasRole('admin') || (hasRole('hospital') && request.query.hospitalId == request.auth.uid);
+      
+      // <<< CORREÇÃO 1: PERMISSÃO DE LISTAGEM DA EQUIPA >>>
+      // Permite que um 'hospital' liste apenas os utilizadores cujo campo 'hospitalId'
+      // é igual ao seu próprio UID. A sua página de equipa faz exatamente esta consulta.
+      allow list: if hasRole('admin') || (hasRole('hospital') && request.query.where.body.compositeFilter.filters[0].fieldFilter.value.stringValue == request.auth.uid);
+      
       allow create: if isOwner(userId) || hasRole('admin');
       allow update: if isOwner(userId) || hasRole('admin');
       allow delete: if hasRole('admin');
@@ -36,7 +38,7 @@ service cloud.firestore {
       }
     }
     
-    // --- REGRAS PARA O FLUXO DE ATENDIMENTO (PACIENTES E FILA) ---
+    // --- REGRAS PARA O FLUXO DE ATENDIMENTO ---
     match /patients/{patientId} {
       allow read, update: if hasRole('admin') || isStaffOfUnit(resource.data.unitId);
       allow create: if isSignedIn() && request.resource.data.unitId == request.auth.token.hospitalId;
@@ -45,14 +47,22 @@ service cloud.firestore {
 
     match /serviceQueue/{queueId} {
       allow read, update, create: if hasRole('admin') || isStaffOfUnit(resource.data.unitId);
-      allow list: if hasRole('admin') || (hasRole('hospital') && request.query.unitId == request.auth.uid);
+      
+      // <<< CORREÇÃO 2: PERMISSÃO DE CONTAGEM NA FILA >>>
+      // Permite que um 'hospital' conte os itens da fila que pertencem à sua unidade.
+      allow list: if hasRole('admin') || (hasRole('hospital') && request.query.where.body.compositeFilter.filters[0].fieldFilter.value.stringValue == request.auth.uid);
+      
       allow delete: if hasRole('admin');
     }
 
-    // --- REGRAS PARA CONSULTAS (COM PERMISSÃO DE CONTAGEM) ---
+    // --- REGRAS PARA CONSULTAS ---
     match /consultations/{consultationId} {
       allow read, update, create: if hasRole('admin') || isUnitManager(resource.data.hospitalId) || isOwner(resource.data.doctorId);
-      allow list: if hasRole('admin') || (hasRole('hospital') && request.query.hospitalId == request.auth.uid);
+      
+      // <<< CORREÇÃO 3: PERMISSÃO DE CONTAGEM NAS CONSULTAS >>>
+      // Permite que um 'hospital' conte as consultas da sua unidade.
+      allow list: if hasRole('admin') || (hasRole('hospital') && request.query.where.body.compositeFilter.filters[0].fieldFilter.value.stringValue == request.auth.uid);
+      
       allow delete: if hasRole('admin');
     }
     
@@ -85,7 +95,7 @@ service cloud.firestore {
     }
     match /timeRecords/{recordId} {
       allow read: if hasRole('admin') || (isSignedIn() && (resource.data.doctorId == request.auth.uid || resource.data.hospitalId == request.auth.uid));
-      allow write: if hasRole('admin') || (isSignedIn() && request.auth.uid == resource.data.doctorId);
+      allow write: if hasRole('admin') || (isSignedIn() && request.auth.uid == request.auth.doctorId);
     }
     match /doctorTimeSlots/{timeSlotId} {
       allow read, write, delete: if hasRole('admin') || (isSignedIn() && resource.data.doctorId == request.auth.uid);
