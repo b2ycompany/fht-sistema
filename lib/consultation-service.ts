@@ -59,7 +59,7 @@ const createTelemedicineRoomCallable = httpsCallable<{ consultationId: string },
 /**
  * Cria um novo registo de consulta a partir de uma entrada na fila de atendimento.
  */
-export const createConsultationFromQueue = async (queueEntry: ServiceQueueEntry, doctor: Pick<DoctorProfile, 'uid' | 'displayName'>): Promise<string> => {
+export const createConsultationFromQueue = async (queueEntry: ServiceQueueEntry, doctor: Pick<DoctorProfile, 'uid' | 'displayName'>, hospitalName: string): Promise<string> => {
     const batch = writeBatch(db);
     const newConsultationRef = doc(collection(db, "consultations"));
     

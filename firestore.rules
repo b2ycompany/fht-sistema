@@ -4,7 +4,6 @@ service cloud.firestore {
   match /databases/{database}/documents {
 
     // --- Funções Auxiliares (Melhor Prática) ---
-    // Funções centralizadas para tornar as regras mais legíveis e seguras.
     function isSignedIn() {
       return request.auth != null;
     }
@@ -14,24 +13,20 @@ service cloud.firestore {
     function isOwner(userId) {
       return isSignedIn() && request.auth.uid == userId;
     }
-    // Função para verificar se o utilizador logado é gestor da unidade do documento
     function isUnitManager(unitId) {
       return hasRole('hospital') && request.auth.uid == unitId;
     }
-    // Função para verificar se o utilizador logado é um membro da equipa da unidade
+    
+    // --- FUNÇÃO CORRIGIDA ---
+    // A verificação 'hasattr' foi substituída pela sintaxe correta '"hospitalId" in request.auth.token'.
     function isStaffOfUnit(unitId) {
-        return isSignedIn() && hasattr(request.auth.token, "hospitalId") && request.auth.token.hospitalId == unitId;
+      return isSignedIn() && "hospitalId" in request.auth.token && request.auth.token.hospitalId == unitId;
     }
 
     // --- REGRAS PARA UTILIZADORES ---
     match /users/{userId} {
-      // Leitura de perfil individual (get)
       allow get: if hasRole('admin') || isOwner(userId) || (hasRole('hospital') && resource.data.hospitalId == request.auth.uid);
-
-      // Leitura de listas de utilizadores (list)
-      // Um hospital só pode listar os utilizadores que pertencem à sua unidade (hospitalId)
       allow list: if hasRole('admin') || (hasRole('hospital') && request.query.hospitalId == request.auth.uid);
-      
       allow create: if isOwner(userId) || hasRole('admin');
       allow update: if isOwner(userId) || hasRole('admin');
       allow delete: if hasRole('admin');
@@ -43,28 +38,22 @@ service cloud.firestore {
     
     // --- REGRAS PARA O FLUXO DE ATENDIMENTO (PACIENTES E FILA) ---
     match /patients/{patientId} {
-      // Leitura e atualização permitidas para admins ou staff da unidade correspondente.
       allow read, update: if hasRole('admin') || isStaffOfUnit(resource.data.unitId);
-      // Criação permitida para staff logado, garantindo que o paciente seja criado na sua própria unidade.
       allow create: if isSignedIn() && request.resource.data.unitId == request.auth.token.hospitalId;
-      // Apenas admins podem apagar registos de pacientes.
       allow delete: if hasRole('admin');
     }
 
     match /serviceQueue/{queueId} {
-      // Apenas membros da unidade podem interagir com a fila.
       allow read, update, create: if hasRole('admin') || isStaffOfUnit(resource.data.unitId);
+      allow list: if hasRole('admin') || (hasRole('hospital') && request.query.unitId == request.auth.uid);
       allow delete: if hasRole('admin');
     }
 
     // --- REGRAS PARA CONSULTAS (COM PERMISSÃO DE CONTAGEM) ---
     match /consultations/{consultationId} {
-      // Apenas o médico da consulta, o gestor da unidade ou um admin podem aceder.
       allow read, update, create: if hasRole('admin') || isUnitManager(resource.data.hospitalId) || isOwner(resource.data.doctorId);
-      allow delete: if hasRole('admin');
-
-      // Permite que gestores e admins listem/contem as consultas da sua unidade.
       allow list: if hasRole('admin') || (hasRole('hospital') && request.query.hospitalId == request.auth.uid);
+      allow delete: if hasRole('admin');
     }
     
     // --- OUTRAS REGRAS DE NEGÓCIO ---
@@ -74,11 +63,35 @@ service cloud.firestore {
     match /contracts/{contractId} {
       allow read, write: if hasRole('admin') || (isSignedIn() && (resource.data.doctorId == request.auth.uid || resource.data.hospitalId == request.auth.uid));
     }
+    match /potentialMatches/{matchId} {
+      allow read, write: if hasRole('admin') || (isSignedIn() && (resource.data.doctorId == request.auth.uid || resource.data.hospitalId == request.auth.uid));
+    }
     match /specialties/{specialtyId} {
       allow read: if true;
       allow write: if hasRole('admin');
     }
-    
-    // ... (adicione aqui quaisquer outras coleções que o seu sistema utilize)
+    match /invitations/{invitationId} {
+      allow create: if hasRole('admin') || hasRole('hospital');
+      allow read, update, delete: if false;
+    }
+    match /caravanEvents/{eventId} {
+      allow read: if isSignedIn();
+      allow write: if hasRole('admin');
+    }
+    match /shiftRequirements/{requirementId} {
+      allow read: if isSignedIn();
+      allow create: if hasRole('admin') || (hasRole('hospital') && request.resource.data.hospitalId == request.auth.uid);
+      allow update, delete: if hasRole('admin') || (isSignedIn() && resource.data.hospitalId == request.auth.uid);
+    }
+    match /timeRecords/{recordId} {
+      allow read: if hasRole('admin') || (isSignedIn() && (resource.data.doctorId == request.auth.uid || resource.data.hospitalId == request.auth.uid));
+      allow write: if hasRole('admin') || (isSignedIn() && request.auth.uid == resource.data.doctorId);
+    }
+    match /doctorTimeSlots/{timeSlotId} {
+      allow read, write, delete: if hasRole('admin') || (isSignedIn() && resource.data.doctorId == request.auth.uid);
+    }
+    match /appointments/{appointmentId} {
+      allow read: if hasRole('admin') || (isSignedIn() && resource.data.doctorId == request.auth.uid);
+    }
   }
 }
