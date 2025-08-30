@@ -31,26 +31,26 @@ export const getHospitalDashboardData = async (unitId: string): Promise<Hospital
         const queueRef = collection(db, "serviceQueue");
         const consultationsRef = collection(db, "consultations");
 
-        // Define o início do dia de hoje
+        // Define o início do dia de hoje para filtrar as consultas
         const startOfToday = new Date();
         startOfToday.setHours(0, 0, 0, 0);
         const startOfTodayTimestamp = Timestamp.fromDate(startOfToday);
 
-        // 1. Contagem de pacientes na fila de triagem
+        // 1. Contagem de pacientes na fila de triagem (status 'Aguardando Triagem')
         const triageQuery = query(
             queueRef, 
             where("unitId", "==", unitId), 
             where("status", "==", "Aguardando Triagem")
         );
 
-        // 2. Contagem de pacientes na fila de atendimento
+        // 2. Contagem de pacientes na fila de atendimento médico (status 'Aguardando Atendimento')
         const consultationQueueQuery = query(
             queueRef,
             where("unitId", "==", unitId),
             where("status", "==", "Aguardando Atendimento")
         );
 
-        // 3. Contagem de atendimentos finalizados hoje
+        // 3. Contagem de atendimentos que foram finalizados hoje
         const completedQuery = query(
             consultationsRef,
             where("hospitalId", "==", unitId),
@@ -58,7 +58,7 @@ export const getHospitalDashboardData = async (unitId: string): Promise<Hospital
             where("createdAt", ">=", startOfTodayTimestamp)
         );
 
-        // Executa todas as contagens em paralelo para melhor performance
+        // Executa todas as contagens em paralelo para uma performance otimizada
         const [triageSnapshot, consultationQueueSnapshot, completedSnapshot] = await Promise.all([
             getCountFromServer(triageQuery),
             getCountFromServer(consultationQueueQuery),
