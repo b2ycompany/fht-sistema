@@ -9,9 +9,9 @@ import { getStorage } from "firebase-admin/storage";
 import { FirestoreEvent } from "firebase-functions/v2/firestore";
 import { v4 as uuidv4 } from 'uuid';
 
-// --- INTERFACES E TIPOS ---
+// --- INTERFACES E TIPOS PADRONIZADOS ---
 
-// Interface consolidada para abranger todos os campos utilizados no arquivo
+// Interface consolidada com status padronizado
 interface UserProfile extends DocumentData {
     uid: string;
     userType: 'doctor' | 'hospital' | 'admin' | 'receptionist' | 'triage_nurse' | 'caravan_admin';
@@ -22,7 +22,8 @@ interface UserProfile extends DocumentData {
     specialties?: string[];
     healthUnitIds?: string[];
     hospitalId?: string; // Usado por membros da equipa
-    status?: 'INVITED' | 'ACTIVE' | 'SUSPENDED' | 'active' | 'pending_approval' | 'suspended';
+    // <<< STATUS PADRONIZADO PARA MAIOR CONSISTÊNCIA >>>
+    status?: 'INVITED' | 'ACTIVE' | 'PENDING_APPROVAL' | 'SUSPENDED'; 
     invitationToken?: string;
     createdAt?: FieldValue;
     updatedAt?: FieldValue;
@@ -214,7 +215,7 @@ export const onUserCreatedSetClaimsHandler = async (event: FirestoreEvent<Docume
             // Vínculo automático e status de pendente
             await userSnap.ref.update({
                 healthUnitIds: FieldValue.arrayUnion(hospitalId),
-                status: 'pending_approval'
+                status: 'PENDING_APPROVAL' // <<< USA O STATUS PADRONIZADO
             });
             await invitationDoc.ref.update({ status: 'completed' });
             
@@ -899,7 +900,16 @@ export const registerCheckoutHandler = async (request: CallableRequest) => {
     }
 };
 
+/**
+ * CORREÇÃO CRÍTICA DE SEGURANÇA: Define um utilizador como administrador.
+ * Agora verifica se o autor da chamada já é um administrador.
+ */
 export const setAdminClaimHandler = async (request: CallableRequest) => {
+    // <<< VERIFICAÇÃO DE PERMISSÃO ADICIONADA >>>
+    if (request.auth?.token?.role !== 'admin') {
+        throw new HttpsError("permission-denied", "Apenas administradores podem executar esta ação.");
+    }
+
     const { email } = request.data;
     if (!email) {
         throw new HttpsError("invalid-argument", "O email do usuário é obrigatório.");
@@ -907,9 +917,10 @@ export const setAdminClaimHandler = async (request: CallableRequest) => {
 
     try {
         const user = await auth.getUserByEmail(email);
-        await auth.setCustomUserClaims(user.uid, { admin: true });
+        // Padroniza a claim para 'role' como no resto do sistema
+        await auth.setCustomUserClaims(user.uid, { role: 'admin' });
         
-        logger.info(`Sucesso! O usuário ${email} (UID: ${user.uid}) agora é um administrador.`);
+        logger.info(`Sucesso! O usuário ${email} (UID: ${user.uid}) agora tem a role de 'admin'.`);
         return { message: `Sucesso! ${email} agora é um administrador.` };
 
     } catch (error: any) {
@@ -954,7 +965,7 @@ export const createStaffUserHandler = async (request: CallableRequest) => {
             email: email,
             userType: userType,
             hospitalId: managerUid,
-            status: 'INVITED', // <<< STATUS INICIAL
+            status: 'INVITED' as const, // <<< STATUS INICIAL PADRONIZADO
             createdAt: FieldValue.serverTimestamp(),
             updatedAt: FieldValue.serverTimestamp(),
         };
@@ -1374,6 +1385,9 @@ export const sendDoctorInvitationHandler = async (request: CallableRequest) => {
     return { success: true, message: `Convite enviado com sucesso para ${doctorEmail}.` };
 };
 
+/**
+ * APROVEITAMENTO: A função approveDoctor agora usa o status padronizado 'ACTIVE'.
+ */
 export const approveDoctorHandler = async (request: CallableRequest) => {
     if (request.auth?.token?.role !== 'admin') {
         throw new HttpsError("permission-denied", "Apenas administradores podem aprovar cadastros.");
@@ -1387,7 +1401,7 @@ export const approveDoctorHandler = async (request: CallableRequest) => {
     try {
         const doctorRef = db.collection("users").doc(doctorId);
         await doctorRef.update({
-            status: 'active'
+            status: 'ACTIVE' // <<< USA O STATUS PADRONIZADO
         });
 
         logger.info(`Médico ${doctorId} foi aprovado por um administrador.`);
