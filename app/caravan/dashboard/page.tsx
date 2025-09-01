@@ -5,6 +5,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { db } from '@/lib/firebase';
 import { collection, query, where, onSnapshot, Timestamp } from 'firebase/firestore';
 import { useAuth } from '@/components/auth-provider';
+import { type AdminProfile } from '@/lib/auth-service';
 
 // Componentes da UI
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -16,11 +17,6 @@ interface Stats {
   inProgress: number;
   completedToday: number;
   totalToday: number;
-}
-
-interface SpecialtyStat {
-  name: string;
-  count: number;
 }
 
 // --- Componentes de Estado (Helpers) ---
@@ -40,25 +36,68 @@ const ErrorState = ({ message }: { message: string }) => (
 
 // --- Componente Principal do Dashboard ---
 export default function CaravanDashboardPage() {
-    // Linha 43 - CORRIGIDO: Removemos 'profile' que não existe no contexto.
-    const { user } = useAuth();
+    const { userProfile } = useAuth(); // CORRIGIDO: Usar userProfile para obter os dados do utilizador
 
-    // Estados para armazenar os dados do dashboard
     const [stats, setStats] = useState<Stats>({ waiting: 0, inProgress: 0, completedToday: 0, totalToday: 0 });
-    const [specialtyStats, setSpecialtyStats] = useState<SpecialtyStat[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
 
-    // Função que buscará e ouvirá os dados em tempo real
-    const fetchData = useCallback(() => {
-        // A lógica de escuta do Firestore será implementada aqui no próximo passo.
-        // Por enquanto, apenas removemos o estado de carregamento.
-        setIsLoading(false);
-    }, []);
-
     useEffect(() => {
-        fetchData();
-    }, [fetchData]);
+        // Apenas executa se tivermos o perfil do utilizador e o ID da caravana
+        const caravanId = (userProfile as AdminProfile)?.assignedCaravanId;
+        if (!caravanId) {
+            setIsLoading(false);
+            // Poderíamos mostrar uma mensagem se o utilizador não estiver associado a nenhuma caravana
+            return;
+        }
+
+        const startOfToday = new Date();
+        startOfToday.setHours(0, 0, 0, 0);
+        const startOfTodayTimestamp = Timestamp.fromDate(startOfToday);
+
+        const q = query(
+            collection(db, "serviceQueue"),
+            where("unitId", "==", caravanId),
+            where("createdAt", ">=", startOfTodayTimestamp)
+        );
+        
+        // onSnapshot escuta as alterações em tempo real
+        const unsubscribe = onSnapshot(q, (snapshot) => {
+            let waiting = 0;
+            let inProgress = 0;
+            let completedToday = 0;
+
+            snapshot.forEach(doc => {
+                const status = doc.data().status;
+                if (status === 'Aguardando Triagem' || status === 'Aguardando Atendimento') {
+                    waiting++;
+                }
+                if (status === 'Em Triagem' || status === 'Em Atendimento') {
+                    inProgress++;
+                }
+                if (status === 'Finalizado') {
+                    completedToday++;
+                }
+            });
+            
+            setStats({
+                waiting,
+                inProgress,
+                completedToday,
+                totalToday: snapshot.size,
+            });
+
+            setIsLoading(false);
+        }, (err) => {
+            console.error("Erro ao escutar a fila de serviço:", err);
+            setError("Não foi possível carregar os dados do dashboard em tempo real.");
+            setIsLoading(false);
+        });
+        
+        // Função de limpeza para parar de escutar quando o componente é desmontado
+        return () => unsubscribe();
+
+    }, [userProfile]); // Re-executa se o perfil do utilizador mudar
 
     if (isLoading) {
         return <LoadingState />;
@@ -77,59 +116,18 @@ export default function CaravanDashboardPage() {
 
             {/* Seção de KPIs Principais */}
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-                <Card>
-                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                        <CardTitle className="text-sm font-medium">Pacientes na Fila</CardTitle>
-                        <Users className="h-4 w-4 text-muted-foreground" />
-                    </CardHeader>
-                    <CardContent>
-                        <div className="text-2xl font-bold">{stats.waiting}</div>
-                        <p className="text-xs text-muted-foreground">Aguardando atendimento</p>
-                    </CardContent>
-                </Card>
-                <Card>
-                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                        <CardTitle className="text-sm font-medium">Em Atendimento</CardTitle>
-                        <Activity className="h-4 w-4 text-muted-foreground" />
-                    </CardHeader>
-                    <CardContent>
-                        <div className="text-2xl font-bold">{stats.inProgress}</div>
-                        <p className="text-xs text-muted-foreground">Sendo atendidos agora</p>
-                    </CardContent>
-                </Card>
-                <Card>
-                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                        <CardTitle className="text-sm font-medium">Atendimentos Finalizados</CardTitle>
-                        <CheckCircle className="h-4 w-4 text-muted-foreground" />
-                    </CardHeader>
-                    <CardContent>
-                        <div className="text-2xl font-bold">{stats.completedToday}</div>
-                        <p className="text-xs text-muted-foreground">Finalizados hoje</p>
-                    </CardContent>
-                </Card>
-                <Card>
-                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                        <CardTitle className="text-sm font-medium">Total de Hoje</CardTitle>
-                        <User className="h-4 w-4 text-muted-foreground" />
-                    </CardHeader>
-                    <CardContent>
-                        <div className="text-2xl font-bold">{stats.totalToday}</div>
-                        <p className="text-xs text-muted-foreground">Total de pacientes no dia</p>
-                    </CardContent>
-                </Card>
+                <Card><CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2"><CardTitle className="text-sm font-medium">Pacientes na Fila</CardTitle><Users className="h-4 w-4 text-muted-foreground" /></CardHeader><CardContent><div className="text-2xl font-bold">{stats.waiting}</div><p className="text-xs text-muted-foreground">Aguardando atendimento</p></CardContent></Card>
+                <Card><CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2"><CardTitle className="text-sm font-medium">Em Atendimento</CardTitle><Activity className="h-4 w-4 text-muted-foreground" /></CardHeader><CardContent><div className="text-2xl font-bold">{stats.inProgress}</div><p className="text-xs text-muted-foreground">Sendo atendidos agora</p></CardContent></Card>
+                <Card><CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2"><CardTitle className="text-sm font-medium">Atendimentos Finalizados</CardTitle><CheckCircle className="h-4 w-4 text-muted-foreground" /></CardHeader><CardContent><div className="text-2xl font-bold">{stats.completedToday}</div><p className="text-xs text-muted-foreground">Finalizados hoje</p></CardContent></Card>
+                <Card><CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2"><CardTitle className="text-sm font-medium">Total de Hoje</CardTitle><User className="h-4 w-4 text-muted-foreground" /></CardHeader><CardContent><div className="text-2xl font-bold">{stats.totalToday}</div><p className="text-xs text-muted-foreground">Total de pacientes no dia</p></CardContent></Card>
             </div>
 
             {/* Seção para o Gráfico de Especialidades */}
             <div className="grid gap-4">
                 <Card className="col-span-1">
-                    <CardHeader>
-                        <CardTitle>Atendimentos por Especialidade</CardTitle>
-                    </CardHeader>
+                    <CardHeader><CardTitle>Atendimentos por Especialidade</CardTitle></CardHeader>
                     <CardContent className="pl-2">
-                        {/* O componente do gráfico será inserido aqui no futuro */}
-                        <div className="h-[350px] w-full flex items-center justify-center text-muted-foreground">
-                            <p>(Gráfico em breve)</p>
-                        </div>
+                        <div className="h-[350px] w-full flex items-center justify-center text-muted-foreground"><p>(Gráfico em breve)</p></div>
                     </CardContent>
                 </Card>
             </div>

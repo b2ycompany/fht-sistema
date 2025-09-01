@@ -39,6 +39,9 @@ export interface CaravanEvent {
 // --- SUBCOMPONENTE: Formulário para CRIAR nova Equipa ---
 const NewStaffForm: React.FC<{ onStaffCreated: (user: UserProfile) => void, onCancel: () => void }> = ({ onStaffCreated, onCancel }) => {
     const { toast } = useToast();
+    const params = useParams(); // Pega os parâmetros do URL
+    const eventId = params.eventId as string; // Captura o eventId aqui
+
     const [name, setName] = useState('');
     const [email, setEmail] = useState('');
     const [userType, setUserType] = useState<UserType | ''>('');
@@ -52,7 +55,8 @@ const NewStaffForm: React.FC<{ onStaffCreated: (user: UserProfile) => void, onCa
         setIsSubmitting(true);
         try {
             const createStaffUser = httpsCallable(functions, 'createStaffUser');
-            const result = await createStaffUser({ name, email, userType, hospitalId: null });
+            // Envia o eventId como o hospitalId para a função de backend
+            const result = await createStaffUser({ name, email, userType, hospitalId: eventId });
             
             const newUserData = (result.data as any).user;
 
@@ -76,7 +80,7 @@ const NewStaffForm: React.FC<{ onStaffCreated: (user: UserProfile) => void, onCa
         <DialogContent>
             <DialogHeader>
                 <DialogTitle>Cadastrar Novo Profissional</DialogTitle>
-                <DialogDescription>Crie uma conta para um novo membro da Equipa. Ele será adicionado automaticamente a este evento.</DialogDescription>
+                <DialogDescription>Crie uma conta para um novo membro da Equipe. Ele será adicionado automaticamente a este evento.</DialogDescription>
             </DialogHeader>
             <div className="grid gap-4 py-4">
                  <div className="space-y-1.5"><Label htmlFor="name-new">Nome Completo</Label><Input id="name-new" value={name} onChange={(e) => setName(e.target.value)} /></div>
@@ -136,7 +140,6 @@ const AddStaffModal: React.FC<{
                         <Button variant="secondary" onClick={() => setIsNewStaffModalOpen(true)}>
                             <UserPlus className="mr-2 h-4 w-4" /> Cadastrar Novo
                         </Button>
-                        {/* O formulário de cadastro abre em um segundo modal */}
                         <NewStaffForm onStaffCreated={handleStaffCreated} onCancel={() => setIsNewStaffModalOpen(false)} />
                     </Dialog>
                 </div>
@@ -215,7 +218,7 @@ export default function CaravanEventDetailPage() {
                     userType: user.userType,
                 })
             });
-            toast({ title: "Sucesso!", description: `${user.displayName} foi adicionado(a) à Equipa.`, className: "bg-green-600 text-white" });
+            toast({ title: "Sucesso!", description: `${user.displayName} foi adicionado(a) à Equipe.`, className: "bg-green-600 text-white" });
         } catch (error) {
             toast({ title: "Erro", description: "Não foi possível adicionar o membro.", variant: "destructive" });
         }
@@ -227,7 +230,7 @@ export default function CaravanEventDetailPage() {
             await updateDoc(eventRef, {
                 enrolledStaff: arrayRemove(staffMember)
             });
-            toast({ title: "Removido", description: `${staffMember.displayName} foi removido(a) da Equipa.` });
+            toast({ title: "Removido", description: `${staffMember.displayName} foi removido(a) da Equipe.` });
         } catch (error) {
             toast({ title: "Erro", description: "Não foi possível remover o membro.", variant: "destructive" });
         }
