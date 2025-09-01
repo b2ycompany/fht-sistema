@@ -23,7 +23,7 @@ interface UserProfile extends DocumentData {
     healthUnitIds?: string[];
     hospitalId?: string; // Usado por membros da equipa
     // <<< STATUS PADRONIZADO PARA MAIOR CONSISTÊNCIA >>>
-    status?: 'INVITED' | 'ACTIVE' | 'PENDING_APPROVAL' | 'SUSPENDED'; 
+    status?: 'INVITED' | 'ACTIVE' | 'PENDING_APPROVAL' | 'SUSPENDED';
     invitationToken?: string;
     createdAt?: FieldValue;
     updatedAt?: FieldValue;
@@ -932,6 +932,7 @@ export const setAdminClaimHandler = async (request: CallableRequest) => {
 /**
  * ATUALIZADO: Cria um novo utilizador da equipa e envia um convite por email com link para criar a senha.
  * Agora permite que administradores também criem membros da equipa.
+ * CORRIGIDO: Tratamento de erro específico para domínio não autorizado.
  */
 export const createStaffUserHandler = async (request: CallableRequest) => {
     if (!request.auth) {
@@ -942,21 +943,17 @@ export const createStaffUserHandler = async (request: CallableRequest) => {
     const callerDoc = await db.collection("users").doc(callerUid).get();
     const callerProfile = callerDoc.data();
 
-    // <<< CORREÇÃO APLICADA AQUI >>>
-    // Agora, a função verifica se o autor da chamada é 'hospital' OU 'admin'.
     const allowedRoles = ['hospital', 'admin'];
     if (!callerProfile || !allowedRoles.includes(callerProfile.userType)) {
         throw new HttpsError("permission-denied", "Você não tem permissão para realizar esta ação.");
     }
 
-    // A lógica de criação do utilizador e envio do convite permanece a mesma.
     const { name, email, userType, hospitalId } = request.data;
     if (!name || !email || !userType || !hospitalId) {
         throw new HttpsError("invalid-argument", "Nome, email, função e ID da unidade são obrigatórios.");
     }
 
     try {
-        // 1. Cria o utilizador na autenticação do Firebase
         const userRecord = await auth.createUser({
             email: email,
             emailVerified: true,
@@ -964,30 +961,27 @@ export const createStaffUserHandler = async (request: CallableRequest) => {
             disabled: false,
         });
 
-        // 2. Cria o perfil do utilizador no Firestore com o status 'INVITED'
         const userProfile = {
             displayName: name,
             email: email,
             userType: userType,
-            hospitalId: hospitalId, // Usa o ID da unidade fornecido na chamada
-            status: 'INVITED' as const, // <<< STATUS INICIAL PADRONIZADO
+            hospitalId: hospitalId,
+            status: 'INVITED' as const,
             createdAt: FieldValue.serverTimestamp(),
             updatedAt: FieldValue.serverTimestamp(),
         };
         await db.collection("users").doc(userRecord.uid).set(userProfile);
         
-        // 3. Gera o link para criação/reset de senha
         const actionCodeSettings = {
-            url: `https://fhtgestao.com.br/login`, // Página para onde o user é redirecionado após criar a senha
+            url: `https://fhtgestao.com.br/login`, // Continua a ser o destino final
             handleCodeInApp: true,
         };
         const passwordCreationLink = await auth.generatePasswordResetLink(email, actionCodeSettings);
 
-        // 4. Envia o email de boas-vindas (usando a extensão Trigger Email do Firebase)
         await db.collection("mail").add({
             to: email,
             template: {
-                name: "welcome_staff", // Nome do seu template de email
+                name: "welcome_staff",
                 data: {
                     managerName: callerProfile.displayName,
                     staffName: name,
@@ -1003,6 +997,11 @@ export const createStaffUserHandler = async (request: CallableRequest) => {
         logger.error("Falha ao criar profissional:", error);
         if (error.code === 'auth/email-already-exists') {
             throw new HttpsError("already-exists", "Este endereço de e-mail já está em uso.");
+        }
+        // <<< CORREÇÃO APLICADA AQUI >>>
+        // Retorna a mensagem de erro específica do Firebase Auth para o frontend
+        if (error.code === 'auth/unauthorized-continue-uri') {
+             throw new HttpsError("internal", "O domínio de continuação não está autorizado. Verifique as configurações de autenticação.");
         }
         throw new HttpsError("internal", "Ocorreu um erro inesperado ao criar o profissional.");
     }
