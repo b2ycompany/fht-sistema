@@ -253,7 +253,7 @@ export default function CaravanEventDetailPage() {
             <Tabs defaultValue="Equipa">
                 <TabsList>
                     <TabsTrigger value="detalhes"><Info className="mr-2 h-4 w-4" /> Detalhes</TabsTrigger>
-                    <TabsTrigger value="Equipa"><Users className="mr-2 h-4 w-4" /> Equipa do Evento</TabsTrigger>
+                    <TabsTrigger value="Equipa"><Users className="mr-2 h-4 w-4" /> Equipe do Evento</TabsTrigger>
                 </TabsList>
                 
                 <TabsContent value="detalhes" className="mt-4">
@@ -264,7 +264,7 @@ export default function CaravanEventDetailPage() {
                     <Card>
                         <CardHeader className="flex flex-row items-center justify-between">
                             <div>
-                                <CardTitle>Equipa Alocada</CardTitle>
+                                <CardTitle>Equipe Alocada</CardTitle>
                                 <CardDescription>Profissionais que terão acesso ao portal deste evento.</CardDescription>
                             </div>
                             <Button onClick={() => setIsModalOpen(true)}><UserPlus className="mr-2 h-4 w-4" /> Adicionar Membro</Button>
