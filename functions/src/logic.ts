@@ -972,8 +972,9 @@ export const createStaffUserHandler = async (request: CallableRequest) => {
         };
         await db.collection("users").doc(userRecord.uid).set(userProfile);
         
+        // <<< CORREÇÃO APLICADA AQUI: Adicionado 'www.' para corresponder ao seu domínio autorizado >>>
         const actionCodeSettings = {
-            url: `https://fhtgestao.com.br/login`, // Continua a ser o destino final
+            url: `https://www.fhtgestao.com.br/login`, // Continua a ser o destino final
             handleCodeInApp: true,
         };
         const passwordCreationLink = await auth.generatePasswordResetLink(email, actionCodeSettings);
