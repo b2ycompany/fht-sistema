@@ -931,23 +931,28 @@ export const setAdminClaimHandler = async (request: CallableRequest) => {
 
 /**
  * ATUALIZADO: Cria um novo utilizador da equipa e envia um convite por email com link para criar a senha.
+ * Agora permite que administradores também criem membros da equipa.
  */
 export const createStaffUserHandler = async (request: CallableRequest) => {
     if (!request.auth) {
-        throw new HttpsError("unauthenticated", "Apenas gestores autenticados podem adicionar membros à equipa.");
+        throw new HttpsError("unauthenticated", "Apenas utilizadores autenticados podem adicionar membros à equipa.");
     }
     
-    const managerUid = request.auth.uid;
-    const managerDoc = await db.collection("users").doc(managerUid).get();
-    const managerProfile = managerDoc.data();
+    const callerUid = request.auth.uid;
+    const callerDoc = await db.collection("users").doc(callerUid).get();
+    const callerProfile = callerDoc.data();
 
-    if (managerProfile?.userType !== 'hospital') {
+    // <<< CORREÇÃO APLICADA AQUI >>>
+    // Agora, a função verifica se o autor da chamada é 'hospital' OU 'admin'.
+    const allowedRoles = ['hospital', 'admin'];
+    if (!callerProfile || !allowedRoles.includes(callerProfile.userType)) {
         throw new HttpsError("permission-denied", "Você não tem permissão para realizar esta ação.");
     }
 
-    const { name, email, userType } = request.data;
-    if (!name || !email || !userType) {
-        throw new HttpsError("invalid-argument", "Nome, email e função são obrigatórios.");
+    // A lógica de criação do utilizador e envio do convite permanece a mesma.
+    const { name, email, userType, hospitalId } = request.data;
+    if (!name || !email || !userType || !hospitalId) {
+        throw new HttpsError("invalid-argument", "Nome, email, função e ID da unidade são obrigatórios.");
     }
 
     try {
@@ -964,7 +969,7 @@ export const createStaffUserHandler = async (request: CallableRequest) => {
             displayName: name,
             email: email,
             userType: userType,
-            hospitalId: managerUid,
+            hospitalId: hospitalId, // Usa o ID da unidade fornecido na chamada
             status: 'INVITED' as const, // <<< STATUS INICIAL PADRONIZADO
             createdAt: FieldValue.serverTimestamp(),
             updatedAt: FieldValue.serverTimestamp(),
@@ -984,7 +989,7 @@ export const createStaffUserHandler = async (request: CallableRequest) => {
             template: {
                 name: "welcome_staff", // Nome do seu template de email
                 data: {
-                    managerName: managerProfile.displayName,
+                    managerName: callerProfile.displayName,
                     staffName: name,
                     role: userType.replace('_', ' '),
                     action_url: passwordCreationLink,
@@ -1002,6 +1007,7 @@ export const createStaffUserHandler = async (request: CallableRequest) => {
         throw new HttpsError("internal", "Ocorreu um erro inesperado ao criar o profissional.");
     }
 };
+
 
 /**
  * NOVA FUNÇÃO: Atualiza o status de um utilizador de 'INVITED' para 'ACTIVE'.
