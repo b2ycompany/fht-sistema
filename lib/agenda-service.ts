@@ -8,98 +8,101 @@ import {
   getDocs,
   Timestamp,
 } from "firebase/firestore";
-import { db, auth } from "./firebase";
+import { db } from "./firebase";
+import { type Contract } from '@/lib/contract-service';
+// <<< CORREÇÃO: Importa a interface Appointment correta
+import { type Appointment } from '@/lib/appointment-service';
 
-// Interface que define os dados que a página da agenda precisa
-export interface AgendaEntry {
-  id: string; // ID da consulta
-  contractId: string;
-  patientName: string;
-  hospitalName: string;
-  serviceType: string;
-  consultationDate: Timestamp; // Usaremos a data do plantão para agrupar
-  startTime: string;
-  endTime: string;
+// Interface para um evento unificado do calendário
+export interface CalendarEvent {
+  id: string;
+  title: string;
+  start: Date;
+  end: Date;
+  backgroundColor: string;
+  borderColor: string;
+  extendedProps: {
+    type: 'SHIFT' | 'APPOINTMENT'; // Simplificado para 'APPOINTMENT'
+    data: Contract | Appointment;
+  };
 }
 
 /**
- * Busca todas as consultas agendadas para o médico logado.
+ * Busca e unifica TODOS os dados da agenda para um médico específico.
+ * Esta é a ÚNICA função que a sua página de agenda deve chamar.
+ * @param doctorId O ID do médico autenticado.
+ * @returns Uma lista de eventos prontos para o calendário.
  */
-export const getDoctorAgenda = async (): Promise<AgendaEntry[]> => {
-  const currentUser = auth.currentUser;
-  // Adiciona uma verificação robusta para o caso do utilizador não estar logado
-  if (!currentUser) {
-    console.log("Nenhum utilizador autenticado para buscar agenda.");
-    return [];
+export const getUnifiedDoctorAgenda = async (doctorId: string): Promise<CalendarEvent[]> => {
+  if (!doctorId) {
+    throw new Error("O ID do médico é obrigatório para carregar a agenda.");
   }
 
   try {
-    // 1. Buscar todos os contratos ativos do médico. Esta consulta está correta.
-    const contractsRef = collection(db, "contracts");
+    // 1. Consulta SEGURA para buscar os contratos (plantões)
     const contractsQuery = query(
-      contractsRef,
-      where("doctorId", "==", currentUser.uid),
+      collection(db, "contracts"),
+      where("doctorId", "==", doctorId),
       where("status", "in", ["ACTIVE_SIGNED", "IN_PROGRESS"])
     );
-    const contractsSnapshot = await getDocs(contractsQuery);
-    
-    // Se o médico não tiver contratos, não há necessidade de prosseguir.
-    if (contractsSnapshot.empty) {
-        return [];
-    }
 
-    const contractMap = new Map();
-    const contractIds = contractsSnapshot.docs.map(doc => {
-        contractMap.set(doc.id, doc.data());
-        return doc.id;
+    // <<< CORREÇÃO: A consulta agora aponta para a coleção "appointments" >>>
+    const appointmentsQuery = query(
+      collection(db, "appointments"),
+      where("doctorId", "==", doctorId),
+      where("status", "in", ["SCHEDULED", "IN_PROGRESS"])
+    );
+
+    const [contractsSnapshot, appointmentsSnapshot] = await Promise.all([
+      getDocs(contractsQuery),
+      getDocs(appointmentsQuery),
+    ]);
+
+    const events: CalendarEvent[] = [];
+
+    // Mapeia os Contratos/Plantões para eventos
+    contractsSnapshot.forEach(doc => {
+      const contract = { id: doc.id, ...doc.data() } as Contract;
+      if (!contract.shiftDates || contract.shiftDates.length === 0) return;
+
+      const shiftDate = contract.shiftDates[0].toDate();
+      const [startHour, startMinute] = contract.startTime.split(':').map(Number);
+      const [endHour, endMinute] = contract.endTime.split(':').map(Number);
+      const startDate = new Date(new Date(shiftDate).setHours(startHour, startMinute, 0, 0));
+      const endDate = new Date(new Date(shiftDate).setHours(endHour, endMinute, 0, 0));
+      
+      events.push({
+        id: contract.id,
+        title: `Plantão: ${contract.hospitalName}`,
+        start: startDate,
+        end: endDate,
+        backgroundColor: contract.status === 'IN_PROGRESS' ? '#059669' : '#3b82f6',
+        borderColor: contract.status === 'IN_PROGRESS' ? '#047857' : '#1e40af',
+        extendedProps: { type: 'SHIFT', data: contract },
+      });
     });
 
-
-    // 2. Buscar todas as consultas associadas a esses contratos
-    const consultsRef = collection(db, "consultations");
-
-    // ============================================================================
-    // <<< CORREÇÃO PRINCIPAL AQUI >>>
-    // Adicionamos 'where("doctorId", "==", currentUser.uid)' a esta consulta.
-    // Agora, a consulta é segura e cumpre as regras do Firestore,
-    // garantindo que o médico só possa listar as SUAS PRÓPRIAS consultas.
-    // ============================================================================
-    const consultsQuery = query(
-      consultsRef,
-      where("contractId", "in", contractIds),
-      where("doctorId", "==", currentUser.uid) // <-- ESTA LINHA RESOLVE O ERRO
-    );
+    // Mapeia os Agendamentos (presenciais ou telemedicina) para eventos
+    appointmentsSnapshot.forEach(doc => {
+      const appointment = { id: doc.id, ...doc.data() } as Appointment;
+      const startDate = appointment.appointmentDate.toDate();
+      const endDate = new Date(startDate.getTime() + 30 * 60 * 1000); // Adiciona 30 minutos
+      
+      events.push({
+        id: appointment.id,
+        title: `${appointment.type}: ${appointment.patientName}`, // Mostra se é Telemedicina ou Presencial
+        start: startDate,
+        end: endDate,
+        backgroundColor: '#8b5cf6',
+        borderColor: '#6d28d9',
+        extendedProps: { type: 'APPOINTMENT', data: appointment },
+      });
+    });
     
-    const consultsSnapshot = await getDocs(consultsQuery);
-
-    const agendaEntries: AgendaEntry[] = consultsSnapshot.docs.map(doc => {
-        const consultation = doc.data();
-        const relatedContract = contractMap.get(consultation.contractId);
-
-        // Verificação para evitar erros caso um contrato seja removido
-        if (!relatedContract) {
-            return null;
-        }
-
-        return {
-            id: doc.id,
-            contractId: consultation.contractId,
-            patientName: consultation.patientName,
-            hospitalName: consultation.hospitalName,
-            serviceType: relatedContract.serviceType,
-            // Melhoria: Usar a data da consulta se existir, senão a do contrato
-            consultationDate: consultation.createdAt || relatedContract.shiftDates?.[0], 
-            startTime: relatedContract.startTime,
-            endTime: relatedContract.endTime,
-        };
-    }).filter((entry): entry is AgendaEntry => entry !== null); // Filtra quaisquer entradas nulas
-
-    // Ordena pela data da consulta
-    return agendaEntries.sort((a, b) => a.consultationDate.toMillis() - b.consultationDate.toMillis());
+    return events;
 
   } catch (error) {
-    console.error("Erro ao buscar a agenda do médico:", error);
-    // Lança o erro para que a UI possa tratá-lo adequadamente
-    throw new Error("Não foi possível carregar a agenda.");
+    console.error("Erro no serviço ao carregar agenda unificada:", error);
+    throw new Error("Não foi possível carregar os dados da agenda.");
   }
 };

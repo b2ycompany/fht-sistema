@@ -1,73 +1,58 @@
-[cite_start]rules_version = '2'; [cite: 1]
+rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // --- Funções Auxiliares (sem alterações) ---
-    [cite_start]function isSignedIn() { return request.auth != null; [cite: 2] }
-    [cite_start]function hasRole(role) { return isSignedIn() && request.auth.token.role == role; [cite: 3] }
-    [cite_start]function isOwner(userId) { return isSignedIn() && request.auth.uid == userId; [cite: 4] }
-    [cite_start]function isUnitManager(unitId) { return hasRole('hospital') && request.auth.uid == unitId; [cite: 5] }
+    // --- Funções Auxiliares ---
+    function isSignedIn() { return request.auth != null; }
+    function hasRole(role) { return isSignedIn() && request.auth.token.role == role; }
+    function isOwner(userId) { return isSignedIn() && request.auth.uid == userId; }
+    function isUnitManager(unitId) { return hasRole('hospital') && request.auth.uid == unitId; }
     function isStaffMember(unitId) {
-      [cite_start]return isSignedIn() && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.hospitalId == unitId; [cite: 6]
+      return isSignedIn() && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.hospitalId == unitId;
     }
 
-    // --- REGRAS PARA UTILIZADORES (sem alterações) ---
+    // --- REGRAS PARA UTILIZADORES ---
     match /users/{userId} {
-      [cite_start]allow read: if hasRole('admin') || isOwner(userId) || isUnitManager(resource.data.hospitalId); [cite: 7]
-      [cite_start]allow create: if isOwner(userId) || hasRole('admin'); [cite: 8]
-      [cite_start]allow update: if isOwner(userId) || hasRole('admin'); [cite: 8]
-      [cite_start]allow delete: if hasRole('admin'); [cite: 8]
+      allow read: if hasRole('admin') || isOwner(userId) || isUnitManager(resource.data.hospitalId);
+      allow create, update: if isOwner(userId) || hasRole('admin');
+      allow delete: if hasRole('admin');
     }
     
-    // --- REGRAS PARA O FLUXO DE ATENDIMENTO (sem alterações) ---
+    // --- REGRAS PARA FLUXO DE ATENDIMENTO ---
     match /patients/{patientId} {
-      [cite_start]allow read, write: if hasRole('admin') || isStaffMember(resource.data.unitId) || isUnitManager(resource.data.unitId); [cite: 9]
+      allow read, write: if hasRole('admin') || isStaffMember(resource.data.unitId) || isUnitManager(resource.data.unitId);
       allow delete: if hasRole('admin');
     }
     match /serviceQueue/{queueId} {
-      [cite_start]allow read, write: if hasRole('admin') || isUnitManager(resource.data.unitId) || isStaffMember(resource.data.unitId); [cite: 10]
+      allow read, write: if hasRole('admin') || isUnitManager(resource.data.unitId) || isStaffMember(resource.data.unitId);
       allow delete: if hasRole('admin');
     }
     match /consultations/{consultationId} {
-      [cite_start]allow read, write: if hasRole('admin') || isOwner(resource.data.doctorId) || isUnitManager(resource.data.hospitalId); [cite: 11]
+      allow read, write: if hasRole('admin') || isOwner(resource.data.doctorId) || isUnitManager(resource.data.hospitalId);
       allow delete: if hasRole('admin');
     }
     
-    // --- REGRAS DE NEGÓCIO (COM CORREÇÕES DEFINITIVAS PARA A AGENDA) ---
-    [cite_start]match /settings/{settingId} { allow read, write: if hasRole('admin'); [cite: 12] }
-    [cite_start]match /specialties/{specialtyId} { allow read: if true; allow write: if hasRole('admin'); [cite: 16] }
-    [cite_start]match /invitations/{invitationId} { allow create: if hasRole('admin') || hasRole('hospital'); [cite: 17] [cite_start]allow read, update, delete: if false; [cite: 17] }
-    [cite_start]match /caravanEvents/{eventId} { allow read: if isSignedIn(); [cite: 18] [cite_start]allow write: if hasRole('admin'); [cite: 18] }
-    [cite_start]match /shiftRequirements/{requirementId} { allow read: if isSignedIn(); [cite: 19] allow create: if hasRole('admin') || (hasRole('hospital') [cite_start]&& request.resource.data.hospitalId == request.auth.uid); [cite: 19] allow update, delete: if hasRole('admin') || (isSignedIn() [cite_start]&& resource.data.hospitalId == request.auth.uid); [cite: 20] }
-    match /timeRecords/{recordId} { allow read: if hasRole('admin') || (isSignedIn() [cite_start]&& (resource.data.doctorId == request.auth.uid || resource.data.hospitalId == request.auth.uid)); [cite: 21] allow write: if hasRole('admin') || (isSignedIn() [cite_start]&& request.auth.uid == resource.data.doctorId); [cite: 22] }
-    match /potentialMatches/{matchId} { 
-      // Regra ajustada para remover delete explícito, já que não é necessário aqui
-      allow read, write: if hasRole('admin') || (isSignedIn() [cite_start]&& (resource.data.doctorId == request.auth.uid || resource.data.hospitalId == request.auth.uid)); [cite: 29]
-    }
-
-    // ============================================================================
-    // CORREÇÃO DEFINITIVA PARA A AGENDA DO MÉDICO
-    // ============================================================================
+    // --- REGRAS DE NEGÓCIO UNIFICADAS ---
+    match /settings/{settingId} { allow read, write: if hasRole('admin'); }
+    match /specialties/{specialtyId} { allow read: if true; allow write: if hasRole('admin'); }
+    match /invitations/{invitationId} { allow create: if hasRole('admin') || hasRole('hospital'); allow read, update, delete: if false; }
+    match /caravanEvents/{eventId} { allow read: if isSignedIn(); allow write: if hasRole('admin'); }
+    match /shiftRequirements/{requirementId} { allow read: if isSignedIn(); allow create: if hasRole('admin') || (hasRole('hospital') && request.resource.data.hospitalId == request.auth.uid); allow update, delete: if hasRole('admin') || (isSignedIn() && resource.data.hospitalId == request.auth.uid); }
+    match /timeRecords/{recordId} { allow read: if hasRole('admin') || (isSignedIn() && (resource.data.doctorId == request.auth.uid || resource.data.hospitalId == request.auth.uid)); allow write: if hasRole('admin') || isOwner(resource.data.doctorId); }
+    match /potentialMatches/{matchId} { allow read, write: if hasRole('admin') || (isSignedIn() && (resource.data.doctorId == request.auth.uid || resource.data.hospitalId == request.auth.uid)); allow delete: if hasRole('admin');}
     match /contracts/{contractId} {
-      // Um médico ou hospital só pode ler/escrever os seus próprios contratos.
-      // A regra 'read' única cobre get e list (consultas de lista).
-      allow read, write: if hasRole('admin') || 
-                           (isSignedIn() && (resource.data.doctorId == request.auth.uid || resource.data.hospitalId == request.auth.uid));
+      allow read, write: if hasRole('admin') || (isSignedIn() && (resource.data.doctorId == request.auth.uid || resource.data.hospitalId == request.auth.uid));
+    }
+    match /doctorTimeSlots/{timeSlotId} {
+      allow read, write, delete: if hasRole('admin') || isOwner(resource.data.doctorId);
     }
     
-    match /doctorTimeSlots/{timeSlotId} {
-      // Um médico só pode gerir os seus próprios horários.
-      // A regra 'read' única cobre get e list.
-      allow read, write, delete: if hasRole('admin') || 
-                                  (isSignedIn() [cite_start]&& resource.data.doctorId == request.auth.uid); [cite: 29]
+    // <<< CORREÇÃO: A regra aponta para "appointments" e não mais para a coleção antiga >>>
+    match /appointments/{appointmentId} {
+      allow read, write: if hasRole('admin') || isOwner(resource.data.doctorId);
     }
 
-    match /appointments/{appointmentId} {
-      // Um médico só pode gerir os seus próprios agendamentos.
-      // A regra 'read' única cobre get e list.
-      allow read, write: if hasRole('admin') || 
-                          (isSignedIn() && resource.data.doctorId == request.auth.uid);
-    }
+    // <<< REMOVIDO: A regra para 'telemedicineAppointments' foi removida por ser redundante >>>
   }
 }
