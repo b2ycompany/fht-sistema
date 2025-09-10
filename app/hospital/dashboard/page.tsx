@@ -5,7 +5,10 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from '@/components/auth-provider';
 import { useToast } from '@/hooks/use-toast';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Loader2, Users, ClipboardList, CheckCircle, AlertCircle } from 'lucide-react';
+// ============================================================================
+// Stethoscope foi importado para ser usado no novo cartão.
+// ============================================================================
+import { Loader2, Users, ClipboardList, CheckCircle, AlertCircle, Stethoscope } from 'lucide-react';
 import { getHospitalDashboardData, type HospitalDashboardData } from '@/lib/hospital-dashboard-service';
 import { Button } from '@/components/ui/button';
 import Link from 'next/link';
@@ -42,7 +45,7 @@ export default function HospitalDashboardPage() {
                 setIsLoading(true);
                 setError(null);
                 try {
-                    // Chama a nossa nova função de serviço, passando o ID do gestor (que é o ID da unidade)
+                    // Chama a nossa função de serviço, agora corrigida
                     const data = await getHospitalDashboardData(userProfile.uid);
                     setDashboardData(data);
                 } catch (err: any) {
@@ -90,10 +93,10 @@ export default function HospitalDashboardPage() {
                     <h1 className="text-3xl font-bold text-gray-800">Painel da Unidade</h1>
                     <p className="text-muted-foreground">Visão geral da operação de hoje em {userProfile?.displayName}.</p>
                 </div>
-                {/* Botões para as outras páginas de gestão que já criámos ou vamos criar */}
                 <div className="flex gap-2">
                     <Button asChild variant="outline">
-                        <Link href="/hospital/dashboard/Equipe">
+                        {/* Correção de link para minúsculas para consistência */}
+                        <Link href="/hospital/dashboard/equipe">
                             <Users className="mr-2 h-4 w-4" />
                             Gerir Equipa
                         </Link>
@@ -107,7 +110,11 @@ export default function HospitalDashboardPage() {
                 </div>
             </div>
 
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+            {/* ============================================================================ */}
+            {/* CORREÇÃO: A grade agora tem 4 colunas em ecrãs grandes (lg:grid-cols-4)     */}
+            {/* para acomodar o novo cartão de estatísticas.                                 */}
+            {/* ============================================================================ */}
+            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
                 <StatCard 
                     title="Pacientes na Fila de Triagem" 
                     value={dashboardData?.triageQueueCount ?? 0}
@@ -129,10 +136,17 @@ export default function HospitalDashboardPage() {
                     description="Total de consultas concluídas."
                     isLoading={isLoading}
                 />
+                {/* ============================================================================ */}
+                {/* NOVO CARTÃO: Exibe a contagem de médicos associados vinda da API.         */}
+                {/* ============================================================================ */}
+                <StatCard 
+                    title="Médicos Associados" 
+                    value={dashboardData?.associatedDoctorsCount ?? 0} 
+                    icon={Stethoscope} 
+                    description="Profissionais vinculados a esta unidade." 
+                    isLoading={isLoading} 
+                />
             </div>
-            
-            {/* No futuro, este é o local ideal para adicionar gráficos de desempenho */}
-            
         </div>
     );
 }

@@ -1,123 +1,108 @@
 // app/dashboard/profile/page.tsx
 "use client";
 
-import React, { useState, useEffect, useCallback } from 'react';
-import { Button, buttonVariants } from "@/components/ui/button"; // Importar buttonVariants
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import { useToast } from "@/hooks/use-toast";
-import { getCurrentUserData, type DoctorProfile } from '@/lib/auth-service';
-// Se LoadingState e ErrorState são globais:
-import { LoadingState, ErrorState } from '@/components/ui/state-indicators'; 
-// Se ProfileField e DocumentStatusField são globais:
-import { ProfileField } from '@/components/profile/ProfileField'; 
-import { DocumentStatusField } from '@/components/profile/DocumentStatusField';
-import { formatDoc, cn } from '@/lib/utils'; // Adicionado cn
-import { AlertTriangle, Edit, User, Home, FileText, Award, Briefcase, Loader2, RotateCcw } from 'lucide-react'; // Adicionado Loader2, RotateCcw se usados em ErrorState
+import React, { useEffect, useState } from 'react';
+import { useAuth } from '@/components/auth-provider';
+import { type DoctorProfile } from '@/lib/auth-service';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Loader2, UserCircle, Mail, Phone, Briefcase } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation'; // Para o botão de edição alternativo
 
-const DOC_LABELS = { personalRg: "RG Pessoal*", personalCpf: "CPF Pessoal*", professionalCrm: "Carteira Profissional (CRM)*", photo3x4: "Foto 3x4 Recente*", addressProof: "Comprovante de Residência Pessoal*", graduationCertificate: "Certificado de Graduação*", criminalRecordCert: "Certidão Negativa Criminal*", ethicalCert: "Certidão Negativa Ético-Profissional*", debtCert: "Certidão Negativa de Débitos CRM*", cv: "Currículo Vitae (CV)*", rqe: "Registro de Qualificação de Especialista (RQE)*", postGradCert: "Certificado de Pós-Graduação/Residência*", specialistTitle: "Título de Especialista*", recommendationLetter: "Carta de Recomendação (Opcional)" } as const;
-type DoctorDocKeys = keyof DoctorProfile['documents'];
-type SpecialistDocKeys = keyof DoctorProfile['specialistDocuments'];
-
-// Se LoadingState ou ErrorState não forem globais, defina-os aqui como antes.
+// Componente para exibir um campo de informação do perfil de forma padronizada
+const ProfileField = ({ icon: Icon, label, value }: { icon: React.ElementType, label: string, value: string | undefined | null }) => (
+    <div className="flex items-start gap-4">
+        <Icon className="h-5 w-5 text-muted-foreground mt-1" />
+        <div>
+            <p className="text-sm text-muted-foreground">{label}</p>
+            <p className="font-semibold">{value || 'Não informado'}</p>
+        </div>
+    </div>
+);
 
 export default function DoctorProfilePage() {
-  const [profileData, setProfileData] = useState<DoctorProfile | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const { toast } = useToast();
-  const router = useRouter(); // Para o botão de edição alternativo
+    // ============================================================================
+    // CORREÇÃO PRINCIPAL: Obtemos o estado de 'profileLoading' do hook de autenticação.
+    // Este estado nos diz se o perfil do utilizador já foi carregado do Firestore.
+    // ============================================================================
+    const { userProfile, profileLoading } = useAuth();
+    const [doctorData, setDoctorData] = useState<DoctorProfile | null>(null);
 
-  const fetchProfile = useCallback(async () => {
-    setIsLoading(true); setError(null);
-    try {
-      const data = await getCurrentUserData();
-      console.log("[DoctorProfilePage] Fetched data:", data);
-      if (data?.role === 'doctor') {
-        const doctorData = data as DoctorProfile;
-        // Garantir que objetos opcionais existam para evitar erros de renderização
-        if (!doctorData.documents) (doctorData as any).documents = {};
-        if (!doctorData.specialistDocuments) (doctorData as any).specialistDocuments = {};
-        if (!doctorData.address) (doctorData as any).address = {};
+    // Este useEffect agora reage à mudança de 'profileLoading'.
+    // Ele só tenta definir os dados do médico DEPOIS que o useAuth
+    // confirma que o carregamento terminou (!profileLoading).
+    useEffect(() => {
+        if (!profileLoading && userProfile) {
+            if (userProfile.userType === 'doctor') {
+                setDoctorData(userProfile as DoctorProfile);
+            }
+        }
+    }, [userProfile, profileLoading]);
 
-        setProfileData(doctorData);
-      } else if (data) { 
-        setError("Perfil inválido. Esperado perfil de médico.");
-        console.error("[DoctorProfilePage] Expected doctor profile, got:", data?.role);
-      } else { 
-        setError("Usuário não autenticado ou perfil não encontrado.");
-      }
-    } catch (err: any) { 
-      console.error("[DoctorProfilePage] Error fetching profile:", err);
-      setError(err.message || "Erro ao carregar perfil."); 
-      toast({ title: "Erro ao Carregar Perfil", description: err.message, variant: "destructive"}); 
-    } finally { 
-      setIsLoading(false); 
+    // 1. Mostra um indicador de carregamento ENQUANTO o AuthProvider busca os dados.
+    if (profileLoading) {
+        return (
+            <div className="flex h-screen items-center justify-center">
+                <Loader2 className="h-12 w-12 animate-spin text-blue-600" />
+            </div>
+        );
     }
-  }, [toast]);
 
-  useEffect(() => { fetchProfile(); }, [fetchProfile]);
+    // 2. Mostra uma mensagem de erro se, APÓS o carregamento, não houver dados de médico.
+    // Isso cobre o caso de um utilizador não-médico aceder à página ou falha no carregamento.
+    if (!doctorData) {
+        return (
+            <div className="container mx-auto p-6 text-center">
+                <Card className="max-w-md mx-auto">
+                    <CardHeader>
+                        <CardTitle>Erro</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                        <p>Não foi possível carregar os dados do seu perfil de médico.</p>
+                    </CardContent>
+                </Card>
+            </div>
+        );
+    }
 
-  if (isLoading) { return <div className="p-6 flex justify-center"><LoadingState message="Carregando seu perfil..." /></div>; }
-  if (error || !profileData) { return <div className="p-6"><ErrorState message={error || "Perfil de médico não encontrado."} onRetry={fetchProfile} /></div>; }
-
-  const essentialDocKeys: DoctorDocKeys[] = ['personalRg', 'personalCpf', 'professionalCrm', 'photo3x4', 'addressProof', 'graduationCertificate'];
-  const certsAndCvDocKeys: DoctorDocKeys[] = ['criminalRecordCert', 'ethicalCert', 'debtCert', 'cv'];
-  const specialistDocKeysArray: SpecialistDocKeys[] = ['rqe', 'postGradCert', 'specialistTitle', 'recommendationLetter'];
-
-  return (
-    <div className="space-y-6 max-w-4xl mx-auto">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl md:text-3xl font-bold tracking-tight text-gray-800">Perfil: {profileData.displayName}</h1>
-        {/* Alternativa para o botão de Edição para evitar React.Children.only */}
-        <Button 
-            variant="outline" 
-            size="sm" 
-            onClick={() => router.push('/dashboard/profile/edit')}
-        >
-            <Edit className="mr-2 h-4 w-4"/> Editar Perfil
-        </Button>
-      </div>
-
-      <Card> <CardHeader><CardTitle className="flex items-center gap-2"><User size={18}/> Dados Pessoais</CardTitle></CardHeader> <CardContent><dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-2"> <ProfileField label="Nome Completo" value={profileData.displayName} /> <ProfileField label="Email (Login)" value={profileData.email} /> <ProfileField label="Nascimento" value={profileData.dob ? new Date(profileData.dob + "T00:00:00").toLocaleDateString('pt-BR') : "Não informado"} /> <ProfileField label="RG" value={profileData.rg} /> <ProfileField label="CPF" value={formatDoc(profileData.cpf, 'cpf')} /> <ProfileField label="Telefone" value={formatDoc(profileData.phone, 'phone')} /> </dl></CardContent> </Card>
-
-      {profileData.address && (
-        <Card> <CardHeader><CardTitle className="flex items-center gap-2"><Home size={18}/> Endereço</CardTitle></CardHeader> <CardContent><dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-2"> <ProfileField label="CEP" value={formatDoc(profileData.address.cep, 'cep')} /> <ProfileField label="Logradouro" value={profileData.address.street} /> <ProfileField label="Número" value={profileData.address.number} /> <ProfileField label="Complemento" value={profileData.address.complement} /> <ProfileField label="Bairro" value={profileData.address.neighborhood} /> <ProfileField label="Cidade" value={profileData.address.city} /> <ProfileField label="Estado" value={profileData.address.state} /> </dl></CardContent> </Card>
-      )}
-
-      {profileData.documents && (
-        <>
-          <Card> <CardHeader><CardTitle className="flex items-center gap-2"><FileText size={18}/> Documentos Essenciais</CardTitle></CardHeader> <CardContent><dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-2"> {essentialDocKeys.map(key => ( <DocumentStatusField key={key} label={DOC_LABELS[key as keyof typeof DOC_LABELS] || key} documentUrl={profileData.documents?.[key]} isOptional={!(DOC_LABELS[key as keyof typeof DOC_LABELS] || "").includes('*')} /> ))} </dl></CardContent> </Card>
-          <Card> <CardHeader><CardTitle className="flex items-center gap-2"><Award size={18}/> Certidões e CV</CardTitle></CardHeader> <CardContent><dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-2"> {certsAndCvDocKeys.map(key => ( <DocumentStatusField key={key} label={DOC_LABELS[key as keyof typeof DOC_LABELS] || key} documentUrl={profileData.documents?.[key]} isOptional={!(DOC_LABELS[key as keyof typeof DOC_LABELS] || "").includes('*')} /> ))} </dl></CardContent> </Card>
-        </>
-      )}
-      <Card> 
-        <CardHeader><CardTitle className="flex items-center gap-2"><Briefcase size={18}/> Especialidade</CardTitle></CardHeader> 
-        <CardContent> 
-          {/* CORRIGIDO: Erro de Hidratação */}
-          <div className="text-sm mb-4">
-            <span>Possui RQE? </span>
-            <Badge variant={profileData.isSpecialist ? 'default' : 'outline'} className={cn(profileData.isSpecialist ? 'bg-blue-100 text-blue-800' : 'border-gray-300', "ml-2")}>{profileData.isSpecialist ? "Sim" : "Não"}</Badge>
-          </div>
-          {profileData.isSpecialist && profileData.specialistDocuments && Object.keys(profileData.specialistDocuments).length > 0 && (
-            <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-2"> 
-              <h4 className="text-sm font-medium text-gray-600 mb-1 sm:col-span-2">Documentos de Especialista:</h4> 
-              {specialistDocKeysArray.map(key => (
-                <DocumentStatusField 
-                  key={key} 
-                  label={DOC_LABELS[key as keyof typeof DOC_LABELS] || key} 
-                  documentUrl={profileData.specialistDocuments?.[key]} 
-                  isOptional={!(DOC_LABELS[key as keyof typeof DOC_LABELS] || "").includes('*')} 
-                /> 
-              ))} 
-            </dl> 
-          )}
-          {profileData.isSpecialist && (!profileData.specialistDocuments || Object.keys(profileData.specialistDocuments).length === 0) && (<p className="text-sm text-amber-700 italic">Você indicou que é especialista, mas não há documentos de especialidade enviados.</p> )}
-          {!profileData.isSpecialist && (<p className="text-sm text-gray-500 italic">Nenhuma especialidade com RQE registrada.</p> )}
-        </CardContent> 
-      </Card>
-    </div>
-  );
+    // 3. Se tudo correu bem, renderiza o perfil com os dados de 'doctorData'.
+    return (
+        <div className="container mx-auto p-4 sm:p-6 space-y-6">
+            <Card>
+                <CardHeader>
+                    <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-4">
+                        <div className="flex items-center gap-4">
+                            <UserCircle className="h-16 w-16 text-blue-600" />
+                            <div>
+                                <CardTitle className="text-2xl">{doctorData.displayName}</CardTitle>
+                                <CardDescription>Perfil do Profissional</CardDescription>
+                            </div>
+                        </div>
+                        <Button asChild>
+                            <Link href="/dashboard/profile/edit">Editar Perfil</Link>
+                        </Button>
+                    </div>
+                </CardHeader>
+                <CardContent className="space-y-6 pt-6">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <ProfileField icon={Mail} label="Email de Contato" value={doctorData.email} />
+                        <ProfileField icon={Phone} label="Telefone" value={doctorData.phone} />
+                        <ProfileField icon={Briefcase} label="CRM" value={doctorData.professionalCrm} />
+                    </div>
+                    {/* Exibe as especialidades do médico, se existirem */}
+                    {doctorData.specialties && doctorData.specialties.length > 0 && (
+                        <div>
+                            <p className="text-sm text-muted-foreground mb-2">Especialidades</p>
+                            <div className="flex flex-wrap gap-2">
+                                {doctorData.specialties.map(spec => (
+                                    <Badge key={spec} variant="secondary">{spec}</Badge>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+                </CardContent>
+            </Card>
+        </div>
+    );
 }

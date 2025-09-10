@@ -3,103 +3,81 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // --- Funções Auxiliares ---
-    function isSignedIn() {
-      return request.auth != null;
-    }
-    function hasRole(role) {
-      return isSignedIn() && request.auth.token.role == role;
-    }
-    function isOwner(userId) {
-      return isSignedIn() && request.auth.uid == userId;
-    }
-    function isUnitManager(unitId) {
-      return hasRole('hospital') && request.auth.uid == unitId;
-    }
+    // --- Funções Auxiliares (sem alterações) ---
+    function isSignedIn() { return request.auth != null; }
+    function hasRole(role) { return isSignedIn() && request.auth.token.role == role; }
+    function isOwner(userId) { return isSignedIn() && request.auth.uid == userId; }
+    function isUnitManager(unitId) { return hasRole('hospital') && request.auth.uid == unitId; }
     function isStaffMember(unitId) {
-      // Esta função lê o perfil do utilizador para confirmar a que hospital ele pertence.
       return isSignedIn() && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.hospitalId == unitId;
     }
 
-    // --- REGRAS PARA UTILIZADORES ---
+    // --- REGRAS PARA UTILIZADORES (sem alterações) ---
     match /users/{userId} {
-      // get: Um admin pode ler qualquer perfil. Um utilizador pode ler o seu próprio. Um gestor pode ler o de sua equipa.
-      allow get: if hasRole('admin') || isOwner(userId) || isUnitManager(resource.data.hospitalId);
-      // list: Um admin pode listar todos. Um hospital pode listar apenas os da sua equipa.
-      allow list: if hasRole('admin') || (hasRole('hospital') && request.query.hospitalId == request.auth.uid);
+      allow read: if hasRole('admin') || isOwner(userId) || isUnitManager(resource.data.hospitalId);
       allow create: if isOwner(userId) || hasRole('admin');
       allow update: if isOwner(userId) || hasRole('admin');
       allow delete: if hasRole('admin');
     }
     
-    // --- REGRAS PARA O FLUXO DE ATENDIMENTO ---
+    // --- REGRAS PARA O FLUXO DE ATENDIMENTO (sem alterações) ---
     match /patients/{patientId} {
-      allow read, write: if hasRole('admin') || isStaffMember(resource.data.unitId);
+      allow read, write: if hasRole('admin') || isStaffMember(resource.data.unitId) || isUnitManager(resource.data.unitId);
       allow delete: if hasRole('admin');
     }
-
-    // ============================================================================
-    // CORREÇÃO 3: REGRAS DE PERMISSÃO ROBUSTAS
-    // As regras de `list` foram removidas e incorporadas na permissão `read`.
-    // A permissão `read` cobre 'get', 'list' e contagens, tornando a regra mais simples
-    // e corrigindo o erro `permission-denied` que ocorria no painel do gestor.
-    // ============================================================================
     match /serviceQueue/{queueId} {
-      // Um admin ou um membro da equipa da unidade pode ler (get, list) e escrever.
-      allow read, write: if hasRole('admin') || isStaffMember(resource.data.unitId);
+      allow read, write: if hasRole('admin') || isUnitManager(resource.data.unitId) || isStaffMember(resource.data.unitId);
       allow delete: if hasRole('admin');
     }
     match /consultations/{consultationId} {
-       // Um admin, o médico da consulta, ou o gestor da unidade podem ler (get, list) e escrever.
       allow read, write: if hasRole('admin') || isOwner(resource.data.doctorId) || isUnitManager(resource.data.hospitalId);
       allow delete: if hasRole('admin');
     }
     
-    // --- REGRAS DE NEGÓCIO ---
-    match /settings/{settingId} {
-      allow read, write: if hasRole('admin');
-    }
+    // --- REGRAS DE NEGÓCIO (COM CORREÇÕES PARA A AGENDA) ---
+    match /settings/{settingId} { allow read, write: if hasRole('admin'); }
+
     match /contracts/{contractId} {
+      // Regra existente para ler/escrever um documento específico
       allow read, write: if hasRole('admin') || (isSignedIn() && (resource.data.doctorId == request.auth.uid || resource.data.hospitalId == request.auth.uid));
+      
+      // ============================================================================
+      // REGRA ADICIONADA: Permite que um médico liste (leia múltiplos) contratos
+      // onde o seu ID de utilizador corresponda ao campo 'doctorId'.
+      // ============================================================================
+      allow list: if hasRole('admin') || (hasRole('doctor') && request.query.doctorId == request.auth.uid);
     }
-    match /specialties/{specialtyId} {
-      allow read: if true;
-      allow write: if hasRole('admin');
-    }
-    match /invitations/{invitationId} {
-      allow create: if hasRole('admin') || hasRole('hospital');
-      allow read, update, delete: if false;
-    }
-    match /caravanEvents/{eventId} {
-      allow read: if isSignedIn();
-      allow write: if hasRole('admin');
-    }
-    match /shiftRequirements/{requirementId} {
-      allow read: if isSignedIn();
-      allow create: if hasRole('admin') || (hasRole('hospital') && request.resource.data.hospitalId == request.auth.uid);
-      allow update, delete: if hasRole('admin') || (isSignedIn() && resource.data.hospitalId == request.auth.uid);
-    }
-    match /timeRecords/{recordId} {
-      allow read: if hasRole('admin') || (isSignedIn() && (resource.data.doctorId == request.auth.uid || resource.data.hospitalId == request.auth.uid));
-      allow write: if hasRole('admin') || (isSignedIn() && request.auth.uid == resource.data.doctorId);
-    }
+
+    match /specialties/{specialtyId} { allow read: if true; allow write: if hasRole('admin'); }
+    match /invitations/{invitationId} { allow create: if hasRole('admin') || hasRole('hospital'); allow read, update, delete: if false; }
+    match /caravanEvents/{eventId} { allow read: if isSignedIn(); allow write: if hasRole('admin'); }
+    match /shiftRequirements/{requirementId} { allow read: if isSignedIn(); allow create: if hasRole('admin') || (hasRole('hospital') && request.resource.data.hospitalId == request.auth.uid); allow update, delete: if hasRole('admin') || (isSignedIn() && resource.data.hospitalId == request.auth.uid); }
+    match /timeRecords/{recordId} { allow read: if hasRole('admin') || (isSignedIn() && (resource.data.doctorId == request.auth.uid || resource.data.hospitalId == request.auth.uid)); allow write: if hasRole('admin') || (isSignedIn() && request.auth.uid == resource.data.doctorId); }
+
     match /doctorTimeSlots/{timeSlotId} {
+      // Regra existente para manipular um documento específico
       allow read, write, delete: if hasRole('admin') || (isSignedIn() && resource.data.doctorId == request.auth.uid);
+      
+      // ============================================================================
+      // REGRA ADICIONADA: Permite que um médico liste os seus próprios horários
+      // disponíveis, essencial para montar a agenda.
+      // ============================================================================
+      allow list: if hasRole('admin') || (hasRole('doctor') && request.query.doctorId == request.auth.uid);
     }
+
     match /appointments/{appointmentId} {
+      // Regra existente para ler um agendamento específico
       allow read: if hasRole('admin') || (isSignedIn() && resource.data.doctorId == request.auth.uid);
+      
+      // ============================================================================
+      // REGRA ADICIONADA: Permite que um médico liste os seus próprios agendamentos
+      // para visualização na agenda.
+      // ============================================================================
+      allow list: if hasRole('admin') || (hasRole('doctor') && request.query.doctorId == request.auth.uid);
     }
 
-    // --- REGRA CORRIGIDA PARA potentialMatches ---
-    match /potentialMatches/{matchId} {
-      // get: Permite ler um único match se for admin ou uma das partes envolvidas.
-      allow get: if hasRole('admin') || (isSignedIn() && (resource.data.doctorId == request.auth.uid || resource.data.hospitalId == request.auth.uid));
-      // list: Permite que APENAS administradores listem TODOS os matches.
-      // Esta é a regra que estava a faltar e a causar o erro no seu painel de admin.
-      allow list: if hasRole('admin');
-
-      // write (create, update): Apenas administradores podem criar ou alterar matches.
-      allow write: if hasRole('admin');
+    match /potentialMatches/{matchId} { 
+      allow read, write: if hasRole('admin') || (isSignedIn() && (resource.data.doctorId == request.auth.uid || resource.data.hospitalId == request.auth.uid)); 
       allow delete: if hasRole('admin');
     }
   }

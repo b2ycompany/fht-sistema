@@ -15,6 +15,7 @@ export interface HospitalDashboardData {
     triageQueueCount: number;
     consultationQueueCount: number;
     completedTodayCount: number;
+    associatedDoctorsCount: number; // <<< CAMPO ADICIONADO >>>
 }
 
 /**
@@ -30,6 +31,7 @@ export const getHospitalDashboardData = async (unitId: string): Promise<Hospital
     try {
         const queueRef = collection(db, "serviceQueue");
         const consultationsRef = collection(db, "consultations");
+        const usersRef = collection(db, "users"); // <<< Referência para a coleção de utilizadores >>>
 
         // Define o início do dia de hoje para filtrar as consultas
         const startOfToday = new Date();
@@ -57,18 +59,32 @@ export const getHospitalDashboardData = async (unitId: string): Promise<Hospital
             where("status", "==", "COMPLETED"),
             where("createdAt", ">=", startOfTodayTimestamp)
         );
+        
+        // ============================================================================
+        // CORREÇÃO: A consulta agora filtra os utilizadores do tipo 'doctor' que
+        // possuem o ID da unidade atual no seu array 'healthUnitIds'.
+        // Isso garante que apenas os médicos associados a esta unidade sejam contados.
+        // ============================================================================
+        const doctorsQuery = query(
+            usersRef, 
+            where("userType", "==", "doctor"), 
+            where("healthUnitIds", "array-contains", unitId)
+        );
 
-        // Executa todas as contagens em paralelo para uma performance otimizada
-        const [triageSnapshot, consultationQueueSnapshot, completedSnapshot] = await Promise.all([
+
+        // Executa todas as contagens em paralelo, incluindo a nova contagem de médicos
+        const [triageSnapshot, consultationQueueSnapshot, completedSnapshot, doctorsSnapshot] = await Promise.all([
             getCountFromServer(triageQuery),
             getCountFromServer(consultationQueueQuery),
-            getCountFromServer(completedQuery)
+            getCountFromServer(completedQuery),
+            getCountFromServer(doctorsQuery) // <<< Nova consulta adicionada >>>
         ]);
 
         return {
             triageQueueCount: triageSnapshot.data().count,
             consultationQueueCount: consultationQueueSnapshot.data().count,
             completedTodayCount: completedSnapshot.data().count,
+            associatedDoctorsCount: doctorsSnapshot.data().count, // <<< Novo dado retornado >>>
         };
 
     } catch (error) {
