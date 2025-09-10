@@ -41,10 +41,8 @@ service cloud.firestore {
       // Regra existente para ler/escrever um documento específico
       allow read, write: if hasRole('admin') || (isSignedIn() && (resource.data.doctorId == request.auth.uid || resource.data.hospitalId == request.auth.uid));
       
-      // ============================================================================
       // REGRA ADICIONADA: Permite que um médico liste (leia múltiplos) contratos
       // onde o seu ID de utilizador corresponda ao campo 'doctorId'.
-      // ============================================================================
       allow list: if hasRole('admin') || (hasRole('doctor') && request.query.doctorId == request.auth.uid);
     }
 
@@ -58,10 +56,8 @@ service cloud.firestore {
       // Regra existente para manipular um documento específico
       allow read, write, delete: if hasRole('admin') || (isSignedIn() && resource.data.doctorId == request.auth.uid);
       
-      // ============================================================================
       // REGRA ADICIONADA: Permite que um médico liste os seus próprios horários
       // disponíveis, essencial para montar a agenda.
-      // ============================================================================
       allow list: if hasRole('admin') || (hasRole('doctor') && request.query.doctorId == request.auth.uid);
     }
 
@@ -69,10 +65,8 @@ service cloud.firestore {
       // Regra existente para ler um agendamento específico
       allow read: if hasRole('admin') || (isSignedIn() && resource.data.doctorId == request.auth.uid);
       
-      // ============================================================================
       // REGRA ADICIONADA: Permite que um médico liste os seus próprios agendamentos
       // para visualização na agenda.
-      // ============================================================================
       allow list: if hasRole('admin') || (hasRole('doctor') && request.query.doctorId == request.auth.uid);
     }
 
