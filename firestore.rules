@@ -37,14 +37,21 @@ service cloud.firestore {
       allow read, write: if hasRole('admin') || isStaffMember(resource.data.unitId);
       allow delete: if hasRole('admin');
     }
+
+    // ============================================================================
+    // CORREÇÃO 3: REGRAS DE PERMISSÃO ROBUSTAS
+    // As regras de `list` foram removidas e incorporadas na permissão `read`.
+    // A permissão `read` cobre 'get', 'list' e contagens, tornando a regra mais simples
+    // e corrigindo o erro `permission-denied` que ocorria no painel do gestor.
+    // ============================================================================
     match /serviceQueue/{queueId} {
+      // Um admin ou um membro da equipa da unidade pode ler (get, list) e escrever.
       allow read, write: if hasRole('admin') || isStaffMember(resource.data.unitId);
-      allow list: if hasRole('admin') || (hasRole('hospital') && request.query.unitId == request.auth.uid);
       allow delete: if hasRole('admin');
     }
     match /consultations/{consultationId} {
+       // Um admin, o médico da consulta, ou o gestor da unidade podem ler (get, list) e escrever.
       allow read, write: if hasRole('admin') || isOwner(resource.data.doctorId) || isUnitManager(resource.data.hospitalId);
-      allow list: if hasRole('admin') || (hasRole('hospital') && request.query.hospitalId == request.auth.uid);
       allow delete: if hasRole('admin');
     }
     
@@ -87,14 +94,12 @@ service cloud.firestore {
     match /potentialMatches/{matchId} {
       // get: Permite ler um único match se for admin ou uma das partes envolvidas.
       allow get: if hasRole('admin') || (isSignedIn() && (resource.data.doctorId == request.auth.uid || resource.data.hospitalId == request.auth.uid));
-      
       // list: Permite que APENAS administradores listem TODOS os matches.
       // Esta é a regra que estava a faltar e a causar o erro no seu painel de admin.
       allow list: if hasRole('admin');
 
       // write (create, update): Apenas administradores podem criar ou alterar matches.
       allow write: if hasRole('admin');
-
       allow delete: if hasRole('admin');
     }
   }

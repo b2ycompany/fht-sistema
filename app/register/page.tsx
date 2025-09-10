@@ -619,7 +619,12 @@ function RegisterForm() {
                 targetStateSetter(prev => ({
                     ...prev,
                     cep: cleanedCep,
-                    street: data.logouro || "",
+                    // ============================================================================
+                    // CORREÇÃO 1: BUG DO CEP
+                    // O nome do campo correto retornado pela API ViaCEP é 'logradouro'.
+                    // A versão anterior usava 'logouro', o que fazia o campo da rua ficar em branco.
+                    // ============================================================================
+                    street: data.logradouro || "",
                     neighborhood: data.bairro || "",
                     city: data.localidade || "",
                     state: data.uf || "",
@@ -1229,7 +1234,18 @@ function RegisterForm() {
                             <div className="space-y-1"><Label htmlFor="repRg">RG*</Label><Input id="repRg" value={legalRepresentativeInfo.rg} onChange={handleInputChangeCallback(setLegalRepresentativeInfo, 'rg')} required /></div>
                             <div className="space-y-1"><Label htmlFor="repCpf">CPF*</Label><InputWithIMask id="repCpf" maskOptions={{ mask: '000.000.000-00' }} defaultValue={legalRepresentativeInfo.cpf} onAccept={handleIMaskAcceptCallback(setLegalRepresentativeInfo, 'cpf')} required placeholder="000.000.000-00"/></div>
                             <div className="space-y-1"><Label htmlFor="repPhone">Telefone*</Label><InputWithIMask id="repPhone" maskOptions={{ mask: [{ mask: '(00) 0000-0000' }, { mask: '(00) 00000-0000' }] }} defaultValue={legalRepresentativeInfo.phone} onAccept={handleIMaskAcceptCallback(setLegalRepresentativeInfo, 'phone')} required placeholder="(00) 90000-0000" type="tel"/></div>
-                            <div className="space-y-1"><Label htmlFor="repEmail">Email Pessoal*</Label><Input id="repEmail" type="email" value={legalRepresentativeInfo.email} onChange={handleInputChangeCallback(setLegalRepresentativeInfo, 'email')} required /></div>
+                            
+                            {/* ============================================================================ */}
+                            {/* CORREÇÃO 2: CLAREZA DO EMAIL DE LOGIN                                       */}
+                            {/* O rótulo foi alterado de "Email Pessoal" para "Email de Acesso...".         */}
+                            {/* Um parágrafo de ajuda foi adicionado para explicar a finalidade do campo.    */}
+                            {/* ============================================================================ */}
+                            <div className="space-y-1.5">
+                                <Label htmlFor="repEmail">Email de Acesso à Plataforma*</Label>
+                                <Input id="repEmail" type="email" value={legalRepresentativeInfo.email} onChange={handleInputChangeCallback(setLegalRepresentativeInfo, 'email')} required />
+                                <p className="text-xs text-gray-500">Este será o email utilizado pelo responsável para aceder ao painel da unidade.</p>
+                            </div>
+
                             <div className="space-y-1 md:col-span-2"><Label htmlFor="repPosition">Cargo na Empresa*</Label><Input id="repPosition" value={legalRepresentativeInfo.position} onChange={handleInputChangeCallback(setLegalRepresentativeInfo, 'position')} required /></div>
                         </div>
                     </form>

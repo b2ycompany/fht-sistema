@@ -1,33 +1,18 @@
 // lib/consultation-service.ts
-import {
-  doc,
-  getDoc,
-  collection,
-  query,
-  where,
-  getDocs,
-  limit,
-  Timestamp,
-  writeBatch,
-  serverTimestamp,
-  updateDoc,
-  orderBy,
-} from "firebase/firestore";
+import { doc, getDoc, collection, query, where, getDocs, limit, Timestamp, writeBatch, serverTimestamp, updateDoc, orderBy, } from "firebase/firestore";
 import { db, functions } from "./firebase";
 import { httpsCallable } from "firebase/functions";
 import type { ServiceQueueEntry } from "./patient-service";
 import type { DoctorProfile } from "./auth-service";
 
-// Interface para um documento gerado (receita, atestado, etc.)
 export interface GeneratedDocument {
-    id: string; // ID do documento na coleção 'prescriptions' ou 'documents'
-    name: string; // Ex: "Receita Médica", "Atestado"
+    id: string;
+    name: string;
     type: 'prescription' | 'medicalCertificate' | 'attendanceCertificate';
-    url: string; // URL para o PDF
+    url: string;
     createdAt: Timestamp;
 }
 
-// Interface principal da Consulta, agora com os campos para telemedicina
 export interface Consultation {
   id: string;
   patientId: string;
@@ -47,23 +32,17 @@ export interface Consultation {
   telemedicineLink?: string;
 }
 
-// Interface para a atualização do prontuário
 export interface ConsultationDetailsPayload {
   clinicalEvolution: string;
   diagnosticHypothesis: string;
 }
 
-// Prepara a chamada para a Cloud Function que cria a sala de vídeo
 const createTelemedicineRoomCallable = httpsCallable<{ consultationId: string }, { success: boolean, roomUrl: string }>(functions, 'createConsultationRoom');
 
-/**
- * Cria um novo registo de consulta a partir de uma entrada na fila de atendimento.
- */
 export const createConsultationFromQueue = async (queueEntry: ServiceQueueEntry, doctor: Pick<DoctorProfile, 'uid' | 'displayName'>, hospitalName: string): Promise<string> => {
     const batch = writeBatch(db);
     const newConsultationRef = doc(collection(db, "consultations"));
     
-    // Constrói o objeto da nova consulta com todos os dados necessários
     const newConsultationData: Omit<Consultation, 'id'> = {
         patientId: queueEntry.patientId,
         patientName: queueEntry.patientName,
@@ -79,8 +58,6 @@ export const createConsultationFromQueue = async (queueEntry: ServiceQueueEntry,
         generatedDocuments: [],
     };
 
-    // LÓGICA DE TELEMEDICINA:
-    // Se o atendimento for por telemedicina, esta função agora também cria a sala de vídeo.
     if (queueEntry.type === 'Telemedicina') {
         try {
             const result = await createTelemedicineRoomCallable({ consultationId: newConsultationRef.id });
@@ -89,28 +66,21 @@ export const createConsultationFromQueue = async (queueEntry: ServiceQueueEntry,
             }
         } catch (error) {
             console.error("Falha ao criar a sala de telemedicina:", error);
-            // Continua mesmo se a sala falhar, para não bloquear o atendimento. O link ficará vazio.
         }
     }
 
-    // Adiciona a criação da consulta ao batch
     batch.set(newConsultationRef, newConsultationData);
 
-    // Atualiza a entrada na fila para indicar que o atendimento começou
     const queueDocRef = doc(db, "serviceQueue", queueEntry.id);
     batch.update(queueDocRef, {
         status: 'Em Atendimento',
         doctorId: doctor.uid,
     });
 
-    // Executa todas as operações de uma só vez
     await batch.commit();
     return newConsultationRef.id;
 };
 
-/**
- * Finaliza uma consulta, atualizando o status na consulta e na fila.
- */
 export const completeConsultation = async (consultation: Consultation): Promise<void> => {
     const batch = writeBatch(db);
     
@@ -125,9 +95,6 @@ export const completeConsultation = async (consultation: Consultation): Promise<
     await batch.commit();
 };
 
-/**
- * Busca uma consulta específica pelo seu ID.
- */
 export const getConsultationById = async (consultationId: string): Promise<Consultation | null> => {
     if (!consultationId) return null;
     const consultRef = doc(db, "consultations", consultationId);
@@ -140,9 +107,6 @@ export const getConsultationById = async (consultationId: string): Promise<Consu
     }
 };
 
-/**
- * Busca o histórico de consultas de um paciente.
- */
 export const getConsultationsForPatient = async (patientId: string): Promise<Consultation[]> => {
     const consultsRef = collection(db, "consultations");
     const q = query(
@@ -154,9 +118,6 @@ export const getConsultationsForPatient = async (patientId: string): Promise<Con
     return querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Consultation));
 };
 
-/**
- * Salva as anotações do prontuário (evolução e hipótese).
- */
 export const saveConsultationDetails = async (consultationId: string, payload: ConsultationDetailsPayload): Promise<void> => {
     if (!consultationId) throw new Error("ID da consulta é obrigatório.");
     const consultRef = doc(db, "consultations", consultationId);
