@@ -45,7 +45,9 @@ export default function HospitalDashboardPage() {
                 setIsLoading(true);
                 setError(null);
                 try {
-                    // Chama a nossa função de serviço, agora corrigida
+                    // ============================================================================
+                    // CORREÇÃO: Chama a nossa nova função de serviço centralizada.
+                    // ============================================================================
                     const data = await getHospitalDashboardData(userProfile.uid);
                     setDashboardData(data);
                 } catch (err: any) {
@@ -67,7 +69,7 @@ export default function HospitalDashboardPage() {
         return <div className="flex h-screen items-center justify-center"><Loader2 className="h-12 w-12 animate-spin text-blue-600" /></div>;
     }
     
-    // Mostra uma mensagem de erro se a busca de dados falhar
+    // Mostra um componente de erro mais claro se a busca de dados falhar
     if (error) {
         return (
             <div className="container mx-auto p-6 text-center">
@@ -111,7 +113,7 @@ export default function HospitalDashboardPage() {
             </div>
 
             {/* ============================================================================ */}
-            {/* CORREÇÃO: A grade agora tem 4 colunas em ecrãs grandes (lg:grid-cols-4)     */}
+            {/* CORREÇÃO: A grelha agora tem 4 colunas em ecrãs grandes (lg:grid-cols-4)     */}
             {/* para acomodar o novo cartão de estatísticas.                                 */}
             {/* ============================================================================ */}
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">

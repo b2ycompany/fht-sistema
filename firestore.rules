@@ -9,16 +9,28 @@ service cloud.firestore {
     function isOwner(userId) { return isSignedIn() && request.auth.uid == userId; }
     function isUnitManager(unitId) { return hasRole('hospital') && request.auth.uid == unitId; }
     function isStaffMember(unitId) {
+      // Verifica se o utilizador autenticado pertence a uma unidade específica
       return isSignedIn() && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.hospitalId == unitId;
     }
 
     // --- REGRAS PARA UTILIZADORES ---
     match /users/{userId} {
-      allow read: if hasRole('admin') || isOwner(userId) || isUnitManager(resource.data.hospitalId);
+      // ============================================================================
+      // CORREÇÃO APLICADA AQUI
+      // Esta regra unificada de 'read' cobre 'get', 'list' e contagens.
+      // A nova linha permite que um gestor de hospital leia o perfil de um médico
+      // se o ID do hospital estiver no array 'healthUnitIds' do médico.
+      // ============================================================================
+      allow read: if 
+        hasRole('admin') || 
+        isOwner(userId) ||
+        (hasRole('hospital') && resource.data.hospitalId == request.auth.uid) ||
+        (resource.data.healthUnitIds is list && request.auth.uid in resource.data.healthUnitIds);
+
       allow create, update: if isOwner(userId) || hasRole('admin');
       allow delete: if hasRole('admin');
     }
-    
+     
     // --- REGRAS PARA FLUXO DE ATENDIMENTO ---
     match /patients/{patientId} {
       allow read, write: if hasRole('admin') || isStaffMember(resource.data.unitId) || isUnitManager(resource.data.unitId);
@@ -32,7 +44,7 @@ service cloud.firestore {
       allow read, write: if hasRole('admin') || isOwner(resource.data.doctorId) || isUnitManager(resource.data.hospitalId);
       allow delete: if hasRole('admin');
     }
-    
+     
     // --- REGRAS DE NEGÓCIO UNIFICADAS ---
     match /settings/{settingId} { allow read, write: if hasRole('admin'); }
     match /specialties/{specialtyId} { allow read: if true; allow write: if hasRole('admin'); }
@@ -47,12 +59,8 @@ service cloud.firestore {
     match /doctorTimeSlots/{timeSlotId} {
       allow read, write, delete: if hasRole('admin') || isOwner(resource.data.doctorId);
     }
-    
-    // <<< CORREÇÃO: A regra aponta para "appointments" e não mais para a coleção antiga >>>
     match /appointments/{appointmentId} {
       allow read, write: if hasRole('admin') || isOwner(resource.data.doctorId);
     }
-
-    // <<< REMOVIDO: A regra para 'telemedicineAppointments' foi removida por ser redundante >>>
   }
 }

@@ -15,7 +15,10 @@ export interface HospitalDashboardData {
     triageQueueCount: number;
     consultationQueueCount: number;
     completedTodayCount: number;
-    associatedDoctorsCount: number; // <<< CAMPO ADICIONADO >>>
+    // ============================================================================
+    // CAMPO ADICIONADO: Contagem de médicos associados à unidade.
+    // ============================================================================
+    associatedDoctorsCount: number; 
 }
 
 /**
@@ -29,9 +32,10 @@ export const getHospitalDashboardData = async (unitId: string): Promise<Hospital
     }
 
     try {
+        // Referências às coleções do Firestore
         const queueRef = collection(db, "serviceQueue");
         const consultationsRef = collection(db, "consultations");
-        const usersRef = collection(db, "users"); // <<< Referência para a coleção de utilizadores >>>
+        const usersRef = collection(db, "users");
 
         // Define o início do dia de hoje para filtrar as consultas
         const startOfToday = new Date();
@@ -71,24 +75,25 @@ export const getHospitalDashboardData = async (unitId: string): Promise<Hospital
             where("healthUnitIds", "array-contains", unitId)
         );
 
-
-        // Executa todas as contagens em paralelo, incluindo a nova contagem de médicos
+        // Executa todas as contagens em paralelo para maior eficiência
         const [triageSnapshot, consultationQueueSnapshot, completedSnapshot, doctorsSnapshot] = await Promise.all([
             getCountFromServer(triageQuery),
             getCountFromServer(consultationQueueQuery),
             getCountFromServer(completedQuery),
-            getCountFromServer(doctorsQuery) // <<< Nova consulta adicionada >>>
+            getCountFromServer(doctorsQuery) // Nova consulta adicionada à execução paralela
         ]);
 
+        // Retorna os dados consolidados
         return {
             triageQueueCount: triageSnapshot.data().count,
             consultationQueueCount: consultationQueueSnapshot.data().count,
             completedTodayCount: completedSnapshot.data().count,
-            associatedDoctorsCount: doctorsSnapshot.data().count, // <<< Novo dado retornado >>>
+            associatedDoctorsCount: doctorsSnapshot.data().count, // Novo dado retornado para o frontend
         };
 
     } catch (error) {
         console.error("Erro ao buscar dados para o painel do gestor:", error);
-        throw new Error("Não foi possível carregar os indicadores da unidade.");
+        // Lança um erro mais amigável para o frontend
+        throw new Error("Não foi possível carregar os indicadores da unidade. Verifique a sua conexão ou tente novamente mais tarde.");
     }
 };
