@@ -3,7 +3,7 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // --- Funções Auxiliares ---
+    // --- Funções Auxiliares (Sem alterações) ---
     function isSignedIn() { return request.auth != null; }
     function hasRole(role) { return isSignedIn() && request.auth.token.role == role; }
     function isOwner(userId) { return isSignedIn() && request.auth.uid == userId; }
@@ -14,20 +14,18 @@ service cloud.firestore {
 
     // --- REGRAS PARA UTILIZADORES ---
     match /users/{userId} {
-      // ============================================================================
-      // CORREÇÃO FINAL APLICADA AQUI
-      // A regra de leitura foi simplificada e tornada mais explícita
-      // para corresponder perfeitamente à consulta do painel.
-      // ============================================================================
       allow read: if
         hasRole('admin') ||
         isOwner(userId) ||
-        // CONDIÇÃO FINAL: Um gestor de hospital (hasRole) pode ler um documento
-        // se o seu próprio ID de utilizador (request.auth.uid) estiver no array
-        // 'healthUnitIds' do documento que está a ser lido (resource.data).
-        // Isto valida a consulta de contagem de forma segura e explícita.
+        // ============================================================================
+        // CORREÇÃO FINAL E DEFINITIVA APLICADA AQUI
+        // Adicionamos a verificação 'resource.data.userType == 'doctor'' para que
+        // a regra espelhe PERFEITAMENTE a consulta do painel.
+        // Isto resolve o erro para hospitais que ainda não têm médicos.
+        // ============================================================================
         (
           hasRole('hospital') &&
+          resource.data.userType == 'doctor' &&
           resource.data.healthUnitIds is list &&
           request.auth.uid in resource.data.healthUnitIds
         );
@@ -36,25 +34,21 @@ service cloud.firestore {
       allow delete: if hasRole('admin');
     }
 
-    // --- REGRAS PARA FLUXO DE ATENDIMENTO (Corrigidas e estáveis) ---
+    // --- O RESTO DAS SUAS REGRAS (JÁ CORRIGIDAS E ESTÁVEIS) ---
     match /patients/{patientId} {
       allow read: if hasRole('admin') || isUnitManager(resource.data.unitId);
       allow write: if hasRole('admin') || isUnitManager(resource.data.unitId) || isStaffMember(resource.data.unitId);
       allow delete: if hasRole('admin');
     }
-
     match /serviceQueue/{queueId} {
       allow read: if hasRole('admin') || isUnitManager(resource.data.unitId);
       allow write: if hasRole('admin') || isUnitManager(resource.data.unitId) || isStaffMember(resource.data.unitId);
       allow delete: if hasRole('admin');
     }
-
     match /consultations/{consultationId} {
       allow read, write: if hasRole('admin') || isOwner(resource.data.doctorId) || isUnitManager(resource.data.hospitalId);
       allow delete: if hasRole('admin');
     }
-
-    // --- REGRAS DE NEGÓCIO UNIFICADAS ---
     match /settings/{settingId} { allow read, write: if hasRole('admin'); }
     match /specialties/{specialtyId} { allow read: if true; allow write: if hasRole('admin'); }
     match /invitations/{invitationId} { allow create: if hasRole('admin') || hasRole('hospital'); allow read, update, delete: if false; }
