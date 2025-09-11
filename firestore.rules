@@ -14,36 +14,42 @@ service cloud.firestore {
 
     // --- REGRAS PARA UTILIZADORES ---
     match /users/{userId} {
+      // ============================================================================
+      // CORREÇÃO FINAL APLICADA AQUI
+      // A regra de leitura foi simplificada e tornada mais explícita
+      // para corresponder perfeitamente à consulta do painel.
+      // ============================================================================
       allow read: if
         hasRole('admin') ||
         isOwner(userId) ||
-        (hasRole('hospital') && resource.data.hospitalId == request.auth.uid) ||
-        (resource.data.healthUnitIds is list && request.auth.uid in resource.data.healthUnitIds);
+        // CONDIÇÃO FINAL: Um gestor de hospital (hasRole) pode ler um documento
+        // se o seu próprio ID de utilizador (request.auth.uid) estiver no array
+        // 'healthUnitIds' do documento que está a ser lido (resource.data).
+        // Isto valida a consulta de contagem de forma segura e explícita.
+        (
+          hasRole('hospital') &&
+          resource.data.healthUnitIds is list &&
+          request.auth.uid in resource.data.healthUnitIds
+        );
+        
       allow create, update: if isOwner(userId) || hasRole('admin');
       allow delete: if hasRole('admin');
     }
 
-    // --- REGRAS PARA FLUXO DE ATENDIMENTO ---
+    // --- REGRAS PARA FLUXO DE ATENDIMENTO (Corrigidas e estáveis) ---
     match /patients/{patientId} {
-      // CORREÇÃO APLICADA: 'read' e 'write' foram separados.
-      // A regra de 'read' agora é segura para consultas (sem o 'get()' da função isStaffMember).
       allow read: if hasRole('admin') || isUnitManager(resource.data.unitId);
-      // A regra de 'write' mantém a permissão original para os membros da equipa.
       allow write: if hasRole('admin') || isUnitManager(resource.data.unitId) || isStaffMember(resource.data.unitId);
       allow delete: if hasRole('admin');
     }
 
     match /serviceQueue/{queueId} {
-      // CORREÇÃO APLICADA: 'read' e 'write' foram separados.
-      // A regra de 'read' agora é segura para as consultas do painel (sem o 'get()').
       allow read: if hasRole('admin') || isUnitManager(resource.data.unitId);
-      // A regra de 'write' mantém a permissão original para os membros da equipa.
       allow write: if hasRole('admin') || isUnitManager(resource.data.unitId) || isStaffMember(resource.data.unitId);
       allow delete: if hasRole('admin');
     }
 
     match /consultations/{consultationId} {
-      // (Sem alterações, esta regra já estava correta)
       allow read, write: if hasRole('admin') || isOwner(resource.data.doctorId) || isUnitManager(resource.data.hospitalId);
       allow delete: if hasRole('admin');
     }
