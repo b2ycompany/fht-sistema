@@ -83,6 +83,13 @@ export const searchAssociatedDoctors = onCall({ cors: corsPolicy },
     (request: CallableRequest) => import("./logic").then(api => api.searchAssociatedDoctorsHandler(request))
 );
 
+// ============================================================================
+// NOVA FUNÇÃO ADICIONADA AQUI PARA ATRIBUIR A ROLE AO GESTOR DO HOSPITAL
+// ============================================================================
+export const setHospitalManagerRole = onCall({ cors: corsPolicy },
+    (request: CallableRequest) => import("./logic").then(api => api.setHospitalManagerRoleHandler(request))
+);
+
 // --- Funções de Atendimento e Consulta ---
 export const createConsultationRoom = onCall({ cors: corsPolicy, secrets: ["DAILY_APIKEY"] },
     (request: CallableRequest) => import("./logic").then(api => api.createConsultationRoomHandler(request))

@@ -39,6 +39,10 @@ import { uploadFileToStorage } from "@/lib/storage-service";
 import { FirebaseError } from "firebase/app";
 import { cn } from "@/lib/utils";
 import { auth } from "@/lib/firebase";
+// ============================================================================
+// ADIÇÃO: Importações necessárias para chamar a Cloud Function
+// ============================================================================
+import { getFunctions, httpsCallable } from "firebase/functions";
 import {
   Loader2, Check, AlertTriangle, Info, Stethoscope, Building,
   FileUp, XCircleIcon, ExternalLink, CheckCircle, HeartPulse, Briefcase, Search, X
@@ -931,16 +935,34 @@ function RegisterForm() {
             }
             
             await completeUserRegistration(userId, loginEmail, displayName, role, registrationData);
+
+            // ============================================================================
+            // ALTERAÇÃO REALIZADA: Chamar a nova função para definir a permissão do gestor
+            // ============================================================================
+            if (role === 'hospital') {
+                toast({ title: "Etapa Final: Definindo permissões...", duration: 4000 });
+                try {
+                    const functions = getFunctions();
+                    const setHospitalManagerRole = httpsCallable(functions, 'setHospitalManagerRole');
+                    await setHospitalManagerRole({ managerEmail: legalRepresentativeInfo.email });
+                } catch (roleError) {
+                    console.error("Erro secundário ao definir a permissão do gestor:", roleError);
+                    // Não bloqueia o utilizador, mas regista o erro.
+                    // Pode ser corrigido manualmente no futuro.
+                    toast({
+                        variant: "destructive",
+                        title: "Aviso de Permissão",
+                        description: "O seu cadastro foi criado, mas houve um problema ao definir as permissões de acesso. Contacte o suporte se o problema persistir."
+                    });
+                }
+            }
             
-            // ALTERAÇÃO REALIZADA: A mensagem foi ajustada para refletir o novo redirecionamento.
             toast({
                 title: "Cadastro Realizado com Sucesso!",
                 description: "Redirecionando para a página de login...",
                 duration: 4000
             });
             
-            // ALTERAÇÃO REALIZADA: Redirecionamento forçado para /login para resolver o problema da tela branca.
-            // O utilizador fará login novamente, e o AuthProvider cuidará de o redirecionar para o painel correto.
             window.location.assign('/login');
 
         } catch (error: any) {

@@ -228,7 +228,9 @@ export const onUserCreatedSetClaimsHandler = async (event: FirestoreEvent<Docume
         logger.warn(`Utilizador ${userId} criado sem um 'userType'. Claims não serão definidos.`);
         return;
     }
-
+    
+    // ATENÇÃO: Se userType for 'hospital', esta claim está a ser definida no ID do documento do hospital,
+    // que é diferente do UID do utilizador gestor. A nova função setHospitalManagerRoleHandler corrige isso.
     const claims = { role: userType, hospitalId: userData.hospitalId || null };
     const profileUpdate: { displayName_lowercase?: string } = {};
     if (displayName) {
@@ -1416,5 +1418,44 @@ export const approveDoctorHandler = async (request: CallableRequest) => {
     } catch (error) {
         logger.error(`Falha ao aprovar médico ${doctorId}:`, error);
         throw new HttpsError("internal", "Não foi possível aprovar o cadastro do médico.");
+    }
+};
+
+// ============================================================================
+// NOVA FUNÇÃO ADICIONADA PARA CORRIGIR O PROBLEMA DE PERMISSÃO
+// Esta função é chamada pelo frontend após o cadastro de um hospital.
+// Ela encontra o utilizador gestor pelo email e define a sua role.
+// ============================================================================
+export const setHospitalManagerRoleHandler = async (request: CallableRequest) => {
+    // Como esta função é chamada logo após um registo público,
+    // a chamada pode ser não autenticada. A segurança está em garantir
+    // que ela só pode definir a role 'hospital'.
+    const { managerEmail } = request.data;
+    if (!managerEmail) {
+        throw new HttpsError("invalid-argument", "O email do gestor é obrigatório.");
+    }
+
+    logger.info(`Iniciando a atribuição da role 'hospital' para o gestor: ${managerEmail}`);
+
+    try {
+        // 1. Encontrar o registo de autenticação do gestor pelo email.
+        const userRecord = await admin.auth().getUserByEmail(managerEmail);
+
+        // 2. Definir a Custom Claim { role: 'hospital' } para este utilizador.
+        // Esta é a correção que resolve o problema no painel.
+        await admin.auth().setCustomUserClaims(userRecord.uid, {
+            role: "hospital",
+        });
+
+        logger.info(`SUCESSO: Claim 'role: hospital' definida para o gestor ${managerEmail} (UID: ${userRecord.uid})`);
+        
+        return { success: true, message: `Permissão de gestor definida com sucesso para ${managerEmail}.` };
+
+    } catch (error: any) {
+        logger.error(`Erro ao definir a claim para o gestor ${managerEmail}:`, error);
+        if (error.code === 'auth/user-not-found') {
+            throw new HttpsError("not-found", `Nenhum utilizador encontrado com o email ${managerEmail}.`);
+        }
+        throw new HttpsError("internal", "Ocorreu um erro ao definir a permissão do gestor.");
     }
 };

@@ -5,15 +5,17 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from '@/components/auth-provider';
 import { useToast } from '@/hooks/use-toast';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-// ============================================================================
-// Stethoscope foi importado para ser usado no novo cartão.
-// ============================================================================
 import { Loader2, Users, ClipboardList, CheckCircle, AlertCircle, Stethoscope } from 'lucide-react';
 import { getHospitalDashboardData, type HospitalDashboardData } from '@/lib/hospital-dashboard-service';
 import { Button } from '@/components/ui/button';
 import Link from 'next/link';
 
-// Componente reutilizável para os cartões de estatísticas (KPIs)
+// ============================================================================
+// ADICIONADO PARA DIAGNÓSTICO
+import { getAuth } from 'firebase/auth'; 
+// ============================================================================
+
+
 const StatCard = ({ title, value, icon: Icon, description, isLoading }: { title: string; value: string | number; icon: React.ElementType; description?: string; isLoading: boolean; }) => (
     <Card>
         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
@@ -39,15 +41,30 @@ export default function HospitalDashboardPage() {
     const [error, setError] = useState<string | null>(null);
 
     useEffect(() => {
-        // Apenas busca os dados se o perfil do gestor estiver carregado
+        // ============================================================================
+        // CÓDIGO DE DIAGNÓSTICO: VERIFICA AS "CUSTOM CLAIMS" DO UTILIZADOR
+        // Este bloco de código irá mostrar no console do navegador se a role está correta.
+        // ============================================================================
+        const auth = getAuth();
+        const currentUser = auth.currentUser;
+        if (currentUser) {
+            currentUser.getIdTokenResult(true) // O 'true' força a atualização do token
+                .then((idTokenResult) => {
+                    console.log("✅ [DIAGNÓSTICO] Claims do Utilizador:", idTokenResult.claims);
+                    if (!idTokenResult.claims.role || idTokenResult.claims.role !== 'hospital') {
+                        console.error("❌ [CAUSA DO ERRO] O utilizador NÃO TEM a claim 'role: \"hospital\"'. As regras de segurança estão a bloquear o acesso corretamente. É necessário corrigir o backend.");
+                    } else {
+                        console.log("✔️ [SUCESSO] A claim 'role: \"hospital\"' foi encontrada!");
+                    }
+                });
+        }
+        // Fim do código de diagnóstico
+
         if (userProfile && userProfile.userType === 'hospital') {
             const fetchData = async () => {
                 setIsLoading(true);
                 setError(null);
                 try {
-                    // ============================================================================
-                    // CORREÇÃO: Chama a nossa nova função de serviço centralizada.
-                    // ============================================================================
                     const data = await getHospitalDashboardData(userProfile.uid);
                     setDashboardData(data);
                 } catch (err: any) {
@@ -69,7 +86,6 @@ export default function HospitalDashboardPage() {
         return <div className="flex h-screen items-center justify-center"><Loader2 className="h-12 w-12 animate-spin text-blue-600" /></div>;
     }
     
-    // Mostra um componente de erro mais claro se a busca de dados falhar
     if (error) {
         return (
             <div className="container mx-auto p-6 text-center">
@@ -97,7 +113,6 @@ export default function HospitalDashboardPage() {
                 </div>
                 <div className="flex gap-2">
                     <Button asChild variant="outline">
-                        {/* Correção de link para minúsculas para consistência */}
                         <Link href="/hospital/dashboard/equipe">
                             <Users className="mr-2 h-4 w-4" />
                             Gerir Equipa
@@ -112,10 +127,6 @@ export default function HospitalDashboardPage() {
                 </div>
             </div>
 
-            {/* ============================================================================ */}
-            {/* CORREÇÃO: A grelha agora tem 4 colunas em ecrãs grandes (lg:grid-cols-4)     */}
-            {/* para acomodar o novo cartão de estatísticas.                                 */}
-            {/* ============================================================================ */}
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
                 <StatCard 
                     title="Pacientes na Fila de Triagem" 
@@ -138,9 +149,6 @@ export default function HospitalDashboardPage() {
                     description="Total de consultas concluídas."
                     isLoading={isLoading}
                 />
-                {/* ============================================================================ */}
-                {/* NOVO CARTÃO: Exibe a contagem de médicos associados vinda da API.         */}
-                {/* ============================================================================ */}
                 <StatCard 
                     title="Médicos Associados" 
                     value={dashboardData?.associatedDoctorsCount ?? 0} 
