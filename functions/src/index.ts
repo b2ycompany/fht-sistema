@@ -3,7 +3,7 @@ import { onDocumentWritten, onDocumentDeleted, onDocumentCreated, FirestoreEvent
 import { onCall, CallableRequest } from "firebase-functions/v2/https";
 import { setGlobalOptions } from "firebase-functions/v2";
 import * as admin from "firebase-admin";
-import * as functions from "firebase-functions/v1";
+import * as functions from "firebase-functions/v1"; // <<< REINTRODUZIDO PARA V1
 import { UserRecord } from "firebase-admin/auth";
 import { Change } from "firebase-functions";
 import { DocumentSnapshot } from "firebase-admin/firestore";
@@ -11,10 +11,10 @@ import { DocumentSnapshot } from "firebase-admin/firestore";
 if (admin.apps.length === 0) {
   admin.initializeApp();
 }
-setGlobalOptions({ region: "us-central1", memory: "512MiB" });
+setGlobalOptions({ region: "southamerica-east1", memory: "512MiB" });
 
 const corsPolicy = [
-    "https://fhtgestao.com.br", 
+    "https://fhtgestao.com.br",
     "https://www.fhtgestao.com.br",
     "https://fht-sistema.web.app",
     "https://fht-sistema.firebaseapp.com",
@@ -83,9 +83,6 @@ export const searchAssociatedDoctors = onCall({ cors: corsPolicy },
     (request: CallableRequest) => import("./logic").then(api => api.searchAssociatedDoctorsHandler(request))
 );
 
-// ============================================================================
-// NOVA FUNÇÃO ADICIONADA AQUI PARA ATRIBUIR A ROLE AO GESTOR DO HOSPITAL
-// ============================================================================
 export const setHospitalManagerRole = onCall({ cors: corsPolicy },
     (request: CallableRequest) => import("./logic").then(api => api.setHospitalManagerRoleHandler(request))
 );
@@ -130,16 +127,15 @@ export const migrateDoctorProfilesToUsers = onCall({ cors: corsPolicy },
     (request: CallableRequest) => import("./logic").then(api => api.migrateDoctorProfilesToUsersHandler(request))
 );
 
-// A função createTelemedicineRoom parece ser uma duplicata de createConsultationRoom ou específica para 'contracts'.
-// Mantendo a createConsultationRoom que é mais genérica.
 export const createTelemedicineRoom = onCall({ cors: corsPolicy, secrets: ["DAILY_APIKEY"] },
     (request: CallableRequest) => import("./logic").then(api => api.createTelemedicineRoomHandler(request))
 );
 
 // ===================================================================================
-// === GATILHOS DE AUTENTICAÇÃO (Auth Triggers V1) ===================================
+// === GATILHOS DE AUTENTICAÇÃO (Auth Triggers V1 - Estável) =========================
 // ===================================================================================
 
+// <<< REVERTIDO PARA A SINTAXE V1 ESTÁVEL >>>
 export const onUserDeletedCleanup = functions.auth.user().onDelete(
     (user: UserRecord) => import("./logic").then(api => api.onUserDeletedCleanupHandler(user))
 );

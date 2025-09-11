@@ -2,7 +2,7 @@
 import { HttpsError, CallableRequest } from "firebase-functions/v2/https";
 import { logger } from "firebase-functions/v2";
 import * as admin from "firebase-admin";
-import { UserRecord } from "firebase-admin/auth";
+import { UserRecord } from "firebase-admin/auth"; // <<< AGORA USADO CORRETAMENTE
 import { Change } from "firebase-functions";
 import { DocumentSnapshot, FieldValue, getFirestore, Query, GeoPoint, DocumentData } from "firebase-admin/firestore";
 import { getStorage } from "firebase-admin/storage";
@@ -11,7 +11,6 @@ import { v4 as uuidv4 } from 'uuid';
 
 // --- INTERFACES E TIPOS PADRONIZADOS ---
 
-// Interface consolidada com status padronizado
 interface UserProfile extends DocumentData {
     uid: string;
     userType: 'doctor' | 'hospital' | 'admin' | 'receptionist' | 'triage_nurse' | 'caravan_admin';
@@ -21,8 +20,7 @@ interface UserProfile extends DocumentData {
     professionalCrm?: string;
     specialties?: string[];
     healthUnitIds?: string[];
-    hospitalId?: string; // Usado por membros da equipa
-    // <<< STATUS PADRONIZADO PARA MAIOR CONSISTÊNCIA >>>
+    hospitalId?: string;
     status?: 'INVITED' | 'ACTIVE' | 'PENDING_APPROVAL' | 'SUSPENDED';
     invitationToken?: string;
     createdAt?: FieldValue;
@@ -186,7 +184,7 @@ async function drawTextWithWrapping(page: any, text: string, options: { x: numbe
 }
 
 // --- LÓGICA DE CADA FUNÇÃO (HANDLERS) ---
-
+// (Todas as outras funções permanecem iguais)
 export const onUserCreatedSetClaimsHandler = async (event: FirestoreEvent<DocumentSnapshot | undefined, { userId: string }>) => {
     const userSnap = event.data;
     if (!userSnap) {
@@ -215,7 +213,7 @@ export const onUserCreatedSetClaimsHandler = async (event: FirestoreEvent<Docume
             // Vínculo automático e status de pendente
             await userSnap.ref.update({
                 healthUnitIds: FieldValue.arrayUnion(hospitalId),
-                status: 'PENDING_APPROVAL' // <<< USA O STATUS PADRONIZADO
+                status: 'PENDING_APPROVAL'
             });
             await invitationDoc.ref.update({ status: 'completed' });
             
@@ -229,8 +227,6 @@ export const onUserCreatedSetClaimsHandler = async (event: FirestoreEvent<Docume
         return;
     }
     
-    // ATENÇÃO: Se userType for 'hospital', esta claim está a ser definida no ID do documento do hospital,
-    // que é diferente do UID do utilizador gestor. A nova função setHospitalManagerRoleHandler corrige isso.
     const claims = { role: userType, hospitalId: userData.hospitalId || null };
     const profileUpdate: { displayName_lowercase?: string } = {};
     if (displayName) {
@@ -902,12 +898,7 @@ export const registerCheckoutHandler = async (request: CallableRequest) => {
     }
 };
 
-/**
- * CORREÇÃO CRÍTICA DE SEGURANÇA: Define um utilizador como administrador.
- * Agora verifica se o autor da chamada já é um administrador.
- */
 export const setAdminClaimHandler = async (request: CallableRequest) => {
-    // <<< VERIFICAÇÃO DE PERMISSÃO ADICIONADA >>>
     if (request.auth?.token?.role !== 'admin') {
         throw new HttpsError("permission-denied", "Apenas administradores podem executar esta ação.");
     }
@@ -919,7 +910,6 @@ export const setAdminClaimHandler = async (request: CallableRequest) => {
 
     try {
         const user = await auth.getUserByEmail(email);
-        // Padroniza a claim para 'role' como no resto do sistema
         await auth.setCustomUserClaims(user.uid, { role: 'admin' });
         
         logger.info(`Sucesso! O usuário ${email} (UID: ${user.uid}) agora tem a role de 'admin'.`);
@@ -931,11 +921,6 @@ export const setAdminClaimHandler = async (request: CallableRequest) => {
     }
 };
 
-/**
- * ATUALIZADO: Cria um novo utilizador da equipa e envia um convite por email com link para criar a senha.
- * Agora permite que administradores também criem membros da equipa.
- * CORRIGIDO: Tratamento de erro específico para domínio não autorizado.
- */
 export const createStaffUserHandler = async (request: CallableRequest) => {
     if (!request.auth) {
         throw new HttpsError("unauthenticated", "Apenas utilizadores autenticados podem adicionar membros à equipa.");
@@ -974,9 +959,8 @@ export const createStaffUserHandler = async (request: CallableRequest) => {
         };
         await db.collection("users").doc(userRecord.uid).set(userProfile);
         
-        // <<< CORREÇÃO APLICADA AQUI: Adicionado 'www.' para corresponder ao seu domínio autorizado >>>
         const actionCodeSettings = {
-            url: `https://www.fhtgestao.com.br/login`, // Continua a ser o destino final
+            url: `https://www.fhtgestao.com.br/login`,
             handleCodeInApp: true,
         };
         const passwordCreationLink = await auth.generatePasswordResetLink(email, actionCodeSettings);
@@ -1001,8 +985,6 @@ export const createStaffUserHandler = async (request: CallableRequest) => {
         if (error.code === 'auth/email-already-exists') {
             throw new HttpsError("already-exists", "Este endereço de e-mail já está em uso.");
         }
-        // <<< CORREÇÃO APLICADA AQUI >>>
-        // Retorna a mensagem de erro específica do Firebase Auth para o frontend
         if (error.code === 'auth/unauthorized-continue-uri') {
              throw new HttpsError("internal", "O domínio de continuação não está autorizado. Verifique as configurações de autenticação.");
         }
@@ -1011,9 +993,6 @@ export const createStaffUserHandler = async (request: CallableRequest) => {
 };
 
 
-/**
- * NOVA FUNÇÃO: Atualiza o status de um utilizador de 'INVITED' para 'ACTIVE'.
- */
 export const confirmUserSetupHandler = async (request: CallableRequest) => {
     if (!request.auth) {
         throw new HttpsError("unauthenticated", "Utilizador não autenticado.");
@@ -1157,6 +1136,7 @@ export const createAppointmentHandler = async (request: CallableRequest) => {
     return { success: true, appointmentId: docRef.id };
 };
 
+// <<< REVERTIDO PARA A SINTAXE V1 ESTÁVEL, RECEBENDO UserRecord >>>
 export const onUserDeletedCleanupHandler = async (user: UserRecord) => {
     const uid = user.uid;
     logger.info(`[Sintaxe V1] Utilizador de autenticação com UID: ${uid} foi excluído. A iniciar limpeza.`);
@@ -1366,7 +1346,6 @@ export const sendDoctorInvitationHandler = async (request: CallableRequest) => {
     const hospitalDoc = await db.collection('users').doc(hospitalId).get();
     const hospitalName = hospitalDoc.data()?.displayName || 'Uma unidade de saúde';
 
-    // Verifica se o médico já existe
     try {
         await auth.getUserByEmail(doctorEmail);
         throw new HttpsError("already-exists", "Um utilizador com este e-mail já existe. Use a função 'Associar Médico'.");
@@ -1393,9 +1372,6 @@ export const sendDoctorInvitationHandler = async (request: CallableRequest) => {
     return { success: true, message: `Convite enviado com sucesso para ${doctorEmail}.` };
 };
 
-/**
- * APROVEITAMENTO: A função approveDoctor agora usa o status padronizado 'ACTIVE'.
- */
 export const approveDoctorHandler = async (request: CallableRequest) => {
     if (request.auth?.token?.role !== 'admin') {
         throw new HttpsError("permission-denied", "Apenas administradores podem aprovar cadastros.");
@@ -1409,7 +1385,7 @@ export const approveDoctorHandler = async (request: CallableRequest) => {
     try {
         const doctorRef = db.collection("users").doc(doctorId);
         await doctorRef.update({
-            status: 'ACTIVE' // <<< USA O STATUS PADRONIZADO
+            status: 'ACTIVE'
         });
 
         logger.info(`Médico ${doctorId} foi aprovado por um administrador.`);
@@ -1421,15 +1397,7 @@ export const approveDoctorHandler = async (request: CallableRequest) => {
     }
 };
 
-// ============================================================================
-// NOVA FUNÇÃO ADICIONADA PARA CORRIGIR O PROBLEMA DE PERMISSÃO
-// Esta função é chamada pelo frontend após o cadastro de um hospital.
-// Ela encontra o utilizador gestor pelo email e define a sua role.
-// ============================================================================
 export const setHospitalManagerRoleHandler = async (request: CallableRequest) => {
-    // Como esta função é chamada logo após um registo público,
-    // a chamada pode ser não autenticada. A segurança está em garantir
-    // que ela só pode definir a role 'hospital'.
     const { managerEmail } = request.data;
     if (!managerEmail) {
         throw new HttpsError("invalid-argument", "O email do gestor é obrigatório.");
@@ -1438,11 +1406,8 @@ export const setHospitalManagerRoleHandler = async (request: CallableRequest) =>
     logger.info(`Iniciando a atribuição da role 'hospital' para o gestor: ${managerEmail}`);
 
     try {
-        // 1. Encontrar o registo de autenticação do gestor pelo email.
         const userRecord = await admin.auth().getUserByEmail(managerEmail);
 
-        // 2. Definir a Custom Claim { role: 'hospital' } para este utilizador.
-        // Esta é a correção que resolve o problema no painel.
         await admin.auth().setCustomUserClaims(userRecord.uid, {
             role: "hospital",
         });
