@@ -1,18 +1,31 @@
 // functions/src/index.ts
+
+// --- IMPORTS ---
+// Importando os módulos da V2 para a maioria das funções
 import { onDocumentWritten, onDocumentDeleted, onDocumentCreated, FirestoreEvent } from "firebase-functions/v2/firestore";
 import { onCall, CallableRequest } from "firebase-functions/v2/https";
 import { setGlobalOptions } from "firebase-functions/v2";
+
+// Importando a biblioteca do Firebase Admin
 import * as admin from "firebase-admin";
-import * as functions from "firebase-functions/v1"; // <<< REINTRODUZIDO PARA V1
+
+// <<< ALTERAÇÃO PRINCIPAL: Importando o pacote V1 ESPECIFICAMENTE para o gatilho de auth >>>
+import * as functions from "firebase-functions/v1";
+
+// Importando tipos necessários
 import { UserRecord } from "firebase-admin/auth";
 import { Change } from "firebase-functions";
 import { DocumentSnapshot } from "firebase-admin/firestore";
 
+// Inicializa o app do Firebase Admin se ainda não foi inicializado
 if (admin.apps.length === 0) {
   admin.initializeApp();
 }
+
+// Define configurações globais para as funções (região e memória)
 setGlobalOptions({ region: "southamerica-east1", memory: "512MiB" });
 
+// Define a política de CORS para permitir requisições dos seus front-ends
 const corsPolicy = [
     "https://fhtgestao.com.br",
     "https://www.fhtgestao.com.br",
@@ -22,7 +35,7 @@ const corsPolicy = [
 ];
 
 // ===================================================================================
-// === GATILHOS DE EVENTOS DO FIRESTORE (onDocument...) =============================
+// === GATILHOS DE EVENTOS DO FIRESTORE (onDocument...) - V2 ========================
 // ===================================================================================
 
 export const onUserCreatedSetClaims = onDocumentCreated("users/{userId}",
@@ -51,7 +64,7 @@ export const onTimeSlotDelete = onDocumentDeleted("doctorTimeSlots/{timeSlotId}"
 
 
 // ===================================================================================
-// === FUNÇÕES CHAMÁVEIS PELO CLIENTE (onCall) =======================================
+// === FUNÇÕES CHAMÁVEIS PELO CLIENTE (onCall) - V2 =================================
 // ===================================================================================
 
 // --- Funções de Gestão e Admin ---
@@ -135,7 +148,12 @@ export const createTelemedicineRoom = onCall({ cors: corsPolicy, secrets: ["DAIL
 // === GATILHOS DE AUTENTICAÇÃO (Auth Triggers V1 - Estável) =========================
 // ===================================================================================
 
-// <<< REVERTIDO PARA A SINTAXE V1 ESTÁVEL >>>
+/**
+ * @summary Gatilho para limpar dados do utilizador após a sua conta ser apagada no Firebase Auth.
+ * @description Utiliza a sintaxe V1 (`functions.auth.user().onDelete`) por ser mais estável e confiável
+ * para gatilhos de autenticação do que a V2 no momento.
+ * @param {UserRecord} user - O objeto do utilizador que foi apagado.
+ */
 export const onUserDeletedCleanup = functions.auth.user().onDelete(
     (user: UserRecord) => import("./logic").then(api => api.onUserDeletedCleanupHandler(user))
 );

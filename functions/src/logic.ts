@@ -2,7 +2,8 @@
 import { HttpsError, CallableRequest } from "firebase-functions/v2/https";
 import { logger } from "firebase-functions/v2";
 import * as admin from "firebase-admin";
-import { UserRecord } from "firebase-admin/auth"; // <<< AGORA USADO CORRETAMENTE
+// <<< ALTERAÇÃO: A importação UserRecord é agora usada pela função de cleanup >>>
+import { UserRecord } from "firebase-admin/auth";
 import { Change } from "firebase-functions";
 import { DocumentSnapshot, FieldValue, getFirestore, Query, GeoPoint, DocumentData } from "firebase-admin/firestore";
 import { getStorage } from "firebase-admin/storage";
@@ -184,7 +185,8 @@ async function drawTextWithWrapping(page: any, text: string, options: { x: numbe
 }
 
 // --- LÓGICA DE CADA FUNÇÃO (HANDLERS) ---
-// (Todas as outras funções permanecem iguais)
+// (Todas as funções abaixo permanecem inalteradas, exceto a última)
+
 export const onUserCreatedSetClaimsHandler = async (event: FirestoreEvent<DocumentSnapshot | undefined, { userId: string }>) => {
     const userSnap = event.data;
     if (!userSnap) {
@@ -200,7 +202,6 @@ export const onUserCreatedSetClaimsHandler = async (event: FirestoreEvent<Docume
     const userId = event.params.userId;
     const { userType, displayName, invitationToken } = userData;
 
-    // --- LÓGICA DE VÍNCULO POR CONVITE ADICIONADA ---
     if (userType === 'doctor' && invitationToken) {
         const invitationsRef = db.collection("invitations");
         const q = invitationsRef.where("token", "==", invitationToken).where("status", "==", "pending");
@@ -210,7 +211,6 @@ export const onUserCreatedSetClaimsHandler = async (event: FirestoreEvent<Docume
             const invitationDoc = querySnapshot.docs[0];
             const hospitalId = invitationDoc.data().hospitalId;
 
-            // Vínculo automático e status de pendente
             await userSnap.ref.update({
                 healthUnitIds: FieldValue.arrayUnion(hospitalId),
                 status: 'PENDING_APPROVAL'
@@ -220,7 +220,6 @@ export const onUserCreatedSetClaimsHandler = async (event: FirestoreEvent<Docume
             logger.info(`Médico ${userId} vinculado automaticamente ao hospital ${hospitalId} via convite.`);
         }
     }
-    // --- FIM DA LÓGICA DE VÍNCULO ---
 
     if (!userType) {
         logger.warn(`Utilizador ${userId} criado sem um 'userType'. Claims não serão definidos.`);
@@ -1136,34 +1135,6 @@ export const createAppointmentHandler = async (request: CallableRequest) => {
     return { success: true, appointmentId: docRef.id };
 };
 
-// <<< REVERTIDO PARA A SINTAXE V1 ESTÁVEL, RECEBENDO UserRecord >>>
-export const onUserDeletedCleanupHandler = async (user: UserRecord) => {
-    const uid = user.uid;
-    logger.info(`[Sintaxe V1] Utilizador de autenticação com UID: ${uid} foi excluído. A iniciar limpeza.`);
-    
-    const userDocRef = db.collection("users").doc(uid);
-    
-    try {
-        await userDocRef.delete();
-        logger.info(`Documento de perfil ${uid} em 'users' foi excluído com sucesso.`);
-    } catch (error) {
-        logger.error(`Falha ao excluir o documento de perfil ${uid} em 'users':`, error);
-    }
-    
-    const hospitalDocRef = db.collection("hospitals").doc(uid);
-    const hospitalDoc = await hospitalDocRef.get();
-    if(hospitalDoc.exists) {
-        try {
-            await hospitalDocRef.delete();
-            logger.info(`Documento de perfil ${uid} em 'hospitals' foi excluído com sucesso.`);
-        } catch (error) {
-            logger.error(`Falha ao excluir o documento de perfil ${uid} em 'hospitals':`, error);
-        }
-    }
-    
-    return;
-};
-
 export const associateDoctorToUnitHandler = async (request: CallableRequest) => {
     if (request.auth?.token?.role !== 'hospital') {
         throw new HttpsError("permission-denied", "Apenas gestores de unidade podem associar médicos.");
@@ -1423,4 +1394,44 @@ export const setHospitalManagerRoleHandler = async (request: CallableRequest) =>
         }
         throw new HttpsError("internal", "Ocorreu um erro ao definir a permissão do gestor.");
     }
+};
+
+
+// ============================================================================
+// === FUNÇÃO FINAL: Revertida para a sintaxe V1 estável =======================
+// ============================================================================
+
+/**
+ * @summary Manipulador da lógica de limpeza quando um utilizador é apagado.
+ * @description Esta função é chamada pelo gatilho V1 `onUserDeletedCleanup`.
+ * Ela recebe o objeto `UserRecord` do utilizador apagado e remove os
+ * documentos correspondentes das coleções 'users' e 'hospitals'.
+ * @param {UserRecord} user - O objeto do utilizador que foi apagado.
+ */
+export const onUserDeletedCleanupHandler = async (user: UserRecord) => {
+    const uid = user.uid;
+    logger.info(`[Sintaxe V1] Utilizador de autenticação com UID: ${uid} foi excluído. A iniciar limpeza.`);
+    
+    const userDocRef = db.collection("users").doc(uid);
+    
+    try {
+        await userDocRef.delete();
+        logger.info(`Documento de perfil ${uid} em 'users' foi excluído com sucesso.`);
+    } catch (error) {
+        logger.error(`Falha ao excluir o documento de perfil ${uid} em 'users':`, error);
+    }
+    
+    // Tentativa de apagar também da coleção 'hospitals', caso o user fosse um hospital.
+    const hospitalDocRef = db.collection("hospitals").doc(uid);
+    const hospitalDoc = await hospitalDocRef.get();
+    if(hospitalDoc.exists) {
+        try {
+            await hospitalDocRef.delete();
+            logger.info(`Documento de perfil ${uid} em 'hospitals' foi excluído com sucesso.`);
+        } catch (error) {
+            logger.error(`Falha ao excluir o documento de perfil ${uid} em 'hospitals':`, error);
+        }
+    }
+    
+    return;
 };
