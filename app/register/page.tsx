@@ -947,10 +947,7 @@ function RegisterForm() {
                 description: "A redirecioná-lo para a página de login...",
                 duration: 4000
             });
-
-            // ============================================================================
-            // CORREÇÃO: Redirecionamento revertido para /login para garantir estabilidade
-            // ============================================================================
+            
             window.location.assign('/login');
 
         } catch (error: any) {
