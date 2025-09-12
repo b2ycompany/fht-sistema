@@ -154,6 +154,7 @@ export const createTelemedicineRoom = onCall({ cors: corsPolicy, secrets: ["DAIL
  * para gatilhos de autenticação do que a V2 no momento.
  * @param {UserRecord} user - O objeto do utilizador que foi apagado.
  */
-export const onUserDeletedCleanup = functions.auth.user().onDelete(
+// <<< MUDANÇA APLICADA AQUI para forçar a região >>>
+export const onUserDeletedCleanup = functions.region("southamerica-east1").auth.user().onDelete(
     (user: UserRecord) => import("./logic").then(api => api.onUserDeletedCleanupHandler(user))
 );
