@@ -1,14 +1,12 @@
 // app/register/page.tsx
 "use client";
 
-// Suspense é a chave para a correção do erro de deploy
 import React, {
   useState,
   useMemo,
   ChangeEvent,
   useEffect,
   useCallback,
-  ReactNode,
   Suspense,
 } from "react";
 import Link from "next/link";
@@ -45,7 +43,6 @@ import {
   FileUp, XCircleIcon, ExternalLink, CheckCircle, HeartPulse, Briefcase, Search, X
 } from "lucide-react";
 import { useAuth as useAuthHook } from "@/components/auth-provider";
-import { Checkbox } from "@/components/ui/checkbox";
 import { getSpecialtiesList, type Specialty } from "@/lib/specialty-service";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
@@ -324,9 +321,6 @@ function RegisterForm() {
     const [step, setStep] = useState(0);
     const [role, setRole] = useState<UserType | null>(null);
     const [isLoading, setIsLoading] = useState(false);
-    // ============================================================================
-    // MELHORIA: Novo estado para a mensagem de progresso
-    // ============================================================================
     const [loadingMessage, setLoadingMessage] = useState("");
     const router = useRouter();
     const { toast } = useToast();
@@ -768,14 +762,11 @@ function RegisterForm() {
 
     const handlePrevStep = () => {
         if (step > 0) {
-            setStep(s => s + 1);
+            setStep(s => s - 1);
             window.scrollTo(0, 0);
         }
     };
     
-    // ============================================================================
-    // MELHORIA: Função handleSubmit refatorada para usar o novo estado de mensagem
-    // ============================================================================
     const handleSubmit = async () => {
         if (!role || currentStepConfig?.id !== 'summary') {
             toast({ variant: "destructive", title: "Erro ao Finalizar", description: "Não é possível finalizar nesta etapa." });
@@ -937,7 +928,6 @@ function RegisterForm() {
                     const functions = getFunctions();
                     const setHospitalManagerRole = httpsCallable(functions, 'setHospitalManagerRole');
                     await setHospitalManagerRole({ managerEmail: legalRepresentativeInfo.email });
-                    // Forçar a atualização do token do utilizador após a atribuição da role
                     const user = auth.currentUser;
                     if (user) {
                         await user.getIdToken(true);
@@ -954,15 +944,14 @@ function RegisterForm() {
             
             toast({
                 title: "Cadastro Realizado com Sucesso!",
-                description: "A redirecioná-lo para a sua página inicial...",
+                description: "A redirecioná-lo para a página de login...",
                 duration: 4000
             });
 
             // ============================================================================
-            // MELHORIA: Redirecionamento alterado para a página inicial
-            // que por sua vez irá redirecionar para o dashboard correto.
+            // CORREÇÃO: Redirecionamento revertido para /login para garantir estabilidade
             // ============================================================================
-            window.location.assign('/');
+            window.location.assign('/login');
 
         } catch (error: any) {
             let title = "Erro no Cadastro";
@@ -1321,9 +1310,6 @@ function RegisterForm() {
                          <p className="mt-4 text-base sm:text-lg font-medium text-gray-700">
                              A processar o seu cadastro...
                          </p>
-                         {/* ============================================================================ */}
-                         {/* MELHORIA: A mensagem de progresso dinâmica é exibida aqui */}
-                         {/* ============================================================================ */}
                          <p className="mt-1 text-sm text-gray-500 min-h-[20px]">{loadingMessage}</p>
                      </div>
                 )}
