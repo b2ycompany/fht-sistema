@@ -47,6 +47,7 @@ import { getSpecialtiesList, type Specialty } from "@/lib/specialty-service";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { Badge } from "@/components/ui/badge";
+import { User } from "firebase/auth";
 
 
 // Interfaces e constantes
@@ -767,6 +768,9 @@ function RegisterForm() {
         }
     };
     
+    // ============================================================================
+    // CORREÇÃO DEFINITIVA: Lógica de espera (polling) para a permissão do gestor
+    // ============================================================================
     const handleSubmit = async () => {
         if (!role || currentStepConfig?.id !== 'summary') {
             toast({ variant: "destructive", title: "Erro ao Finalizar", description: "Não é possível finalizar nesta etapa." });
@@ -777,6 +781,25 @@ function RegisterForm() {
         const loginEmail = role === 'doctor' ? personalInfo.email : legalRepresentativeInfo.email;
         const displayName = role === 'doctor' ? personalInfo.name : hospitalInfo.companyName;
 
+        // Função auxiliar para aguardar um tempo
+        const delay = (ms: number) => new Promise(res => setTimeout(res, ms));
+
+        // Função robusta para verificar a permissão
+        const pollForHospitalClaim = async (user: User, retries = 5, interval = 1500) => {
+            for (let i = 0; i < retries; i++) {
+                await user.getIdToken(true); // Força a atualização do token
+                const tokenResult = await user.getIdTokenResult();
+                if (tokenResult.claims.role === 'hospital') {
+                    console.log(`✅ Permissão 'hospital' confirmada na tentativa ${i + 1}.`);
+                    return true;
+                }
+                console.log(`🟡 Tentativa ${i + 1}/${retries}: Permissão 'hospital' ainda não encontrada. A aguardar...`);
+                await delay(interval);
+            }
+            console.error(`❌ A permissão 'hospital' não foi encontrada após ${retries} tentativas.`);
+            return false;
+        };
+
         try {
             setLoadingMessage("Etapa 1/4: A criar a sua conta de utilizador...");
             const firebaseUser = await createAuthUser(loginEmail, credentials.password, displayName);
@@ -786,159 +809,72 @@ function RegisterForm() {
 
             if (invitationToken && role === 'doctor') {
                 setLoadingMessage("Etapa 2/4: A finalizar registo de convite...");
-                console.log("Executando fluxo de registo simplificado para médico convidado...");
-
                 const { name: _pName, email: _pEmail, ...personalDetails } = personalInfo;
-
-                registrationData = {
-                    ...personalDetails,
-                    professionalCrm: personalInfo.professionalCrm,
-                    specialties: selectedSpecialties,
-                    isSpecialist: isSpecialist,
-                    address: { ...addressInfo, cep: addressInfo.cep.replace(/\D/g, "") },
-                    registrationObjective: 'match',
-                    invitationToken: invitationToken,
-                    documents: {},
-                    specialistDocuments: {},
-                };
+                registrationData = { ...personalDetails, professionalCrm: personalInfo.professionalCrm, specialties: selectedSpecialties, isSpecialist: isSpecialist, address: { ...addressInfo, cep: addressInfo.cep.replace(/\D/g, "") }, registrationObjective: 'match', invitationToken: invitationToken, documents: {}, specialistDocuments: {}, };
             } 
             else {
-                setLoadingMessage("Etapa 2/4: A enviar os seus documentos...");
-                console.log("Executando fluxo de registo completo com upload de documentos...");
-                
-                const finalDocRefs: {
-                    documents: Partial<DoctorDocumentsRef>; specialistDocuments: Partial<SpecialistDocumentsRef>;
-                    hospitalDocs: Partial<HospitalDocumentsRef>; legalRepDocuments: Partial<LegalRepDocumentsRef>;
-                } = { documents: {}, specialistDocuments: {}, hospitalDocs: {}, legalRepDocuments: {} };
-
+                 setLoadingMessage("Etapa 2/4: A enviar os seus documentos...");
+                const finalDocRefs: { documents: Partial<DoctorDocumentsRef>; specialistDocuments: Partial<SpecialistDocumentsRef>; hospitalDocs: Partial<HospitalDocumentsRef>; legalRepDocuments: Partial<LegalRepDocumentsRef>; } = { documents: {}, specialistDocuments: {}, hospitalDocs: {}, legalRepDocuments: {} };
                 const filesToProcess: { docKey: AllDocumentKeys, fileState: FileWithProgress, typePathFragment: string, subFolder?: string }[] = [];
                 
                 if (role === 'doctor') {
                     if(doctorObjective === 'caravan') {
-                        const caravanKeys: DoctorDocKeys[] = ['personalRg', 'personalCpf', 'professionalCrm'];
-                        caravanKeys.forEach(key => {
-                            if (doctorDocuments[key].file) filesToProcess.push({ docKey: key, fileState: doctorDocuments[key], typePathFragment: "doctor_documents" });
-                            else if (doctorDocuments[key].url) (finalDocRefs.documents as any)[key] = doctorDocuments[key].url;
+                        ['personalRg', 'personalCpf', 'professionalCrm'].forEach(key => {
+                            if (doctorDocuments[key as DoctorDocKeys].file) filesToProcess.push({ docKey: key as DoctorDocKeys, fileState: doctorDocuments[key as DoctorDocKeys], typePathFragment: "doctor_documents" });
                         });
                     }
                     if (doctorObjective === 'match') {
-                        doctorDocKeysArray.forEach(key => {
-                            if (doctorDocuments[key].file) filesToProcess.push({ docKey: key, fileState: doctorDocuments[key], typePathFragment: "doctor_documents" });
-                            else if (doctorDocuments[key].url) (finalDocRefs.documents as any)[key] = doctorDocuments[key].url;
-                        });
-                        if (isSpecialist) {
-                            specialistDocKeysArray.forEach(key => {
-                                if (specialistDocuments[key].file) filesToProcess.push({ docKey: key, fileState: specialistDocuments[key], typePathFragment: "doctor_documents", subFolder: "specialist" });
-                                else if (specialistDocuments[key].url) (finalDocRefs.specialistDocuments as any)[key] = specialistDocuments[key].url;
-                            });
-                        }
+                        doctorDocKeysArray.forEach(key => { if (doctorDocuments[key].file) filesToProcess.push({ docKey: key, fileState: doctorDocuments[key], typePathFragment: "doctor_documents" }); });
+                        if (isSpecialist) { specialistDocKeysArray.forEach(key => { if (specialistDocuments[key].file) filesToProcess.push({ docKey: key, fileState: specialistDocuments[key], typePathFragment: "doctor_documents", subFolder: "specialist" }); });}
                     }
                 } else if (role === 'hospital') {
-                    hospitalDocKeysArray.forEach(key => {
-                        if (hospitalDocuments[key].file) filesToProcess.push({ docKey: key, fileState: hospitalDocuments[key], typePathFragment: "hospital_documents" });
-                        else if (hospitalDocuments[key].url) (finalDocRefs.hospitalDocs as any)[key] = hospitalDocuments[key].url;
-                    });
-                    legalRepDocKeysArray.forEach(key => {
-                        if (legalRepDocuments[key].file) filesToProcess.push({ docKey: key, fileState: legalRepDocuments[key], typePathFragment: "hospital_documents", subFolder: "legal_rep" });
-                        else if (legalRepDocuments[key].url) (finalDocRefs.legalRepDocuments as any)[key] = legalRepDocuments[key].url;
-                    });
+                    hospitalDocKeysArray.forEach(key => { if (hospitalDocuments[key].file) filesToProcess.push({ docKey: key, fileState: hospitalDocuments[key], typePathFragment: "hospital_documents" }); });
+                    legalRepDocKeysArray.forEach(key => { if (legalRepDocuments[key].file) filesToProcess.push({ docKey: key, fileState: legalRepDocuments[key], typePathFragment: "hospital_documents", subFolder: "legal_rep" }); });
                 }
                 
-                let allUploadsSuccessful = true;
                 if (filesToProcess.length > 0) {
-                    const uploadPromises = filesToProcess.map(item => {
-                        updateFileState(item.docKey, prev => ({ ...prev, isUploading: true, progress: 0, error: undefined }));
-                        const fileName = `${item.docKey}_${Date.now()}_${item.fileState.file!.name}`;
-                        const storagePath = item.subFolder ?
-                            `${item.typePathFragment}/${userId}/${item.subFolder}/${fileName}` :
-                            `${item.typePathFragment}/${userId}/${fileName}`;
-
-                        return uploadFileToStorage(item.fileState.file!, storagePath, (progress) => {
-                            updateFileState(item.docKey, prev => ({ ...prev, progress }));
-                        }).then(url => {
+                    const uploadPromises = filesToProcess.map(item => 
+                        uploadFileToStorage(item.fileState.file!, `${item.typePathFragment}/${userId}/${item.subFolder ? `${item.subFolder}/` : ''}${item.docKey}_${Date.now()}_${item.fileState.file!.name}`, (progress) => updateFileState(item.docKey, prev => ({ ...prev, progress })))
+                        .then(url => {
                             updateFileState(item.docKey, prev => ({ ...prev, url, isUploading: false, file: null, name: prev.name || item.fileState.file!.name }));
                             return { key: item.docKey, url, typePathFragment: item.typePathFragment, subFolder: item.subFolder };
                         }).catch(uploadError => {
-                            allUploadsSuccessful = false;
-                            const errorMessage = (uploadError as Error).message || "Falha no upload.";
-                            updateFileState(item.docKey, prev => ({ ...prev, isUploading: false, error: errorMessage }));
-                            toast({ title: `Erro Upload (${DOCUMENT_LABELS[item.docKey].replace('*','')})`, description: errorMessage, variant: "destructive", duration: 7000});
-                            return null;
-                        });
-                    });
+                            updateFileState(item.docKey, prev => ({ ...prev, isUploading: false, error: (uploadError as Error).message || "Falha no upload." }));
+                            throw uploadError; 
+                        })
+                    );
                     const uploadResults = await Promise.all(uploadPromises);
-
-                    if (uploadResults.some(r => r === null)) allUploadsSuccessful = false;
-
                     uploadResults.forEach(result => {
-                        if (result) {
-                            if (result.typePathFragment === "doctor_documents") {
-                                if (result.subFolder === "specialist") (finalDocRefs.specialistDocuments as any)[result.key] = result.url;
-                                else (finalDocRefs.documents as any)[result.key] = result.url;
-                            } else if (result.typePathFragment === "hospital_documents") {
-                                if (result.subFolder === "legal_rep") (finalDocRefs.legalRepDocuments as any)[result.key] = result.url;
-                                else (finalDocRefs.hospitalDocs as any)[result.key] = result.url;
-                            }
-                        }
+                         if (result.typePathFragment === "doctor_documents") { result.subFolder === "specialist" ? (finalDocRefs.specialistDocuments as any)[result.key] = result.url : (finalDocRefs.documents as any)[result.key] = result.url; }
+                         else if (result.typePathFragment === "hospital_documents") { result.subFolder === "legal_rep" ? (finalDocRefs.legalRepDocuments as any)[result.key] = result.url : (finalDocRefs.hospitalDocs as any)[result.key] = result.url; }
                     });
-                }
-
-                if (!allUploadsSuccessful) {
-                    throw new Error("Um ou mais uploads de documentos falharam. Verifique os arquivos e tente novamente.");
                 }
                 
                 setLoadingMessage("Etapa 3/4: A guardar as suas informações...");
                 
                 if (role === 'doctor') {
                     const { name: _pName, email: _pEmail, ...personalDetails } = personalInfo;
-                    
-                    const doctorData: DoctorRegistrationPayload = {
-                        ...personalDetails,
-                        professionalCrm: personalInfo.professionalCrm,
-                        specialties: selectedSpecialties,
-                        isSpecialist: isSpecialist,
-                        documents: finalDocRefs.documents,
-                        specialistDocuments: isSpecialist ? finalDocRefs.specialistDocuments : {},
-                        registrationObjective: doctorObjective || 'match',
-                    };
-
-                    if (doctorObjective === 'match') {
-                        doctorData.address = { ...addressInfo, cep: addressInfo.cep.replace(/\D/g, "") };
-                    }
-                    
+                    const doctorData: DoctorRegistrationPayload = { ...personalDetails, professionalCrm: personalInfo.professionalCrm, specialties: selectedSpecialties, isSpecialist: isSpecialist, documents: finalDocRefs.documents, specialistDocuments: isSpecialist ? finalDocRefs.specialistDocuments : {}, registrationObjective: doctorObjective || 'match', };
+                    if (doctorObjective === 'match') { doctorData.address = { ...addressInfo, cep: addressInfo.cep.replace(/\D/g, "") }; }
                     registrationData = doctorData;
-
                 } else { // Hospital
                     const { companyName: _cName, email: _hEmail, ...hospitalDetails } = hospitalInfo;
-                    registrationData = {
-                        ...hospitalDetails,
-                        address: { ...hospitalAddressInfo, cep: hospitalAddressInfo.cep.replace(/\D/g, "") },
-                        legalRepresentativeInfo: legalRepresentativeInfo,
-                        hospitalDocs: finalDocRefs.hospitalDocs,
-                        legalRepDocuments: finalDocRefs.legalRepDocuments,
-                    };
+                    registrationData = { ...hospitalDetails, address: { ...hospitalAddressInfo, cep: hospitalAddressInfo.cep.replace(/\D/g, "") }, legalRepresentativeInfo: legalRepresentativeInfo, hospitalDocs: finalDocRefs.hospitalDocs, legalRepDocuments: finalDocRefs.legalRepDocuments, };
                 }
             }
             
             await completeUserRegistration(userId, loginEmail, displayName, role, registrationData);
 
             if (role === 'hospital') {
-                setLoadingMessage("Etapa 4/4: A definir as suas permissões...");
-                try {
-                    const functions = getFunctions();
-                    const setHospitalManagerRole = httpsCallable(functions, 'setHospitalManagerRole');
-                    await setHospitalManagerRole({ managerEmail: legalRepresentativeInfo.email });
-                    const user = auth.currentUser;
-                    if (user) {
-                        await user.getIdToken(true);
-                    }
-                } catch (roleError) {
-                    console.error("Erro secundário ao definir a permissão do gestor:", roleError);
-                    toast({
-                        variant: "destructive",
-                        title: "Aviso de Permissão",
-                        description: "O seu cadastro foi criado, mas houve um problema ao definir as permissões de acesso. Contacte o suporte se o problema persistir."
-                    });
+                setLoadingMessage("Etapa 4/4: A definir e a verificar as suas permissões...");
+                const functions = getFunctions();
+                const setHospitalManagerRole = httpsCallable(functions, 'setHospitalManagerRole');
+                await setHospitalManagerRole({ managerEmail: legalRepresentativeInfo.email });
+                
+                // Nova lógica de verificação
+                const claimVerified = await pollForHospitalClaim(firebaseUser);
+                if (!claimVerified) {
+                    throw new Error("Não foi possível verificar as suas permissões de acesso. Por favor, tente fazer login novamente ou contacte o suporte.");
                 }
             }
             
