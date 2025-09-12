@@ -39,9 +39,6 @@ import { uploadFileToStorage } from "@/lib/storage-service";
 import { FirebaseError } from "firebase/app";
 import { cn } from "@/lib/utils";
 import { auth } from "@/lib/firebase";
-// ============================================================================
-// ADIÇÃO: Importações necessárias para chamar a Cloud Function
-// ============================================================================
 import { getFunctions, httpsCallable } from "firebase/functions";
 import {
   Loader2, Check, AlertTriangle, Info, Stethoscope, Building,
@@ -54,10 +51,6 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { Badge } from "@/components/ui/badge";
 
-// ============================================================================
-// 1. A LÓGICA FOI MOVIDA PARA UM NOVO COMPONENTE INTERNO (RegisterForm)
-//    Isto isola o uso de 'useSearchParams' e permite que o Suspense funcione.
-// ============================================================================
 
 // Interfaces e constantes
 interface Credentials { password: string; confirmPassword: string; }
@@ -331,6 +324,10 @@ function RegisterForm() {
     const [step, setStep] = useState(0);
     const [role, setRole] = useState<UserType | null>(null);
     const [isLoading, setIsLoading] = useState(false);
+    // ============================================================================
+    // MELHORIA: Novo estado para a mensagem de progresso
+    // ============================================================================
+    const [loadingMessage, setLoadingMessage] = useState("");
     const router = useRouter();
     const { toast } = useToast();
     const { user: authUser, loading: authLoading } = useAuthHook();
@@ -623,11 +620,6 @@ function RegisterForm() {
                 targetStateSetter(prev => ({
                     ...prev,
                     cep: cleanedCep,
-                    // ============================================================================
-                    // CORREÇÃO 1: BUG DO CEP
-                    // O nome do campo correto retornado pela API ViaCEP é 'logradouro'.
-                    // A versão anterior usava 'logouro', o que fazia o campo da rua ficar em branco.
-                    // ============================================================================
                     street: data.logradouro || "",
                     neighborhood: data.bairro || "",
                     city: data.localidade || "",
@@ -776,11 +768,14 @@ function RegisterForm() {
 
     const handlePrevStep = () => {
         if (step > 0) {
-            setStep(s => s - 1);
+            setStep(s => s + 1);
             window.scrollTo(0, 0);
         }
     };
     
+    // ============================================================================
+    // MELHORIA: Função handleSubmit refatorada para usar o novo estado de mensagem
+    // ============================================================================
     const handleSubmit = async () => {
         if (!role || currentStepConfig?.id !== 'summary') {
             toast({ variant: "destructive", title: "Erro ao Finalizar", description: "Não é possível finalizar nesta etapa." });
@@ -792,15 +787,15 @@ function RegisterForm() {
         const displayName = role === 'doctor' ? personalInfo.name : hospitalInfo.companyName;
 
         try {
-            toast({ title: "Etapa 1: Criando sua conta...", duration: 4000 });
+            setLoadingMessage("Etapa 1/4: A criar a sua conta de utilizador...");
             const firebaseUser = await createAuthUser(loginEmail, credentials.password, displayName);
             const userId = firebaseUser.uid;
 
             let registrationData: DoctorRegistrationPayload | HospitalRegistrationPayload;
 
             if (invitationToken && role === 'doctor') {
+                setLoadingMessage("Etapa 2/4: A finalizar registo de convite...");
                 console.log("Executando fluxo de registo simplificado para médico convidado...");
-                toast({ title: "Etapa 2: Finalizando registo...", duration: 4000 });
 
                 const { name: _pName, email: _pEmail, ...personalDetails } = personalInfo;
 
@@ -817,9 +812,9 @@ function RegisterForm() {
                 };
             } 
             else {
+                setLoadingMessage("Etapa 2/4: A enviar os seus documentos...");
                 console.log("Executando fluxo de registo completo com upload de documentos...");
                 
-                toast({ title: "Etapa 2/3: Enviando documentos...", duration: 3000 });
                 const finalDocRefs: {
                     documents: Partial<DoctorDocumentsRef>; specialistDocuments: Partial<SpecialistDocumentsRef>;
                     hospitalDocs: Partial<HospitalDocumentsRef>; legalRepDocuments: Partial<LegalRepDocumentsRef>;
@@ -901,7 +896,7 @@ function RegisterForm() {
                     throw new Error("Um ou mais uploads de documentos falharam. Verifique os arquivos e tente novamente.");
                 }
                 
-                toast({ title: "Etapa 3/3: Finalizando o cadastro...", duration: 3000 });
+                setLoadingMessage("Etapa 3/4: A guardar as suas informações...");
                 
                 if (role === 'doctor') {
                     const { name: _pName, email: _pEmail, ...personalDetails } = personalInfo;
@@ -936,19 +931,19 @@ function RegisterForm() {
             
             await completeUserRegistration(userId, loginEmail, displayName, role, registrationData);
 
-            // ============================================================================
-            // ALTERAÇÃO REALIZADA: Chamar a nova função para definir a permissão do gestor
-            // ============================================================================
             if (role === 'hospital') {
-                toast({ title: "Etapa Final: Definindo permissões...", duration: 4000 });
+                setLoadingMessage("Etapa 4/4: A definir as suas permissões...");
                 try {
                     const functions = getFunctions();
                     const setHospitalManagerRole = httpsCallable(functions, 'setHospitalManagerRole');
                     await setHospitalManagerRole({ managerEmail: legalRepresentativeInfo.email });
+                    // Forçar a atualização do token do utilizador após a atribuição da role
+                    const user = auth.currentUser;
+                    if (user) {
+                        await user.getIdToken(true);
+                    }
                 } catch (roleError) {
                     console.error("Erro secundário ao definir a permissão do gestor:", roleError);
-                    // Não bloqueia o utilizador, mas regista o erro.
-                    // Pode ser corrigido manualmente no futuro.
                     toast({
                         variant: "destructive",
                         title: "Aviso de Permissão",
@@ -959,11 +954,15 @@ function RegisterForm() {
             
             toast({
                 title: "Cadastro Realizado com Sucesso!",
-                description: "Redirecionando para a página de login...",
+                description: "A redirecioná-lo para a sua página inicial...",
                 duration: 4000
             });
-            
-            window.location.assign('/login');
+
+            // ============================================================================
+            // MELHORIA: Redirecionamento alterado para a página inicial
+            // que por sua vez irá redirecionar para o dashboard correto.
+            // ============================================================================
+            window.location.assign('/');
 
         } catch (error: any) {
             let title = "Erro no Cadastro";
@@ -976,6 +975,7 @@ function RegisterForm() {
             }
             toast({ variant: "destructive", title: title, description: description, duration: 7000 });
             setIsLoading(false);
+            setLoadingMessage("");
         }
     };
 
@@ -1256,18 +1256,11 @@ function RegisterForm() {
                             <div className="space-y-1"><Label htmlFor="repRg">RG*</Label><Input id="repRg" value={legalRepresentativeInfo.rg} onChange={handleInputChangeCallback(setLegalRepresentativeInfo, 'rg')} required /></div>
                             <div className="space-y-1"><Label htmlFor="repCpf">CPF*</Label><InputWithIMask id="repCpf" maskOptions={{ mask: '000.000.000-00' }} defaultValue={legalRepresentativeInfo.cpf} onAccept={handleIMaskAcceptCallback(setLegalRepresentativeInfo, 'cpf')} required placeholder="000.000.000-00"/></div>
                             <div className="space-y-1"><Label htmlFor="repPhone">Telefone*</Label><InputWithIMask id="repPhone" maskOptions={{ mask: [{ mask: '(00) 0000-0000' }, { mask: '(00) 00000-0000' }] }} defaultValue={legalRepresentativeInfo.phone} onAccept={handleIMaskAcceptCallback(setLegalRepresentativeInfo, 'phone')} required placeholder="(00) 90000-0000" type="tel"/></div>
-                            
-                            {/* ============================================================================ */}
-                            {/* CORREÇÃO 2: CLAREZA DO EMAIL DE LOGIN                                       */}
-                            {/* O rótulo foi alterado de "Email Pessoal" para "Email de Acesso...".         */}
-                            {/* Um parágrafo de ajuda foi adicionado para explicar a finalidade do campo.    */}
-                            {/* ============================================================================ */}
                             <div className="space-y-1.5">
                                 <Label htmlFor="repEmail">Email de Acesso à Plataforma*</Label>
                                 <Input id="repEmail" type="email" value={legalRepresentativeInfo.email} onChange={handleInputChangeCallback(setLegalRepresentativeInfo, 'email')} required />
                                 <p className="text-xs text-gray-500">Este será o email utilizado pelo responsável para aceder ao painel da unidade.</p>
                             </div>
-
                             <div className="space-y-1 md:col-span-2"><Label htmlFor="repPosition">Cargo na Empresa*</Label><Input id="repPosition" value={legalRepresentativeInfo.position} onChange={handleInputChangeCallback(setLegalRepresentativeInfo, 'position')} required /></div>
                         </div>
                     </form>
@@ -1326,9 +1319,12 @@ function RegisterForm() {
                      <div className="absolute inset-0 bg-white/80 backdrop-blur-sm flex flex-col items-center justify-center z-20 rounded-lg">
                          <Loader2 className="h-10 w-10 sm:h-12 sm:w-12 animate-spin text-blue-600" />
                          <p className="mt-4 text-base sm:text-lg font-medium text-gray-700">
-                             Processando cadastro...
+                             A processar o seu cadastro...
                          </p>
-                         <p className="mt-1 text-sm text-gray-500">Por favor, aguarde um momento...</p>
+                         {/* ============================================================================ */}
+                         {/* MELHORIA: A mensagem de progresso dinâmica é exibida aqui */}
+                         {/* ============================================================================ */}
+                         <p className="mt-1 text-sm text-gray-500 min-h-[20px]">{loadingMessage}</p>
                      </div>
                 )}
                 <div className={cn("transition-opacity duration-300", isLoading && "opacity-30 pointer-events-none")}>
@@ -1340,7 +1336,6 @@ function RegisterForm() {
                 <Button
                     variant="outline"
                     onClick={handlePrevStep}
-                    // ALTERAÇÃO REALIZADA: O botão "Voltar" agora é desativado se for um fluxo de convite.
                     disabled={step === 0 || isLoading || isCepLoading || isHospitalCepLoading || !!invitationToken }
                     className="w-full sm:w-auto px-6 py-3 text-sm sm:text-base"
                 >
@@ -1353,7 +1348,7 @@ function RegisterForm() {
                         className="w-full sm:w-auto bg-green-600 hover:bg-green-700 text-white px-6 py-3 text-sm sm:text-base"
                     >
                         {isLoading ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <Check className="mr-2 h-5 w-5" />}
-                        {isLoading ? 'Finalizando...' : 'Confirmar e Finalizar Cadastro'}
+                        {isLoading ? 'A finalizar...' : 'Confirmar e Finalizar Cadastro'}
                     </Button>
                 ) : (
                     <Button
@@ -1369,11 +1364,6 @@ function RegisterForm() {
     );
 }
 
-// ============================================================================
-// 2. O COMPONENTE PRINCIPAL (EXPORTADO) AGORA USA O SUSPENSE
-//    Ele mostra um estado de carregamento ('fallback') enquanto espera
-//    o componente RegisterForm ser renderizado no navegador.
-// ============================================================================
 export default function RegisterPage() {
   return (
     <div className="container mx-auto px-4 py-8 sm:py-12 max-w-4xl">
