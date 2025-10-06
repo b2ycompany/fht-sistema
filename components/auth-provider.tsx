@@ -26,7 +26,7 @@ const getRedirectPathForProfile = (profile: UserProfile | null): string => {
             return '/dashboard/triage';
         case 'caravan_admin':
             const adminProfileCaravan = profile as AdminProfile;
-            if (adminProfileCaravan.assignedCaravanId) { // Corrigido para corresponder à sua lógica
+            if (adminProfileCaravan.assignedCaravanId) {
                 return `/caravan/${adminProfileCaravan.assignedCaravanId}/dashboard`;
             }
             return '/';
@@ -54,43 +54,38 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       setLoading(true);
       setProfileLoading(true);
-      setUser(firebaseUser);
       
       if (firebaseUser) {
         try {
           // ============================================================================
-          // CORREÇÃO DEFINITIVA DA "CONDIÇÃO DE CORRIDA"
+          // CORREÇÃO DA "CONDIÇÃO DE CORRIDA" ADICIONADA AQUI
           // ============================================================================
-          
-          // 1. Forçar a atualização do token uma vez para obter as claims mais recentes.
-          let tokenResult = await firebaseUser.getIdTokenResult(true);
-          let userRole = tokenResult.claims.role as string | undefined;
-          
-          // 2. SE A ROLE NÃO EXISTIR, INICIAMOS O MODO DE VERIFICAÇÃO PACIENTE
+          let idTokenResult = await firebaseUser.getIdTokenResult(true);
+          let userRole = idTokenResult.claims.role as string | undefined;
+
+          // SE A ROLE NÃO EXISTIR, INICIAMOS O MODO DE VERIFICAÇÃO PACIENTE
           if (!userRole) {
             console.log("[AuthProvider] Role não encontrada. A iniciar verificador para aguardar a atribuição da claim...");
             
-            // Vamos tentar por até 15 segundos (5 tentativas a cada 3 segundos)
-            const attempts = 5;
+            const attempts = 5; // Tenta por 15 segundos (5 tentativas x 3s)
             for (let i = 0; i < attempts; i++) {
-              // Espera 3 segundos entre cada tentativa
               await new Promise(resolve => setTimeout(resolve, 3000));
               
-              tokenResult = await firebaseUser.getIdTokenResult(true); // Força a atualização novamente
-              userRole = tokenResult.claims.role as string | undefined;
+              idTokenResult = await firebaseUser.getIdTokenResult(true);
+              userRole = idTokenResult.claims.role as string | undefined;
 
               if (userRole) {
                 console.log(`[AuthProvider] SUCESSO! Role '${userRole}' encontrada na tentativa ${i + 1}.`);
-                break; // Sai do loop se a role for encontrada
+                break; 
               } else {
                 console.log(`[AuthProvider] Tentativa ${i + 1}/${attempts}: role ainda não atribuída.`);
               }
             }
           }
+          // FIM DO BLOCO DE CORREÇÃO
 
-          // 3. Após o verificador, tomamos a decisão final.
+          // AGORA, CONTINUAMOS COM A SUA LÓGICA ORIGINAL
           if (userRole && ['hospital', 'doctor', 'admin', 'receptionist', 'triage_nurse', 'caravan_admin'].includes(userRole)) {
-            // Se tem uma role, prossiga normalmente.
             console.log("[AuthProvider] Role válida encontrada. A carregar perfil do utilizador...");
             const profile = await getCurrentUserData();
             
@@ -110,25 +105,30 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
               console.log(`[AuthProvider] Utilizador com role '${userRole}' em rota pública. A redirecionar para: ${targetPath}`);
               router.replace(targetPath);
             }
+
+            setUser(firebaseUser); // Sua linha original mantida
+            setProfileLoading(false); // Sua linha original mantida
+
           } else {
-            // 4. SE, APÓS TODAS AS TENTATIVAS, A ROLE AINDA NÃO EXISTIR, AÍ SIM FORÇAMOS O LOGOUT.
             console.error(`[AuthProvider] UTILIZADOR PRESO DETETADO! O utilizador ${firebaseUser.uid} não recebeu uma role válida após 15 segundos. A forçar logout.`);
             setUserProfile(null);
             await signOut(auth);
+            setUser(null); // Sua linha original mantida
+            setProfileLoading(false); // Sua linha original mantida
           }
         } catch (error) {
           console.error("[AuthProvider] Erro crítico no fluxo de autenticação:", error);
           setUserProfile(null);
           await signOut(auth);
-        } finally {
-          setProfileLoading(false);
+          setUser(null); // Sua linha original mantida
+          setProfileLoading(false); // Sua linha original mantida
         }
       } else {
-        // Se não há utilizador logado, limpamos os dados.
+        setUser(null); // Sua linha original mantida
         setUserProfile(null);
-        setProfileLoading(false);
+        setLoading(false);
+        setProfileLoading(false); // Sua linha original mantida
       }
-      setLoading(false);
     });
 
     return () => unsubscribe();
