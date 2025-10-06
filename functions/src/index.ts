@@ -31,7 +31,6 @@ const corsPolicy = [
     "http://localhost:3000"
 ];
 
-// ... (o resto do seu ficheiro permanece exatamente igual ao anterior)
 // ===================================================================================
 // === GATILHOS DE EVENTOS DO FIRESTORE (onDocument...) - V2 ========================
 // ===================================================================================
@@ -107,7 +106,6 @@ export const createAppointment = onCall({ cors: corsPolicy, secrets: ["DAILY_API
 );
 
 // --- Funções de Geração de Documentos ---
-// Aumentamos os recursos para as funções que geram PDFs
 export const generateContractPdf = onCall({ cors: corsPolicy, memory: "512MiB" },
     (request: CallableRequest) => import("./logic").then(api => api.generateContractPdfHandler(request))
 );
@@ -121,7 +119,6 @@ export const generateDocumentPdf = onCall({ cors: corsPolicy, memory: "512MiB" }
 );
 
 // --- Funções de Plantão e Ponto ---
-// Aumentamos os recursos para as funções que salvam fotos
 export const registerTimeRecord = onCall({ cors: corsPolicy, memory: "512MiB" },
     (request: CallableRequest) => import("./logic").then(api => api.registerTimeRecordHandler(request))
 );

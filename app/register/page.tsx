@@ -47,7 +47,7 @@ import { getSpecialtiesList, type Specialty } from "@/lib/specialty-service";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { Badge } from "@/components/ui/badge";
-import { User } from "firebase/auth";
+import { User, signOut } from "firebase/auth";
 
 
 // Interfaces e constantes
@@ -768,9 +768,6 @@ function RegisterForm() {
         }
     };
     
-    // ============================================================================
-    // CORREÇÃO DEFINITIVA: Lógica de espera (polling) para a permissão do gestor
-    // ============================================================================
     const handleSubmit = async () => {
         if (!role || currentStepConfig?.id !== 'summary') {
             toast({ variant: "destructive", title: "Erro ao Finalizar", description: "Não é possível finalizar nesta etapa." });
@@ -781,22 +778,22 @@ function RegisterForm() {
         const loginEmail = role === 'doctor' ? personalInfo.email : legalRepresentativeInfo.email;
         const displayName = role === 'doctor' ? personalInfo.name : hospitalInfo.companyName;
 
-        // Função auxiliar para aguardar um tempo
-        const delay = (ms: number) => new Promise(res => setTimeout(res, ms));
-
-        // Função robusta para verificar a permissão
-        const pollForHospitalClaim = async (user: User, retries = 5, interval = 1500) => {
+        // ============================================================================
+        // NOVA LÓGICA DE ESPERA (POLLING) IMPLEMENTADA AQUI
+        // ============================================================================
+        const pollForRoleClaim = async (user: User, expectedRole: string, retries = 10, interval = 3000) => {
             for (let i = 0; i < retries; i++) {
-                await user.getIdToken(true); // Força a atualização do token
-                const tokenResult = await user.getIdTokenResult();
-                if (tokenResult.claims.role === 'hospital') {
-                    console.log(`✅ Permissão 'hospital' confirmada na tentativa ${i + 1}.`);
+                setLoadingMessage(`Etapa 4/4: A verificar permissões (tentativa ${i + 1}/${retries})...`);
+                await new Promise(resolve => setTimeout(resolve, interval)); // Espera
+                const tokenResult = await user.getIdTokenResult(true); // Força a atualização do token
+                
+                if (tokenResult.claims.role === expectedRole) {
+                    console.log(`✅ Permissão '${expectedRole}' confirmada na tentativa ${i + 1}.`);
                     return true;
                 }
-                console.log(`🟡 Tentativa ${i + 1}/${retries}: Permissão 'hospital' ainda não encontrada. A aguardar...`);
-                await delay(interval);
+                console.log(`🟡 Tentativa ${i + 1}/${retries}: Permissão '${expectedRole}' ainda não encontrada. A aguardar...`);
             }
-            console.error(`❌ A permissão 'hospital' não foi encontrada após ${retries} tentativas.`);
+            console.error(`❌ A permissão '${expectedRole}' não foi encontrada após ${retries} tentativas.`);
             return false;
         };
 
@@ -865,35 +862,35 @@ function RegisterForm() {
             
             await completeUserRegistration(userId, loginEmail, displayName, role, registrationData);
 
-            if (role === 'hospital') {
-                setLoadingMessage("Etapa 4/4: A definir e a verificar as suas permissões...");
-                const functions = getFunctions();
-                const setHospitalManagerRole = httpsCallable(functions, 'setHospitalManagerRole');
-                await setHospitalManagerRole({ managerEmail: legalRepresentativeInfo.email });
-                
-                // Nova lógica de verificação
-                const claimVerified = await pollForHospitalClaim(firebaseUser);
-                if (!claimVerified) {
-                    throw new Error("Não foi possível verificar as suas permissões de acesso. Por favor, tente fazer login novamente ou contacte o suporte.");
-                }
+            // ============================================================================
+            // CORREÇÃO: Chamada duplicada removida e nova lógica de espera adicionada
+            // ============================================================================
+            
+            // A função onUserWrittenSetClaims no backend já faz este trabalho automaticamente.
+            // Esta remoção corrige o erro de CORS e evita trabalho duplicado.
+            // A chamada a `setHospitalManagerRole` foi removida.
+            
+            // Agora, esperamos ativamente pela permissão antes de continuar.
+            const claimVerified = await pollForRoleClaim(firebaseUser, role);
+            if (!claimVerified) {
+                throw new Error("Não foi possível verificar as suas permissões de acesso. Por favor, tente fazer login novamente ou contacte o suporte.");
             }
             
             toast({
                 title: "Cadastro Realizado com Sucesso!",
-                description: "A redirecioná-lo para a página de login...",
-                duration: 4000
+                description: "A redirecioná-lo para a página de login para garantir a sua segurança.",
+                duration: 5000
             });
             
-            window.location.assign('/login');
+            await signOut(auth); // Desloga para forçar um login novo com o token correto
+            router.push('/login');
 
         } catch (error: any) {
             let title = "Erro no Cadastro";
             let description = error.message || "Ocorreu um erro inesperado.";
-            if (error instanceof FirebaseError) {
-                if (error.code === 'auth/email-already-in-use') {
-                    title = "Email já Cadastrado";
-                    description = "Este email já está em uso por outra conta.";
-                }
+            if (error instanceof FirebaseError && error.code === 'auth/email-already-in-use') {
+                title = "Email já Cadastrado";
+                description = "Este email já está em uso por outra conta.";
             }
             toast({ variant: "destructive", title: title, description: description, duration: 7000 });
             setIsLoading(false);
