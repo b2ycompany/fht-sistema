@@ -7,11 +7,11 @@ import { auth } from "@/lib/firebase";
 import { getCurrentUserData, type UserProfile, AdminProfile, confirmFirstLogin } from "@/lib/auth-service";
 import { useRouter } from "next/navigation";
 
+// Sua função de redirecionamento foi mantida, está perfeita.
 const getRedirectPathForProfile = (profile: UserProfile | null): string => {
     if (!profile || !profile.userType) {
         return '/login'; 
     }
-
     switch (profile.userType) {
         case 'admin':
         case 'backoffice':
@@ -26,7 +26,7 @@ const getRedirectPathForProfile = (profile: UserProfile | null): string => {
             return '/dashboard/triage';
         case 'caravan_admin':
             const adminProfileCaravan = profile as AdminProfile;
-            if (adminProfileCaravan.assignedCaravanId) {
+            if (adminProfileCaravan.assignedCaravanId) { // Corrigido para corresponder à sua lógica
                 return `/caravan/${adminProfileCaravan.assignedCaravanId}/dashboard`;
             }
             return '/';

@@ -16,7 +16,7 @@ import { Loader2, LogInIcon } from 'lucide-react';
 
 export default function LoginPage() {
   const { toast } = useToast();
-  const { user, loading, profileLoading } = useAuth();
+  const { user, loading } = useAuth();
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -29,8 +29,6 @@ export default function LoginPage() {
     setIsSubmitting(true);
     try {
       await loginUser(email, password);
-      // O AuthProvider vai detetar a mudança de estado e fará o redirecionamento.
-      // Apenas mostramos um toast para feedback imediato.
       toast({ title: "Login bem-sucedido!", description: `A redirecionar...`});
     } catch (err: any) {
         let errorMessage = "Falha no login. Verifique suas credenciais.";
@@ -49,8 +47,6 @@ export default function LoginPage() {
     }
   };
 
-  // Mostra um ecrã de carregamento se o AuthProvider ainda estiver a verificar a sessão ou o perfil
-  // OU se o utilizador já estiver logado (o AuthProvider está a tratar do redirecionamento)
   if (loading || user) {
     return (
         <div className="flex min-h-screen flex-col items-center justify-center bg-gray-100 p-6">
@@ -62,7 +58,6 @@ export default function LoginPage() {
     );
   }
   
-  // Apenas mostra o formulário se o carregamento inicial terminou e não há utilizador
   return (
     <div className="flex min-h-screen flex-col items-center justify-center bg-gray-100 p-4">
         <Card className="w-full max-w-md shadow-xl bg-white animate-fade-in">
