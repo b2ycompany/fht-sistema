@@ -190,7 +190,7 @@ async function drawTextWithWrapping(page: any, text: string, options: { x: numbe
 // --- LÓGICA DE CADA FUNÇÃO (HANDLERS) ---
 
 // ============================================================================
-// CORREÇÃO APLICADA AQUI: Função alterada para ser mais robusta
+// CORREÇÃO APLICADA AQUI: Função alterada para ser mais robusta, atualização e melhorado
 // ============================================================================
 export const onUserWrittenSetClaimsHandler = async (event: FirestoreEvent<Change<DocumentSnapshot> | undefined, { userId: string }>) => {
     const change = event.data;

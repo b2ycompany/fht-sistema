@@ -1,31 +1,28 @@
 // functions/src/index.ts
 
 // --- IMPORTS ---
-// Importando os módulos da V2 para a maioria das funções
-import { onDocumentWritten, onDocumentDeleted, FirestoreEvent } from "firebase-functions/v2/firestore"; // Removido onDocumentCreated
+import { onDocumentWritten, onDocumentDeleted, FirestoreEvent } from "firebase-functions/v2/firestore";
 import { onCall, CallableRequest } from "firebase-functions/v2/https";
 import { setGlobalOptions } from "firebase-functions/v2";
-
-// Importando a biblioteca do Firebase Admin
 import * as admin from "firebase-admin";
-
-// <<< ALTERAÇÃO PRINCIPAL: Importando o pacote V1 ESPECIFICAMENTE para o gatilho de auth >>>
 import * as functions from "firebase-functions/v1";
-
-// Importando tipos necessários
 import { UserRecord } from "firebase-admin/auth";
 import { Change } from "firebase-functions";
 import { DocumentSnapshot } from "firebase-admin/firestore";
 
-// Inicializa o app do Firebase Admin se ainda não foi inicializado
 if (admin.apps.length === 0) {
   admin.initializeApp();
 }
 
-// Define configurações globais para as funções (região e memória)
-setGlobalOptions({ region: "southamerica-east1", memory: "512MiB" });
+// ============================================================================
+// OTIMIZAÇÃO MÁXIMA APLICADA
+// Removemos a definição de CPU para deixar o Google Cloud alocar o mínimo possível.
+// ============================================================================
+setGlobalOptions({ 
+    region: "southamerica-east1", 
+    memory: "128MiB" // Deixamos apenas a memória mínima
+});
 
-// Define a política de CORS para permitir requisições dos seus front-ends
 const corsPolicy = [
     "https://fhtgestao.com.br",
     "https://www.fhtgestao.com.br",
@@ -34,14 +31,11 @@ const corsPolicy = [
     "http://localhost:3000"
 ];
 
+// ... (o resto do seu ficheiro permanece exatamente igual ao anterior)
 // ===================================================================================
 // === GATILHOS DE EVENTOS DO FIRESTORE (onDocument...) - V2 ========================
 // ===================================================================================
 
-// ============================================================================
-// CORREÇÃO APLICADA AQUI: Trocado de onDocumentCreated para onDocumentWritten
-// Isto torna a função mais robusta, funcionando na criação e na atualização.
-// ============================================================================
 export const onUserWrittenSetClaims = onDocumentWritten("users/{userId}",
     (event: FirestoreEvent<Change<DocumentSnapshot> | undefined, { userId: string }>) => import("./logic").then(api => api.onUserWrittenSetClaimsHandler(event))
 );
@@ -65,7 +59,6 @@ export const onShiftRequirementDelete = onDocumentDeleted("shiftRequirements/{re
 export const onTimeSlotDelete = onDocumentDeleted("doctorTimeSlots/{timeSlotId}",
     (event: FirestoreEvent<DocumentSnapshot | undefined, { timeSlotId: string }>) => import("./logic").then(api => api.onTimeSlotDeleteHandler(event))
 );
-
 
 // ===================================================================================
 // === FUNÇÕES CHAMÁVEIS PELO CLIENTE (onCall) - V2 =================================
@@ -114,24 +107,26 @@ export const createAppointment = onCall({ cors: corsPolicy, secrets: ["DAILY_API
 );
 
 // --- Funções de Geração de Documentos ---
-export const generateContractPdf = onCall({ cors: corsPolicy },
+// Aumentamos os recursos para as funções que geram PDFs
+export const generateContractPdf = onCall({ cors: corsPolicy, memory: "512MiB" },
     (request: CallableRequest) => import("./logic").then(api => api.generateContractPdfHandler(request))
 );
 
-export const generatePrescriptionPdf = onCall({ cors: corsPolicy },
+export const generatePrescriptionPdf = onCall({ cors: corsPolicy, memory: "512MiB" },
     (request: CallableRequest) => import("./logic").then(api => api.generatePrescriptionPdfHandler(request))
 );
 
-export const generateDocumentPdf = onCall({ cors: corsPolicy },
+export const generateDocumentPdf = onCall({ cors: corsPolicy, memory: "512MiB" },
     (request: CallableRequest) => import("./logic").then(api => api.generateDocumentPdfHandler(request))
 );
 
 // --- Funções de Plantão e Ponto ---
-export const registerTimeRecord = onCall({ cors: corsPolicy },
+// Aumentamos os recursos para as funções que salvam fotos
+export const registerTimeRecord = onCall({ cors: corsPolicy, memory: "512MiB" },
     (request: CallableRequest) => import("./logic").then(api => api.registerTimeRecordHandler(request))
 );
 
-export const registerCheckout = onCall({ cors: corsPolicy },
+export const registerCheckout = onCall({ cors: corsPolicy, memory: "512MiB" },
     (request: CallableRequest) => import("./logic").then(api => api.registerCheckoutHandler(request))
 );
 
@@ -151,14 +146,6 @@ export const createTelemedicineRoom = onCall({ cors: corsPolicy, secrets: ["DAIL
 // ===================================================================================
 // === GATILHOS DE AUTENTICAÇÃO (Auth Triggers V1 - Estável) =========================
 // ===================================================================================
-
-/**
- * @summary Gatilho para limpar dados do utilizador após a sua conta ser apagada no Firebase Auth.
- * @description Utiliza a sintaxe V1 (`functions.auth.user().onDelete`) por ser mais estável e confiável
- * para gatilhos de autenticação do que a V2 no momento.
- * @param {UserRecord} user - O objeto do utilizador que foi apagado.
- */
-// <<< MUDANÇA APLICADA AQUI para forçar a região >>>
 export const onUserDeletedCleanup = functions.region("southamerica-east1").auth.user().onDelete(
     (user: UserRecord) => import("./logic").then(api => api.onUserDeletedCleanupHandler(user))
 );

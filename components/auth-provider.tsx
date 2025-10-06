@@ -59,16 +59,39 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       if (firebaseUser) {
         try {
           // ============================================================================
-          // CORREÇÃO DEFINITIVA PARA O LOOP DE REDIRECIONAMENTO
+          // CORREÇÃO DEFINITIVA DA "CONDIÇÃO DE CORRIDA"
           // ============================================================================
           
-          // 1. Forçar a atualização do token para obter as claims mais recentes.
-          const tokenResult = await firebaseUser.getIdTokenResult(true);
-          const userRole = tokenResult.claims.role as string | undefined;
+          // 1. Forçar a atualização do token uma vez para obter as claims mais recentes.
+          let tokenResult = await firebaseUser.getIdTokenResult(true);
+          let userRole = tokenResult.claims.role as string | undefined;
+          
+          // 2. SE A ROLE NÃO EXISTIR, INICIAMOS O MODO DE VERIFICAÇÃO PACIENTE
+          if (!userRole) {
+            console.log("[AuthProvider] Role não encontrada. A iniciar verificador para aguardar a atribuição da claim...");
+            
+            // Vamos tentar por até 15 segundos (5 tentativas a cada 3 segundos)
+            const attempts = 5;
+            for (let i = 0; i < attempts; i++) {
+              // Espera 3 segundos entre cada tentativa
+              await new Promise(resolve => setTimeout(resolve, 3000));
+              
+              tokenResult = await firebaseUser.getIdTokenResult(true); // Força a atualização novamente
+              userRole = tokenResult.claims.role as string | undefined;
 
-          // 2. Verificar se o utilizador tem uma permissão (role) válida.
+              if (userRole) {
+                console.log(`[AuthProvider] SUCESSO! Role '${userRole}' encontrada na tentativa ${i + 1}.`);
+                break; // Sai do loop se a role for encontrada
+              } else {
+                console.log(`[AuthProvider] Tentativa ${i + 1}/${attempts}: role ainda não atribuída.`);
+              }
+            }
+          }
+
+          // 3. Após o verificador, tomamos a decisão final.
           if (userRole && ['hospital', 'doctor', 'admin', 'receptionist', 'triage_nurse', 'caravan_admin'].includes(userRole)) {
             // Se tem uma role, prossiga normalmente.
+            console.log("[AuthProvider] Role válida encontrada. A carregar perfil do utilizador...");
             const profile = await getCurrentUserData();
             
             if (profile && profile.status === 'INVITED') {
@@ -88,24 +111,20 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
               router.replace(targetPath);
             }
           } else {
-            // ============================================================================
-            // 3. SE NÃO TEM UMA ROLE: Utilizador "preso". Forçar logout.
-            // ============================================================================
-            console.error(`[AuthProvider] UTILIZADOR PRESO DETETADO! O utilizador ${firebaseUser.uid} está autenticado mas não tem uma role válida. A forçar logout para quebrar o loop.`);
+            // 4. SE, APÓS TODAS AS TENTATIVAS, A ROLE AINDA NÃO EXISTIR, AÍ SIM FORÇAMOS O LOGOUT.
+            console.error(`[AuthProvider] UTILIZADOR PRESO DETETADO! O utilizador ${firebaseUser.uid} não recebeu uma role válida após 15 segundos. A forçar logout.`);
             setUserProfile(null);
             await signOut(auth);
-            // O utilizador será deslogado e o listener onAuthStateChanged irá disparar novamente,
-            // desta vez com firebaseUser como null, caindo no bloco 'else' abaixo.
           }
         } catch (error) {
           console.error("[AuthProvider] Erro crítico no fluxo de autenticação:", error);
           setUserProfile(null);
-          await signOut(auth); // Faz logout como medida de segurança em caso de erro.
+          await signOut(auth);
         } finally {
           setProfileLoading(false);
         }
       } else {
-        // Se não há utilizador logado, limpamos os dados e garantimos que está tudo a zero.
+        // Se não há utilizador logado, limpamos os dados.
         setUserProfile(null);
         setProfileLoading(false);
       }
