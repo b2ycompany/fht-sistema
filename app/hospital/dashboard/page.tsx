@@ -10,12 +10,6 @@ import { getHospitalDashboardData, type HospitalDashboardData } from '@/lib/hosp
 import { Button } from '@/components/ui/button';
 import Link from 'next/link';
 
-// ============================================================================
-// ADICIONADO PARA DIAGNÓSTICO
-import { getAuth } from 'firebase/auth'; 
-// ============================================================================
-
-
 const StatCard = ({ title, value, icon: Icon, description, isLoading }: { title: string; value: string | number; icon: React.ElementType; description?: string; isLoading: boolean; }) => (
     <Card>
         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
@@ -41,25 +35,6 @@ export default function HospitalDashboardPage() {
     const [error, setError] = useState<string | null>(null);
 
     useEffect(() => {
-        // ============================================================================
-        // CÓDIGO DE DIAGNÓSTICO: VERIFICA AS "CUSTOM CLAIMS" DO UTILIZADOR
-        // Este bloco de código irá mostrar no console do navegador se a role está correta.
-        // ============================================================================
-        const auth = getAuth();
-        const currentUser = auth.currentUser;
-        if (currentUser) {
-            currentUser.getIdTokenResult(true) // O 'true' força a atualização do token
-                .then((idTokenResult) => {
-                    console.log("✅ [DIAGNÓSTICO] Claims do Utilizador:", idTokenResult.claims);
-                    if (!idTokenResult.claims.role || idTokenResult.claims.role !== 'hospital') {
-                        console.error("❌ [CAUSA DO ERRO] O utilizador NÃO TEM a claim 'role: \"hospital\"'. As regras de segurança estão a bloquear o acesso corretamente. É necessário corrigir o backend.");
-                    } else {
-                        console.log("✔️ [SUCESSO] A claim 'role: \"hospital\"' foi encontrada!");
-                    }
-                });
-        }
-        // Fim do código de diagnóstico
-
         if (userProfile && userProfile.userType === 'hospital') {
             const fetchData = async () => {
                 setIsLoading(true);

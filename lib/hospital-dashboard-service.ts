@@ -15,10 +15,7 @@ export interface HospitalDashboardData {
     triageQueueCount: number;
     consultationQueueCount: number;
     completedTodayCount: number;
-    // ============================================================================
-    // CAMPO ADICIONADO: Contagem de médicos associados à unidade.
-    // ============================================================================
-    associatedDoctorsCount: number; 
+    associatedDoctorsCount: number; // Campo para a contagem correta de médicos
 }
 
 /**
@@ -42,45 +39,20 @@ export const getHospitalDashboardData = async (unitId: string): Promise<Hospital
         startOfToday.setHours(0, 0, 0, 0);
         const startOfTodayTimestamp = Timestamp.fromDate(startOfToday);
 
-        // 1. Contagem de pacientes na fila de triagem (status 'Aguardando Triagem')
-        const triageQuery = query(
-            queueRef, 
-            where("unitId", "==", unitId), 
-            where("status", "==", "Aguardando Triagem")
-        );
-
-        // 2. Contagem de pacientes na fila de atendimento médico (status 'Aguardando Atendimento')
-        const consultationQueueQuery = query(
-            queueRef,
-            where("unitId", "==", unitId),
-            where("status", "==", "Aguardando Atendimento")
-        );
-
-        // 3. Contagem de atendimentos que foram finalizados hoje
-        const completedQuery = query(
-            consultationsRef,
-            where("hospitalId", "==", unitId),
-            where("status", "==", "COMPLETED"),
-            where("createdAt", ">=", startOfTodayTimestamp)
-        );
+        // Consultas seguras e específicas para a unidade logada
+        const triageQuery = query(queueRef, where("unitId", "==", unitId), where("status", "==", "Aguardando Triagem"));
+        const consultationQueueQuery = query(queueRef, where("unitId", "==", unitId), where("status", "==", "Aguardando Atendimento"));
+        const completedQuery = query(consultationsRef, where("hospitalId", "==", unitId), where("status", "==", "COMPLETED"), where("createdAt", ">=", startOfTodayTimestamp));
         
-        // ============================================================================
-        // CORREÇÃO: A consulta agora filtra os utilizadores do tipo 'doctor' que
-        // possuem o ID da unidade atual no seu array 'healthUnitIds'.
-        // Isso garante que apenas os médicos associados a esta unidade sejam contados.
-        // ============================================================================
-        const doctorsQuery = query(
-            usersRef, 
-            where("userType", "==", "doctor"), 
-            where("healthUnitIds", "array-contains", unitId)
-        );
+        // CORREÇÃO: Conta apenas os médicos associados a esta unidade
+        const doctorsQuery = query(usersRef, where("userType", "==", "doctor"), where("healthUnitIds", "array-contains", unitId));
 
         // Executa todas as contagens em paralelo para maior eficiência
         const [triageSnapshot, consultationQueueSnapshot, completedSnapshot, doctorsSnapshot] = await Promise.all([
             getCountFromServer(triageQuery),
             getCountFromServer(consultationQueueQuery),
             getCountFromServer(completedQuery),
-            getCountFromServer(doctorsQuery) // Nova consulta adicionada à execução paralela
+            getCountFromServer(doctorsQuery)
         ]);
 
         // Retorna os dados consolidados
@@ -88,12 +60,12 @@ export const getHospitalDashboardData = async (unitId: string): Promise<Hospital
             triageQueueCount: triageSnapshot.data().count,
             consultationQueueCount: consultationQueueSnapshot.data().count,
             completedTodayCount: completedSnapshot.data().count,
-            associatedDoctorsCount: doctorsSnapshot.data().count, // Novo dado retornado para o frontend
+            associatedDoctorsCount: doctorsSnapshot.data().count,
         };
 
     } catch (error) {
         console.error("Erro ao buscar dados para o painel do gestor:", error);
         // Lança um erro mais amigável para o frontend
-        throw new Error("Não foi possível carregar os indicadores da unidade. Verifique a sua conexão ou tente novamente mais tarde.");
+        throw new Error("Não foi possível carregar os indicadores da unidade.");
     }
 };

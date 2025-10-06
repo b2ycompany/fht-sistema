@@ -3,7 +3,7 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // --- Funções Auxiliares (Sem alterações) ---
+    // --- Funções Auxiliares ---
     function isSignedIn() { return request.auth != null; }
     function hasRole(role) { return isSignedIn() && request.auth.token.role == role; }
     function isOwner(userId) { return isSignedIn() && request.auth.uid == userId; }
@@ -14,56 +14,42 @@ service cloud.firestore {
 
     // --- REGRAS PARA UTILIZADORES ---
     match /users/{userId} {
-      allow read: if
-        hasRole('admin') ||
-        isOwner(userId) ||
-        // ============================================================================
-        // CORREÇÃO FINAL E DEFINITIVA APLICADA AQUI
-        // Adicionamos a verificação 'resource.data.userType == 'doctor'' para que
-        // a regra espelhe PERFEITAMENTE a consulta do painel.
-        // Isto resolve o erro para hospitais que ainda não têm médicos.
-        // ============================================================================
-        (
-          hasRole('hospital') &&
-          resource.data.userType == 'doctor' &&
-          resource.data.healthUnitIds is list &&
-          request.auth.uid in resource.data.healthUnitIds
-        );
-        
+      // Regra de leitura única: Permite ler se for admin, o próprio dono,
+      // o gestor da unidade do profissional, ou se o gestor estiver listado no array healthUnitIds (para médicos).
+      allow read: if hasRole('admin') || isOwner(userId) 
+                   || (hasRole('hospital') && resource.data.hospitalId == request.auth.uid)
+                   || (resource.data.healthUnitIds is list && request.auth.uid in resource.data.healthUnitIds);
+      
       allow create, update: if isOwner(userId) || hasRole('admin');
       allow delete: if hasRole('admin');
     }
-
-    // --- O RESTO DAS SUAS REGRAS (JÁ CORRIGIDAS E ESTÁVEIS) ---
+    
+    // --- REGRAS PARA O FLUXO DE ATENDIMENTO ---
     match /patients/{patientId} {
-      allow read: if hasRole('admin') || isUnitManager(resource.data.unitId);
-      allow write: if hasRole('admin') || isUnitManager(resource.data.unitId) || isStaffMember(resource.data.unitId);
+      allow read, write: if hasRole('admin') || isStaffMember(resource.data.unitId) || isUnitManager(resource.data.unitId);
       allow delete: if hasRole('admin');
     }
     match /serviceQueue/{queueId} {
-      allow read: if hasRole('admin') || isUnitManager(resource.data.unitId);
-      allow write: if hasRole('admin') || isUnitManager(resource.data.unitId) || isStaffMember(resource.data.unitId);
+      // Uma regra de 'read' única cobre 'get', 'list' e contagens (aggregation queries).
+      allow read, write: if hasRole('admin') || isUnitManager(resource.data.unitId) || isStaffMember(resource.data.unitId);
       allow delete: if hasRole('admin');
     }
     match /consultations/{consultationId} {
+      // Um admin, o médico da consulta, ou o gestor da unidade podem ler (get, list, count).
       allow read, write: if hasRole('admin') || isOwner(resource.data.doctorId) || isUnitManager(resource.data.hospitalId);
       allow delete: if hasRole('admin');
     }
+    
+    // --- OUTRAS REGRAS DE NEGÓCIO ---
     match /settings/{settingId} { allow read, write: if hasRole('admin'); }
+    match /contracts/{contractId} { allow read, write: if hasRole('admin') || (isSignedIn() && (resource.data.doctorId == request.auth.uid || resource.data.hospitalId == request.auth.uid)); }
     match /specialties/{specialtyId} { allow read: if true; allow write: if hasRole('admin'); }
     match /invitations/{invitationId} { allow create: if hasRole('admin') || hasRole('hospital'); allow read, update, delete: if false; }
     match /caravanEvents/{eventId} { allow read: if isSignedIn(); allow write: if hasRole('admin'); }
     match /shiftRequirements/{requirementId} { allow read: if isSignedIn(); allow create: if hasRole('admin') || (hasRole('hospital') && request.resource.data.hospitalId == request.auth.uid); allow update, delete: if hasRole('admin') || (isSignedIn() && resource.data.hospitalId == request.auth.uid); }
     match /timeRecords/{recordId} { allow read: if hasRole('admin') || (isSignedIn() && (resource.data.doctorId == request.auth.uid || resource.data.hospitalId == request.auth.uid)); allow write: if hasRole('admin') || isOwner(resource.data.doctorId); }
     match /potentialMatches/{matchId} { allow read, write: if hasRole('admin') || (isSignedIn() && (resource.data.doctorId == request.auth.uid || resource.data.hospitalId == request.auth.uid)); allow delete: if hasRole('admin');}
-    match /contracts/{contractId} {
-      allow read, write: if hasRole('admin') || (isSignedIn() && (resource.data.doctorId == request.auth.uid || resource.data.hospitalId == request.auth.uid));
-    }
-    match /doctorTimeSlots/{timeSlotId} {
-      allow read, write, delete: if hasRole('admin') || isOwner(resource.data.doctorId);
-    }
-    match /appointments/{appointmentId} {
-      allow read, write: if hasRole('admin') || isOwner(resource.data.doctorId);
-    }
+    match /doctorTimeSlots/{timeSlotId} { allow read, write, delete: if hasRole('admin') || isOwner(resource.data.doctorId); }
+    match /appointments/{appointmentId} { allow read, write: if hasRole('admin') || isOwner(resource.data.doctorId); }
   }
 }
