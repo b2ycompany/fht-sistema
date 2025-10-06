@@ -3,62 +3,106 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // --- Funções Auxiliares (Sem alterações) ---
-    function isSignedIn() { return request.auth != null; }
-    function hasRole(role) { return isSignedIn() && request.auth.token.role == role; }
-    function isOwner(userId) { return isSignedIn() && request.auth.uid == userId; }
-    function isUnitManager(unitId) { return hasRole('hospital') && request.auth.uid == unitId; }
+    // --- Funções Auxiliares de Segurança ---
+    function isSignedIn() {
+      return request.auth != null;
+    }
+    function hasRole(role) {
+      return isSignedIn() && request.auth.token.role == role;
+    }
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+    function isUnitManager(unitId) {
+      return hasRole('hospital') && request.auth.uid == unitId;
+    }
     function isStaffMember(unitId) {
       return isSignedIn() && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.hospitalId == unitId;
     }
 
-    // --- REGRAS PARA UTILIZADORES ---
+    // --- Regras para a Coleção de Utilizadores ('users') ---
     match /users/{userId} {
-      // ============================================================================
-      // CORREÇÃO DEFINITIVA APLICADA AQUI
-      // Esta regra agora espelha PERFEITAMENTE a consulta de contagem de médicos.
-      // Ela permite que um hospital leia o perfil de um médico SE (e somente se)
-      // o tipo de utilizador for 'doctor' E o ID do hospital estiver na lista de unidades do médico.
-      // Isto resolve o erro 'permission-denied' para a contagem (runAggregationQuery).
-      // ============================================================================
-      allow read: if
-        hasRole('admin') ||
-        isOwner(userId) ||
-        (
-          hasRole('hospital') &&
-          resource.data.userType == 'doctor' &&
-          resource.data.healthUnitIds is list &&
-          request.auth.uid in resource.data.healthUnitIds
-        );
+      // Leitura de documentos (get, list) permitida para:
+      // 1. Administradores
+      // 2. O próprio dono do perfil
+      // 3. Hospitais que procuram médicos associados a eles
+      allow read: if hasRole('admin') || isOwner(userId) || (
+        hasRole('hospital') &&
+        resource.data.userType == 'doctor' &&
+        resource.data.healthUnitIds is list &&
+        request.auth.uid in resource.data.healthUnitIds
+      );
       
+      // >>> A CORREÇÃO ESTÁ AQUI <<<
+      // Permissão para consultas de agregação (count, sum, avg)
+      // Permite que admins e hospitais contem utilizadores, o que é necessário para os painéis.
+      allow aggregate: if hasRole('admin') || hasRole('hospital');
+
+      // Criação e atualização permitida apenas pelo dono do perfil ou por um admin.
       allow create, update: if isOwner(userId) || hasRole('admin');
+      
+      // Apagar um perfil só é permitido por administradores.
       allow delete: if hasRole('admin');
     }
 
-    // --- O RESTO DAS SUAS REGRAS (JÁ CORRIGIDAS E ESTÁVEIS) ---
+    // --- Regras para Pacientes e Fila de Atendimento ---
     match /patients/{patientId} {
-      allow read, write: if hasRole('admin') || isStaffMember(resource.data.unitId) || isUnitManager(resource.data.unitId);
+      allow read, write: if hasRole('admin') || isUnitManager(resource.data.unitId) || isStaffMember(resource.data.unitId);
       allow delete: if hasRole('admin');
     }
     match /serviceQueue/{queueId} {
       allow read, write: if hasRole('admin') || isUnitManager(resource.data.unitId) || isStaffMember(resource.data.unitId);
       allow delete: if hasRole('admin');
     }
+
+    // --- Regras para Consultas e Agendamentos ---
     match /consultations/{consultationId} {
       allow read, write: if hasRole('admin') || isOwner(resource.data.doctorId) || isUnitManager(resource.data.hospitalId);
       allow delete: if hasRole('admin');
     }
+    match /appointments/{appointmentId} {
+      allow read, write: if hasRole('admin') || isOwner(resource.data.doctorId);
+    }
+
+    // --- Regras para Plantões e Disponibilidades ---
+    match /shiftRequirements/{requirementId} {
+      allow read: if isSignedIn();
+      allow create: if hasRole('admin') || (hasRole('hospital') && request.resource.data.hospitalId == request.auth.uid);
+      allow update, delete: if hasRole('admin') || (isSignedIn() && resource.data.hospitalId == request.auth.uid);
+    }
+    match /doctorTimeSlots/{timeSlotId} {
+      allow read, write, delete: if hasRole('admin') || isOwner(resource.data.doctorId);
+    }
+    match /potentialMatches/{matchId} {
+      allow read, write: if hasRole('admin') || (isSignedIn() && (resource.data.doctorId == request.auth.uid || resource.data.hospitalId == request.auth.uid));
+      allow delete: if hasRole('admin');
+    }
+
+    // --- Regras para Contratos e Registos de Ponto ---
+    match /contracts/{contractId} {
+      allow read, write: if hasRole('admin') || (isSignedIn() && (resource.data.doctorId == request.auth.uid || resource.data.hospitalId == request.auth.uid));
+    }
+    match /timeRecords/{recordId} {
+      allow read: if hasRole('admin') || (isSignedIn() && (resource.data.doctorId == request.auth.uid || resource.data.hospitalId == request.auth.uid));
+      allow write: if hasRole('admin') || isOwner(resource.data.doctorId);
+    }
     
-    // --- OUTRAS REGRAS DE NEGÓCIO ---
-    match /settings/{settingId} { allow read, write: if hasRole('admin'); }
-    match /contracts/{contractId} { allow read, write: if hasRole('admin') || (isSignedIn() && (resource.data.doctorId == request.auth.uid || resource.data.hospitalId == request.auth.uid)); }
-    match /specialties/{specialtyId} { allow read: if true; allow write: if hasRole('admin'); }
-    match /invitations/{invitationId} { allow create: if hasRole('admin') || hasRole('hospital'); allow read, update, delete: if false; }
-    match /caravanEvents/{eventId} { allow read: if isSignedIn(); allow write: if hasRole('admin'); }
-    match /shiftRequirements/{requirementId} { allow read: if isSignedIn(); allow create: if hasRole('admin') || (hasRole('hospital') && request.resource.data.hospitalId == request.auth.uid); allow update, delete: if hasRole('admin') || (isSignedIn() && resource.data.hospitalId == request.auth.uid); }
-    match /timeRecords/{recordId} { allow read: if hasRole('admin') || (isSignedIn() && (resource.data.doctorId == request.auth.uid || resource.data.hospitalId == request.auth.uid)); allow write: if hasRole('admin') || isOwner(resource.data.doctorId); }
-    match /potentialMatches/{matchId} { allow read, write: if hasRole('admin') || (isSignedIn() && (resource.data.doctorId == request.auth.uid || resource.data.hospitalId == request.auth.uid)); allow delete: if hasRole('admin');}
-    match /doctorTimeSlots/{timeSlotId} { allow read, write, delete: if hasRole('admin') || isOwner(resource.data.doctorId); }
-    match /appointments/{appointmentId} { allow read, write: if hasRole('admin') || isOwner(resource.data.doctorId); }
+    // --- Regras Administrativas e de Configuração ---
+    match /settings/{settingId} {
+      allow read, write: if hasRole('admin');
+    }
+    match /specialties/{specialtyId} {
+      allow read: if true; // Qualquer um pode ler a lista de especialidades
+      allow write: if hasRole('admin');
+    }
+    match /invitations/{invitationId} {
+      // Apenas admins e hospitais podem criar convites. Ninguém pode ler ou apagar para proteger os tokens.
+      allow create: if hasRole('admin') || hasRole('hospital');
+      allow read, update, delete: if false;
+    }
+    match /caravanEvents/{eventId} {
+      allow read: if isSignedIn();
+      allow write: if hasRole('admin');
+    }
   }
 }
