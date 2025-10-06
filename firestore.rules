@@ -1,108 +1,81 @@
 rules_version = '2';
-
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // --- Funções Auxiliares de Segurança ---
-    function isSignedIn() {
-      return request.auth != null;
-    }
-    function hasRole(role) {
-      return isSignedIn() && request.auth.token.role == role;
-    }
-    function isOwner(userId) {
-      return isSignedIn() && request.auth.uid == userId;
-    }
-    function isUnitManager(unitId) {
-      return hasRole('hospital') && request.auth.uid == unitId;
-    }
-    function isStaffMember(unitId) {
-      return isSignedIn() && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.hospitalId == unitId;
-    }
-
-    // --- Regras para a Coleção de Utilizadores ('users') ---
+    // ========================================================
+    // 🔹 1. Regras da coleção "users"
+    // ========================================================
     match /users/{userId} {
-      // Leitura de documentos (get, list) permitida para:
-      // 1. Administradores
-      // 2. O próprio dono do perfil
-      // 3. Hospitais que procuram médicos associados a eles
-      allow read: if hasRole('admin') || isOwner(userId) || (
-        hasRole('hospital') &&
-        resource.data.userType == 'doctor' &&
-        resource.data.healthUnitIds is list &&
-        request.auth.uid in resource.data.healthUnitIds
-      );
-      
-      // >>> A CORREÇÃO ESTÁ AQUI <<<
-      // Permissão para consultas de agregação (count, sum, avg)
-      // Permite que admins e hospitais contem utilizadores, o que é necessário para os painéis.
-      allow aggregate: if hasRole('admin') || hasRole('hospital');
+      // Usuário autenticado pode ler e editar o próprio perfil
+      allow get, update: if request.auth != null && request.auth.uid == userId;
 
-      // Criação e atualização permitida apenas pelo dono do perfil ou por um admin.
-      allow create, update: if isOwner(userId) || hasRole('admin');
-      
-      // Apagar um perfil só é permitido por administradores.
-      allow delete: if hasRole('admin');
+      // Admin e Hospital podem listar e ler todos os perfis (usado em dashboards e relatórios)
+      allow list, get: if request.auth != null && request.auth.token.role in ['admin', 'hospital'];
+
+      // Admin pode criar novos usuários
+      allow create: if request.auth != null && request.auth.token.role == 'admin';
+
+      // Permitir consultas agregadas (COUNT, SUM, etc.)
+      allow aggregate: if request.auth != null && request.auth.token.role in ['admin', 'hospital'];
     }
 
-    // --- Regras para Pacientes e Fila de Atendimento ---
-    match /patients/{patientId} {
-      allow read, write: if hasRole('admin') || isUnitManager(resource.data.unitId) || isStaffMember(resource.data.unitId);
-      allow delete: if hasRole('admin');
-    }
-    match /serviceQueue/{queueId} {
-      allow read, write: if hasRole('admin') || isUnitManager(resource.data.unitId) || isStaffMember(resource.data.unitId);
-      allow delete: if hasRole('admin');
+    // ========================================================
+    // 🔹 2. Regras da coleção "hospitals"
+    // ========================================================
+    match /hospitals/{hospitalId} {
+      // Admin e Hospital têm acesso completo
+      allow read, write: if request.auth != null && request.auth.token.role in ['admin', 'hospital'];
     }
 
-    // --- Regras para Consultas e Agendamentos ---
-    match /consultations/{consultationId} {
-      allow read, write: if hasRole('admin') || isOwner(resource.data.doctorId) || isUnitManager(resource.data.hospitalId);
-      allow delete: if hasRole('admin');
+    // ========================================================
+    // 🔹 3. Regras da coleção "caravanas"
+    // ========================================================
+    match /caravanas/{caravanaId} {
+      // Admin e Caravan Admin podem ler e editar caravanas
+      allow read, write: if request.auth != null && request.auth.token.role in ['admin', 'caravan_admin'];
     }
+
+    // ========================================================
+    // 🔹 4. Regras da coleção "appointments" (exemplo)
+    // ========================================================
     match /appointments/{appointmentId} {
-      allow read, write: if hasRole('admin') || isOwner(resource.data.doctorId);
+      // Médicos, recepcionistas, enfermeiros de triagem e hospitais podem ler ou criar
+      allow read, create, update: if request.auth != null && 
+        request.auth.token.role in ['admin', 'hospital', 'doctor', 'receptionist', 'triage_nurse'];
+
+      // Admin tem acesso total
+      allow delete: if request.auth != null && request.auth.token.role == 'admin';
     }
 
-    // --- Regras para Plantões e Disponibilidades ---
-    match /shiftRequirements/{requirementId} {
-      allow read: if isSignedIn();
-      allow create: if hasRole('admin') || (hasRole('hospital') && request.resource.data.hospitalId == request.auth.uid);
-      allow update, delete: if hasRole('admin') || (isSignedIn() && resource.data.hospitalId == request.auth.uid);
-    }
-    match /doctorTimeSlots/{timeSlotId} {
-      allow read, write, delete: if hasRole('admin') || isOwner(resource.data.doctorId);
-    }
-    match /potentialMatches/{matchId} {
-      allow read, write: if hasRole('admin') || (isSignedIn() && (resource.data.doctorId == request.auth.uid || resource.data.hospitalId == request.auth.uid));
-      allow delete: if hasRole('admin');
+    // ========================================================
+    // 🔹 5. Regras da coleção "metrics" ou "reports" (caso exista)
+    // ========================================================
+    match /metrics/{metricId} {
+      allow read, write, aggregate: if request.auth != null && request.auth.token.role in ['admin', 'hospital'];
     }
 
-    // --- Regras para Contratos e Registos de Ponto ---
-    match /contracts/{contractId} {
-      allow read, write: if hasRole('admin') || (isSignedIn() && (resource.data.doctorId == request.auth.uid || resource.data.hospitalId == request.auth.uid));
-    }
-    match /timeRecords/{recordId} {
-      allow read: if hasRole('admin') || (isSignedIn() && (resource.data.doctorId == request.auth.uid || resource.data.hospitalId == request.auth.uid));
-      allow write: if hasRole('admin') || isOwner(resource.data.doctorId);
-    }
-    
-    // --- Regras Administrativas e de Configuração ---
+    // ========================================================
+    // 🔹 6. Regras da coleção "settings" (configurações gerais)
+    // ========================================================
     match /settings/{settingId} {
-      allow read, write: if hasRole('admin');
+      allow read: if request.auth != null;
+      allow write: if request.auth != null && request.auth.token.role == 'admin';
     }
-    match /specialties/{specialtyId} {
-      allow read: if true; // Qualquer um pode ler a lista de especialidades
-      allow write: if hasRole('admin');
-    }
-    match /invitations/{invitationId} {
-      // Apenas admins e hospitais podem criar convites. Ninguém pode ler ou apagar para proteger os tokens.
-      allow create: if hasRole('admin') || hasRole('hospital');
-      allow read, update, delete: if false;
-    }
-    match /caravanEvents/{eventId} {
-      allow read: if isSignedIn();
-      allow write: if hasRole('admin');
+
+    // ========================================================
+    // 🔹 7. Regras genéricas (fallback)
+    // ========================================================
+    match /{document=**} {
+      // Apenas usuários autenticados com role reconhecida
+      allow read, write, aggregate: if request.auth != null && 
+        request.auth.token.role in [
+          'admin',
+          'hospital',
+          'doctor',
+          'receptionist',
+          'triage_nurse',
+          'caravan_admin'
+        ];
     }
   }
 }
