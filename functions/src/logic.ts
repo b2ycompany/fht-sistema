@@ -28,6 +28,7 @@ interface UserProfile extends DocumentData {
     updatedAt?: FieldValue;
 }
 
+// ... (O resto das suas interfaces permanece o mesmo) ...
 interface ShiftRequirementData {
   hospitalId: string;
   hospitalName?: string;
@@ -135,6 +136,7 @@ interface DocumentPayload {
   };
 }
 
+
 // --- SERVIÇOS DO FIREBASE ---
 const db = getFirestore();
 const auth = admin.auth();
@@ -142,6 +144,7 @@ const storage = getStorage();
 
 
 // --- FUNÇÕES AUXILIARES ---
+// ... (Todas as suas funções auxiliares permanecem as mesmas) ...
 const timeToMinutes = (timeStr: string): number => {
     if (!timeStr || !timeStr.includes(":")) { return 0; }
     const [hours, minutes] = timeStr.split(":").map(Number);
@@ -185,65 +188,72 @@ async function drawTextWithWrapping(page: any, text: string, options: { x: numbe
 }
 
 // --- LÓGICA DE CADA FUNÇÃO (HANDLERS) ---
-// (Todas as funções abaixo permanecem inalteradas, exceto a última)
 
-export const onUserCreatedSetClaimsHandler = async (event: FirestoreEvent<DocumentSnapshot | undefined, { userId: string }>) => {
-    const userSnap = event.data;
-    if (!userSnap) {
-        logger.error("Snapshot do utilizador não encontrado no evento de criação.");
-        return;
-    }
-    const userData = userSnap.data() as UserProfile;
-    if (!userData) {
-        logger.error(`Dados do utilizador (userData) não encontrados para o UID: ${event.params.userId}`);
+// ============================================================================
+// CORREÇÃO APLICADA AQUI: Função alterada para ser mais robusta
+// ============================================================================
+export const onUserWrittenSetClaimsHandler = async (event: FirestoreEvent<Change<DocumentSnapshot> | undefined, { userId: string }>) => {
+    const change = event.data;
+    if (!change) {
+        logger.error("Evento de escrita de utilizador inválido.");
         return;
     }
 
-    const userId = event.params.userId;
-    const { userType, displayName, invitationToken } = userData;
-
-    if (userType === 'doctor' && invitationToken) {
-        const invitationsRef = db.collection("invitations");
-        const q = invitationsRef.where("token", "==", invitationToken).where("status", "==", "pending");
-        const querySnapshot = await q.get();
-
-        if (!querySnapshot.empty) {
-            const invitationDoc = querySnapshot.docs[0];
-            const hospitalId = invitationDoc.data().hospitalId;
-
-            await userSnap.ref.update({
-                healthUnitIds: FieldValue.arrayUnion(hospitalId),
-                status: 'PENDING_APPROVAL'
-            });
-            await invitationDoc.ref.update({ status: 'completed' });
-            
-            logger.info(`Médico ${userId} vinculado automaticamente ao hospital ${hospitalId} via convite.`);
-        }
-    }
-
-    if (!userType) {
-        logger.warn(`Utilizador ${userId} criado sem um 'userType'. Claims não serão definidos.`);
-        return;
-    }
+    const dataAfter = change.after.data() as UserProfile | undefined;
+    const dataBefore = change.before?.data() as UserProfile | undefined;
     
-    const claims = { role: userType, hospitalId: userData.hospitalId || null };
-    const profileUpdate: { displayName_lowercase?: string } = {};
-    if (displayName) {
-        profileUpdate.displayName_lowercase = displayName.toLowerCase();
+    // Se o documento foi apagado, não faz nada
+    if (!dataAfter) {
+        logger.info(`Utilizador ${event.params.userId} foi apagado, nenhuma ação de claims a ser tomada.`);
+        return;
     }
 
-    try {
-        await auth.setCustomUserClaims(userId, claims);
-        logger.info(`Claims definidos com sucesso para o utilizador ${userId}:`, claims);
-        if (Object.keys(profileUpdate).length > 0) {
-            await userSnap.ref.update(profileUpdate);
-            logger.info(`Perfil do utilizador ${userId} atualizado com campo de busca.`);
+    // A condição principal: só executa se o userType foi definido pela primeira vez ou alterado.
+    if (dataAfter.userType && dataAfter.userType !== dataBefore?.userType) {
+        const userId = event.params.userId;
+        const { userType, hospitalId, displayName, invitationToken } = dataAfter;
+
+        logger.info(`userType definido/alterado para '${userType}' para o utilizador ${userId}. A definir claims.`);
+
+        // Lógica de convite (mantida da sua função original)
+        if (userType === 'doctor' && invitationToken) {
+            const invitationsRef = db.collection("invitations");
+            const q = invitationsRef.where("token", "==", invitationToken).where("status", "==", "pending");
+            const querySnapshot = await q.get();
+
+            if (!querySnapshot.empty) {
+                const invitationDoc = querySnapshot.docs[0];
+                const invHospitalId = invitationDoc.data().hospitalId;
+                await change.after.ref.update({
+                    healthUnitIds: FieldValue.arrayUnion(invHospitalId),
+                    status: 'PENDING_APPROVAL'
+                });
+                await invitationDoc.ref.update({ status: 'completed' });
+                logger.info(`Médico ${userId} vinculado ao hospital ${invHospitalId} via convite.`);
+            }
         }
-    } catch (error) {
-        logger.error(`Falha ao finalizar configuração do utilizador ${userId}:`, error);
+
+        const claims = { role: userType, hospitalId: hospitalId || null };
+        const profileUpdate: { displayName_lowercase?: string } = {};
+        if (displayName) {
+            profileUpdate.displayName_lowercase = displayName.toLowerCase();
+        }
+
+        try {
+            await auth.setCustomUserClaims(userId, claims);
+            logger.info(`Claims definidos com sucesso para o utilizador ${userId}:`, claims);
+
+            if (Object.keys(profileUpdate).length > 0 && profileUpdate.displayName_lowercase !== dataBefore?.displayName_lowercase) {
+                await change.after.ref.update(profileUpdate);
+                logger.info(`Perfil do utilizador ${userId} atualizado com campo de busca.`);
+            }
+        } catch (error) {
+            logger.error(`Falha ao finalizar configuração do utilizador ${userId}:`, error);
+        }
     }
 };
 
+// ... (O resto de todas as suas outras funções em logic.ts permanece exatamente o mesmo) ...
 export const findMatchesOnShiftRequirementWriteHandler = async (event: FirestoreEvent<Change<DocumentSnapshot> | undefined, { requirementId: string }>): Promise<void> => {
     const change = event.data;
     if (!change) return;

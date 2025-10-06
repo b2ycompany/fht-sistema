@@ -2,7 +2,7 @@
 
 // --- IMPORTS ---
 // Importando os módulos da V2 para a maioria das funções
-import { onDocumentWritten, onDocumentDeleted, onDocumentCreated, FirestoreEvent } from "firebase-functions/v2/firestore";
+import { onDocumentWritten, onDocumentDeleted, FirestoreEvent } from "firebase-functions/v2/firestore"; // Removido onDocumentCreated
 import { onCall, CallableRequest } from "firebase-functions/v2/https";
 import { setGlobalOptions } from "firebase-functions/v2";
 
@@ -38,8 +38,12 @@ const corsPolicy = [
 // === GATILHOS DE EVENTOS DO FIRESTORE (onDocument...) - V2 ========================
 // ===================================================================================
 
-export const onUserCreatedSetClaims = onDocumentCreated("users/{userId}",
-    (event: FirestoreEvent<DocumentSnapshot | undefined, { userId: string }>) => import("./logic").then(api => api.onUserCreatedSetClaimsHandler(event))
+// ============================================================================
+// CORREÇÃO APLICADA AQUI: Trocado de onDocumentCreated para onDocumentWritten
+// Isto torna a função mais robusta, funcionando na criação e na atualização.
+// ============================================================================
+export const onUserWrittenSetClaims = onDocumentWritten("users/{userId}",
+    (event: FirestoreEvent<Change<DocumentSnapshot> | undefined, { userId: string }>) => import("./logic").then(api => api.onUserWrittenSetClaimsHandler(event))
 );
 
 export const findMatchesOnShiftRequirementWrite = onDocumentWritten({ document: "shiftRequirements/{requirementId}" },

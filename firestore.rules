@@ -3,7 +3,7 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // --- Funções Auxiliares ---
+    // --- Funções Auxiliares (Sem alterações) ---
     function isSignedIn() { return request.auth != null; }
     function hasRole(role) { return isSignedIn() && request.auth.token.role == role; }
     function isOwner(userId) { return isSignedIn() && request.auth.uid == userId; }
@@ -14,28 +14,37 @@ service cloud.firestore {
 
     // --- REGRAS PARA UTILIZADORES ---
     match /users/{userId} {
-      // Regra de leitura única: Permite ler se for admin, o próprio dono,
-      // o gestor da unidade do profissional, ou se o gestor estiver listado no array healthUnitIds (para médicos).
-      allow read: if hasRole('admin') || isOwner(userId) 
-                   || (hasRole('hospital') && resource.data.hospitalId == request.auth.uid)
-                   || (resource.data.healthUnitIds is list && request.auth.uid in resource.data.healthUnitIds);
+      // ============================================================================
+      // CORREÇÃO DEFINITIVA APLICADA AQUI
+      // Esta regra agora espelha PERFEITAMENTE a consulta de contagem de médicos.
+      // Ela permite que um hospital leia o perfil de um médico SE (e somente se)
+      // o tipo de utilizador for 'doctor' E o ID do hospital estiver na lista de unidades do médico.
+      // Isto resolve o erro 'permission-denied' para a contagem (runAggregationQuery).
+      // ============================================================================
+      allow read: if
+        hasRole('admin') ||
+        isOwner(userId) ||
+        (
+          hasRole('hospital') &&
+          resource.data.userType == 'doctor' &&
+          resource.data.healthUnitIds is list &&
+          request.auth.uid in resource.data.healthUnitIds
+        );
       
       allow create, update: if isOwner(userId) || hasRole('admin');
       allow delete: if hasRole('admin');
     }
-    
-    // --- REGRAS PARA O FLUXO DE ATENDIMENTO ---
+
+    // --- O RESTO DAS SUAS REGRAS (JÁ CORRIGIDAS E ESTÁVEIS) ---
     match /patients/{patientId} {
       allow read, write: if hasRole('admin') || isStaffMember(resource.data.unitId) || isUnitManager(resource.data.unitId);
       allow delete: if hasRole('admin');
     }
     match /serviceQueue/{queueId} {
-      // Uma regra de 'read' única cobre 'get', 'list' e contagens (aggregation queries).
       allow read, write: if hasRole('admin') || isUnitManager(resource.data.unitId) || isStaffMember(resource.data.unitId);
       allow delete: if hasRole('admin');
     }
     match /consultations/{consultationId} {
-      // Um admin, o médico da consulta, ou o gestor da unidade podem ler (get, list, count).
       allow read, write: if hasRole('admin') || isOwner(resource.data.doctorId) || isUnitManager(resource.data.hospitalId);
       allow delete: if hasRole('admin');
     }
