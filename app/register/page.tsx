@@ -304,15 +304,11 @@ const RegistrationSummary: React.FC<RegistrationSummaryProps> = ({ role, data, o
             <p className="text-center text-sm text-gray-600 mt-4">Confira todas as informações antes de finalizar o cadastro.</p>
         </div>
     );
-};
-
-
-interface InputWithIMaskProps extends Omit<React.InputHTMLAttributes<HTMLInputElement>, 'onAccept' | 'value' | 'defaultValue'> {
+};interface InputWithIMaskProps extends Omit<React.InputHTMLAttributes<HTMLInputElement>, 'onAccept' | 'value' | 'defaultValue'> {
     maskOptions: any;
     onAccept: (value: string, maskRef: any) => void;
     defaultValue?: string;
-}
-const InputWithIMask: React.FC<InputWithIMaskProps> = ({ maskOptions, onAccept, id, defaultValue, ...rest }) => {
+}const InputWithIMask: React.FC<InputWithIMaskProps> = ({ maskOptions, onAccept, id, defaultValue, ...rest }) => {
     const { ref } = useIMask(maskOptions, { onAccept });
     return <Input ref={ref as React.RefObject<HTMLInputElement>} id={id} defaultValue={defaultValue} {...rest} />;
 };
@@ -768,9 +764,6 @@ function RegisterForm() {
         }
     };
     
-    // ============================================================================
-    // 🔹 FUNÇÃO ATUALIZADA COM LÓGICA DE ROLLBACK 🔹
-    // ============================================================================
     const handleSubmit = async () => {
         if (!role || currentStepConfig?.id !== 'summary') {
             toast({ variant: "destructive", title: "Erro ao Finalizar", description: "Não é possível finalizar nesta etapa." });
@@ -781,7 +774,7 @@ function RegisterForm() {
         const loginEmail = role === 'doctor' ? personalInfo.email : legalRepresentativeInfo.email;
         const displayName = role === 'doctor' ? personalInfo.name : hospitalInfo.companyName;
 
-        let firebaseUser: User | null = null; // Variável para guardar o utilizador criado
+        let firebaseUser: User | null = null;
 
         const pollForRoleClaim = async (user: User, expectedRole: string, retries = 10, interval = 3000) => {
             for (let i = 0; i < retries; i++) {
@@ -799,6 +792,9 @@ function RegisterForm() {
             setLoadingMessage("Etapa 1/4: A criar a sua conta de utilizador...");
             firebaseUser = await createAuthUser(loginEmail, credentials.password, displayName);
             const userId = firebaseUser.uid;
+
+            // Força a atualização do token do utilizador recém-criado
+            await firebaseUser.getIdToken(true);
 
             let registrationData: DoctorRegistrationPayload | HospitalRegistrationPayload;
 
@@ -861,7 +857,6 @@ function RegisterForm() {
 
             const claimVerified = await pollForRoleClaim(firebaseUser, role);
             if (!claimVerified) {
-                // Se o polling falhar, lança um erro para acionar o rollback
                 throw new Error("Não foi possível verificar as suas permissões de acesso após o registo.");
             }
 
@@ -875,27 +870,35 @@ function RegisterForm() {
             router.push('/login');
 
         } catch (error: any) {
+            // ============================================================================
+            // 🔹 CORREÇÃO: Tratamento específico para auth/email-already-in-use 🔹
+            // ============================================================================
+            if (error instanceof FirebaseError && error.code === 'auth/email-already-in-use') {
+                toast({
+                    variant: "destructive",
+                    title: "Email já Cadastrado",
+                    description: "Este email já está em uso por outra conta.",
+                    duration: 8000
+                });
+                setIsLoading(false);
+                setLoadingMessage("");
+                return; // Sai da função para evitar o bloco de rollback desnecessário
+            }
+            
+            // Tratamento de outros erros
             let title = "Erro no Cadastro";
             let description = error.message || "Ocorreu um erro inesperado.";
 
-            if (error instanceof FirebaseError) {
-                if (error.code === 'auth/email-already-in-use') {
-                    title = "Email já Cadastrado";
-                    description = "Este email já está em uso por outra conta.";
-                    firebaseUser = null; // Não apagar um utilizador que já existia
-                } else if (error.code === 'storage/unauthorized') {
-                    title = "Erro de Permissão";
-                    description = "Falha ao enviar documentos. A sua conta será removida para que possa tentar novamente.";
-                }
+            if (error instanceof FirebaseError && error.code === 'storage/unauthorized') {
+                title = "Erro de Permissão";
+                description = "Falha ao enviar documentos. A sua conta será removida para que possa tentar novamente.";
             }
             
             toast({ variant: "destructive", title: title, description: description, duration: 8000 });
 
-            // Se o utilizador foi criado nesta tentativa, mas algo falhou depois, apague-o.
             if (firebaseUser) {
                 setLoadingMessage("A reverter o registo parcial...");
                 try {
-                    // A função delete() apaga o utilizador do Firebase Authentication
                     await firebaseUser.delete();
                     console.log(`[Rollback] Utilizador ${firebaseUser.uid} apagado com sucesso após falha no registo.`);
                     toast({
@@ -916,7 +919,6 @@ function RegisterForm() {
             setLoadingMessage("");
         }
     };
-
 
     const renderCurrentStep = () => {
         if (!currentStepConfig) {
@@ -1229,7 +1231,7 @@ function RegisterForm() {
                         <div className="space-y-1"><Label htmlFor="password">Senha*</Label><Input id="password" type="password" value={credentials.password} onChange={handleInputChangeCallback(setCredentials, 'password')} required minLength={6} />
                             <p className="text-xs text-gray-500">Mínimo 6 caracteres. Use letras, números e símbolos.</p>
                         </div>
-                        <div className="space-y-1"><Label htmlFor="confirmPassword">Confirme a Senha*</Label><Input id="confirmPassword" type="password" value={credentials.confirmPassword} onChange={handleInputChangeCallback(setCredentials, 'confirmPassword')} required className={cn( credentials.password && credentials.confirmPassword && credentials.password !== credentials.confirmPassword && "border-red-500 ring-1 ring-red-500" )} />
+                        <div className="space-y-1"><Label htmlFor="confirmPassword">Confirme a Senha*</Label><Input id="confirmPassword" type="password" value={credentials.confirmPassword} onChange={handleInputChangeCallback(setCredentials, 'confirmPassword')} required className={cn( credentials.password && credentials.confirmPassword && credentials.password !== credentials.password && "border-red-500 ring-1 ring-red-500" )} />
                             {credentials.password && credentials.confirmPassword && credentials.password !== credentials.confirmPassword && <p className="text-xs text-red-600 mt-1">As senhas não coincidem.</p>}
                         </div>
                     </form>
