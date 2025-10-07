@@ -5,7 +5,8 @@ import React, { createContext, useContext, useEffect, useState, type ReactNode }
 import { onAuthStateChanged, signOut, type User } from "firebase/auth";
 import { auth } from "@/lib/firebase";
 import { getCurrentUserData, type UserProfile, AdminProfile, confirmFirstLogin } from "@/lib/auth-service";
-import { useRouter } from "next/navigation";
+// <<< ADICIONADO: Importar usePathname para saber a página atual >>>
+import { useRouter, usePathname } from "next/navigation";
 
 // Sua função de redirecionamento foi mantida
 const getRedirectPathForProfile = (profile: UserProfile | null): string => {
@@ -50,6 +51,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [loading, setLoading] = useState(true);
   const [profileLoading, setProfileLoading] = useState(true);
   const router = useRouter();
+  // <<< ADICIONADO: Hook para obter o caminho da URL >>>
+  const pathname = usePathname();
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
@@ -59,36 +62,42 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       
       if (firebaseUser) {
         try {
-          // Força a atualização do token para obter as claims mais recentes
           const tokenResult = await firebaseUser.getIdTokenResult(true);
           const userRole = tokenResult.claims.role as string | undefined;
 
-          // Lógica simplificada: se não tem uma role válida, não deve prosseguir
-          if (!userRole || !['hospital', 'doctor', 'admin', 'receptionist', 'triage_nurse', 'caravan_admin'].includes(userRole)) {
-              console.error(`[AuthProvider] Utilizador ${firebaseUser.uid} autenticado mas sem uma role válida. A forçar logout.`);
+          // ============================================================================
+          // 🔹 CORREÇÃO DEFINITIVA: Criar exceção para a página de registo 🔹
+          // ============================================================================
+          const isRegisterPage = pathname === '/register';
+
+          // Apenas força o logout se o utilizador NÃO tiver role E NÃO estiver na página de registo
+          if (!userRole && !isRegisterPage) {
+              console.error(`[AuthProvider] Utilizador ${firebaseUser.uid} autenticado mas sem uma role válida e fora da página de registo. A forçar logout.`);
               await signOut(auth);
               // A limpeza dos estados será feita no próximo ciclo do onAuthStateChanged
               return; 
           }
           
-          // Se tem uma role, prossiga normalmente
-          console.log("[AuthProvider] Role válida encontrada. A carregar perfil do utilizador...");
-          const profile = await getCurrentUserData();
-          
-          if (profile && profile.status === 'INVITED') {
-            await confirmFirstLogin();
-            const updatedProfile = { ...profile, status: 'ACTIVE' as const };
-            setUserProfile(updatedProfile);
-          } else {
-            setUserProfile(profile);
-          }
-
-          const targetPath = getRedirectPathForProfile(profile);
-          const currentPath = window.location.pathname;
-          const publicRoutes = ['/login', '/register', '/reset-password'];
-
-          if (publicRoutes.includes(currentPath)) {
-            router.replace(targetPath);
+          // Se o utilizador tiver uma role (ou estiver na página de registo), prossiga
+          if (userRole) {
+            console.log("[AuthProvider] Role válida encontrada. A carregar perfil do utilizador...");
+            const profile = await getCurrentUserData();
+            
+            if (profile && profile.status === 'INVITED') {
+              await confirmFirstLogin();
+              const updatedProfile = { ...profile, status: 'ACTIVE' as const };
+              setUserProfile(updatedProfile);
+            } else {
+              setUserProfile(profile);
+            }
+  
+            const targetPath = getRedirectPathForProfile(profile);
+            const currentPath = window.location.pathname;
+            const publicRoutes = ['/login', '/register', '/reset-password'];
+  
+            if (publicRoutes.includes(currentPath)) {
+              router.replace(targetPath);
+            }
           }
 
         } catch (error) {
@@ -106,7 +115,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     });
 
     return () => unsubscribe();
-  }, [router]);
+  }, [router, pathname]); // <<< ADICIONADO: pathname como dependência
 
   const contextValue = { user, userProfile, loading, profileLoading };
 
