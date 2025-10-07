@@ -304,11 +304,15 @@ const RegistrationSummary: React.FC<RegistrationSummaryProps> = ({ role, data, o
             <p className="text-center text-sm text-gray-600 mt-4">Confira todas as informações antes de finalizar o cadastro.</p>
         </div>
     );
-};interface InputWithIMaskProps extends Omit<React.InputHTMLAttributes<HTMLInputElement>, 'onAccept' | 'value' | 'defaultValue'> {
+};
+
+
+interface InputWithIMaskProps extends Omit<React.InputHTMLAttributes<HTMLInputElement>, 'onAccept' | 'value' | 'defaultValue'> {
     maskOptions: any;
     onAccept: (value: string, maskRef: any) => void;
     defaultValue?: string;
-}const InputWithIMask: React.FC<InputWithIMaskProps> = ({ maskOptions, onAccept, id, defaultValue, ...rest }) => {
+}
+const InputWithIMask: React.FC<InputWithIMaskProps> = ({ maskOptions, onAccept, id, defaultValue, ...rest }) => {
     const { ref } = useIMask(maskOptions, { onAccept });
     return <Input ref={ref as React.RefObject<HTMLInputElement>} id={id} defaultValue={defaultValue} {...rest} />;
 };
@@ -764,6 +768,9 @@ function RegisterForm() {
         }
     };
     
+    // ============================================================================
+    // 🔹 FUNÇÃO handleSubmit COM LÓGICA REORDENADA E ROBUSTA 🔹
+    // ============================================================================
     const handleSubmit = async () => {
         if (!role || currentStepConfig?.id !== 'summary') {
             toast({ variant: "destructive", title: "Erro ao Finalizar", description: "Não é possível finalizar nesta etapa." });
@@ -774,36 +781,61 @@ function RegisterForm() {
         const loginEmail = role === 'doctor' ? personalInfo.email : legalRepresentativeInfo.email;
         const displayName = role === 'doctor' ? personalInfo.name : hospitalInfo.companyName;
 
-        let firebaseUser: User | null = null;
+        let firebaseUser: User | null = null; 
 
-        const pollForRoleClaim = async (user: User, expectedRole: string, retries = 10, interval = 3000) => {
+        const pollForRoleClaim = async (user: User, expectedRole: string, retries = 10, interval = 2000) => {
             for (let i = 0; i < retries; i++) {
-                setLoadingMessage(`Etapa 4/4: A verificar permissões (tentativa ${i + 1}/${retries})...`);
-                await new Promise(resolve => setTimeout(resolve, interval));
+                // Força a atualização do token a cada tentativa
                 const tokenResult = await user.getIdTokenResult(true);
                 if (tokenResult.claims.role === expectedRole) {
+                    console.log(`✅ Permissão '${expectedRole}' confirmada na tentativa ${i + 1}.`);
                     return true;
                 }
+                console.log(`🟡 Tentativa ${i + 1}/${retries}: Permissão '${expectedRole}' ainda não encontrada. A aguardar...`);
+                // Aguarda antes da próxima tentativa
+                await new Promise(resolve => setTimeout(resolve, interval));
             }
+            console.error(`❌ A permissão '${expectedRole}' não foi encontrada após ${retries} tentativas.`);
             return false;
         };
 
         try {
+            // --- ETAPA 1: CRIAÇÃO DO UTILIZADOR E DADOS NO FIRESTORE ---
             setLoadingMessage("Etapa 1/4: A criar a sua conta de utilizador...");
             firebaseUser = await createAuthUser(loginEmail, credentials.password, displayName);
             const userId = firebaseUser.uid;
 
-            // Força a atualização do token do utilizador recém-criado
-            await firebaseUser.getIdToken(true);
-
             let registrationData: DoctorRegistrationPayload | HospitalRegistrationPayload;
 
-            if (invitationToken && role === 'doctor') {
-                setLoadingMessage("Etapa 2/4: A finalizar registo de convite...");
+            // Prepara os dados de registo SEM os URLs dos ficheiros primeiro
+            if (role === 'doctor') {
                 const { name: _pName, email: _pEmail, ...personalDetails } = personalInfo;
-                registrationData = { ...personalDetails, professionalCrm: personalInfo.professionalCrm, specialties: selectedSpecialties, isSpecialist: isSpecialist, address: { ...addressInfo, cep: addressInfo.cep.replace(/\D/g, "") }, registrationObjective: 'match', invitationToken: invitationToken, documents: {}, specialistDocuments: {}, };
+                const doctorData: DoctorRegistrationPayload = { ...personalDetails, professionalCrm: personalInfo.professionalCrm, specialties: selectedSpecialties, isSpecialist: isSpecialist, documents: {}, specialistDocuments: {}, registrationObjective: doctorObjective || 'match', };
+                if (doctorObjective === 'match') { doctorData.address = { ...addressInfo, cep: addressInfo.cep.replace(/\D/g, "") }; }
+                if (invitationToken) { doctorData.invitationToken = invitationToken; }
+                registrationData = doctorData;
+            } else { // Hospital
+                const { companyName: _cName, email: _hEmail, ...hospitalDetails } = hospitalInfo;
+                registrationData = { ...hospitalDetails, address: { ...hospitalAddressInfo, cep: hospitalAddressInfo.cep.replace(/\D/g, "") }, legalRepresentativeInfo: legalRepresentativeInfo, hospitalDocs: {}, legalRepDocuments: {}, };
+            }
+            
+            // Grava os dados iniciais no Firestore, o que aciona a Cloud Function para definir a role
+            await completeUserRegistration(userId, loginEmail, displayName, role, registrationData);
+
+            // --- ETAPA 2: AGUARDAR ATIVAMENTE PELA ROLE ---
+            setLoadingMessage("Etapa 2/4: A verificar as suas permissões...");
+            const claimVerified = await pollForRoleClaim(firebaseUser, role);
+            if (!claimVerified) {
+                // Se a role não for atribuída a tempo, lança um erro para acionar o rollback
+                throw new Error("Não foi possível verificar as suas permissões de acesso. O registo será revertido.");
+            }
+
+            // --- ETAPA 3: UPLOAD DOS FICHEIROS (AGORA COM PERMISSÃO GARANTIDA) ---
+            if (invitationToken && role === 'doctor') {
+                 // Para convites, não há upload nesta fase, então pulamos
+                 setLoadingMessage("Etapa 3/4: A finalizar registo de convite...");
             } else {
-                setLoadingMessage("Etapa 2/4: A enviar os seus documentos...");
+                setLoadingMessage("Etapa 3/4: A enviar os seus documentos...");
                 const finalDocRefs: { documents: Partial<DoctorDocumentsRef>; specialistDocuments: Partial<SpecialistDocumentsRef>; hospitalDocs: Partial<HospitalDocumentsRef>; legalRepDocuments: Partial<LegalRepDocumentsRef>; } = { documents: {}, specialistDocuments: {}, hospitalDocs: {}, legalRepDocuments: {} };
                 const filesToProcess: { docKey: AllDocumentKeys, fileState: FileWithProgress, typePathFragment: string, subFolder?: string }[] = [];
                 
@@ -827,39 +859,33 @@ function RegisterForm() {
                         uploadFileToStorage(item.fileState.file!, `${item.typePathFragment}/${userId}/${item.subFolder ? `${item.subFolder}/` : ''}${item.docKey}_${Date.now()}_${item.fileState.file!.name}`, (progress) => updateFileState(item.docKey, prev => ({ ...prev, progress })))
                         .then(url => {
                             updateFileState(item.docKey, prev => ({ ...prev, url, isUploading: false, file: null, name: prev.name || item.fileState.file!.name }));
-                            return { key: item.docKey, url, typePathFragment: item.typePathFragment, subFolder: item.subFolder };
+                            // Atribui a URL ao objeto de referência correto
+                             if (item.typePathFragment === "doctor_documents") {
+                                if (item.subFolder === "specialist") { (finalDocRefs.specialistDocuments as any)[item.docKey] = url; } 
+                                else { (finalDocRefs.documents as any)[item.docKey] = url; }
+                            } else if (item.typePathFragment === "hospital_documents") {
+                                if (item.subFolder === "legal_rep") { (finalDocRefs.legalRepDocuments as any)[item.docKey] = url; } 
+                                else { (finalDocRefs.hospitalDocs as any)[item.docKey] = url; }
+                            }
                         }).catch(uploadError => {
                             updateFileState(item.docKey, prev => ({ ...prev, isUploading: false, error: (uploadError as Error).message || "Falha no upload." }));
                             throw uploadError; 
                         })
                     );
-                    const uploadResults = await Promise.all(uploadPromises);
-                    uploadResults.forEach(result => {
-                         if (result.typePathFragment === "doctor_documents") { result.subFolder === "specialist" ? (finalDocRefs.specialistDocuments as any)[result.key] = result.url : (finalDocRefs.documents as any)[result.key] = result.url; }
-                         else if (result.typePathFragment === "hospital_documents") { result.subFolder === "legal_rep" ? (finalDocRefs.legalRepDocuments as any)[result.key] = result.url : (finalDocRefs.hospitalDocs as any)[result.key] = result.url; }
-                    });
-                }
-                
-                setLoadingMessage("Etapa 3/4: A guardar as suas informações...");
-                
-                if (role === 'doctor') {
-                    const { name: _pName, email: _pEmail, ...personalDetails } = personalInfo;
-                    const doctorData: DoctorRegistrationPayload = { ...personalDetails, professionalCrm: personalInfo.professionalCrm, specialties: selectedSpecialties, isSpecialist: isSpecialist, documents: finalDocRefs.documents, specialistDocuments: isSpecialist ? finalDocRefs.specialistDocuments : {}, registrationObjective: doctorObjective || 'match', };
-                    if (doctorObjective === 'match') { doctorData.address = { ...addressInfo, cep: addressInfo.cep.replace(/\D/g, "") }; }
-                    registrationData = doctorData;
-                } else { // Hospital
-                    const { companyName: _cName, email: _hEmail, ...hospitalDetails } = hospitalInfo;
-                    registrationData = { ...hospitalDetails, address: { ...hospitalAddressInfo, cep: hospitalAddressInfo.cep.replace(/\D/g, "") }, legalRepresentativeInfo: legalRepresentativeInfo, hospitalDocs: finalDocRefs.hospitalDocs, legalRepDocuments: finalDocRefs.legalRepDocuments, };
+                    await Promise.all(uploadPromises);
+
+                    // Atualiza o documento no Firestore com as URLs dos ficheiros
+                    const updatePayload: any = role === 'doctor' 
+                        ? { documents: finalDocRefs.documents, specialistDocuments: finalDocRefs.specialistDocuments }
+                        : { hospitalDocs: finalDocRefs.hospitalDocs, legalRepDocuments: finalDocRefs.legalRepDocuments };
+                    
+                    // Reutiliza a função de registo para fazer um "update" apenas com as novas URLs
+                    await completeUserRegistration(userId, loginEmail, displayName, role, updatePayload, true);
                 }
             }
             
-            await completeUserRegistration(userId, loginEmail, displayName, role, registrationData);
-
-            const claimVerified = await pollForRoleClaim(firebaseUser, role);
-            if (!claimVerified) {
-                throw new Error("Não foi possível verificar as suas permissões de acesso após o registo.");
-            }
-
+            // --- ETAPA 4: FINALIZAÇÃO ---
+            setLoadingMessage("Etapa 4/4: A finalizar...");
             toast({
                 title: "Cadastro Realizado com Sucesso!",
                 description: "Aguarde, estamos a redirecioná-lo para a página de login...",
@@ -870,9 +896,6 @@ function RegisterForm() {
             router.push('/login');
 
         } catch (error: any) {
-            // ============================================================================
-            // 🔹 CORREÇÃO: Tratamento específico para auth/email-already-in-use 🔹
-            // ============================================================================
             if (error instanceof FirebaseError && error.code === 'auth/email-already-in-use') {
                 toast({
                     variant: "destructive",
@@ -882,13 +905,11 @@ function RegisterForm() {
                 });
                 setIsLoading(false);
                 setLoadingMessage("");
-                return; // Sai da função para evitar o bloco de rollback desnecessário
+                return; 
             }
             
-            // Tratamento de outros erros
             let title = "Erro no Cadastro";
             let description = error.message || "Ocorreu um erro inesperado.";
-
             if (error instanceof FirebaseError && error.code === 'storage/unauthorized') {
                 title = "Erro de Permissão";
                 description = "Falha ao enviar documentos. A sua conta será removida para que possa tentar novamente.";
@@ -1231,7 +1252,7 @@ function RegisterForm() {
                         <div className="space-y-1"><Label htmlFor="password">Senha*</Label><Input id="password" type="password" value={credentials.password} onChange={handleInputChangeCallback(setCredentials, 'password')} required minLength={6} />
                             <p className="text-xs text-gray-500">Mínimo 6 caracteres. Use letras, números e símbolos.</p>
                         </div>
-                        <div className="space-y-1"><Label htmlFor="confirmPassword">Confirme a Senha*</Label><Input id="confirmPassword" type="password" value={credentials.confirmPassword} onChange={handleInputChangeCallback(setCredentials, 'confirmPassword')} required className={cn( credentials.password && credentials.confirmPassword && credentials.password !== credentials.password && "border-red-500 ring-1 ring-red-500" )} />
+                        <div className="space-y-1"><Label htmlFor="confirmPassword">Confirme a Senha*</Label><Input id="confirmPassword" type="password" value={credentials.confirmPassword} onChange={handleInputChangeCallback(setCredentials, 'confirmPassword')} required className={cn( credentials.password && credentials.confirmPassword && credentials.password !== credentials.confirmPassword && "border-red-500 ring-1 ring-red-500" )} />
                             {credentials.password && credentials.confirmPassword && credentials.password !== credentials.confirmPassword && <p className="text-xs text-red-600 mt-1">As senhas não coincidem.</p>}
                         </div>
                     </form>
