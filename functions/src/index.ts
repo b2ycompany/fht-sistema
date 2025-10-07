@@ -15,26 +15,30 @@ if (admin.apps.length === 0) {
 }
 
 // ============================================================================
-// OTIMIZAÇÃO MÁXIMA APLICADA
-// Removemos a definição de CPU para deixar o Google Cloud alocar o mínimo possível.
+// 🔹 CORREÇÃO DA REGIÃO 🔹
+
 // ============================================================================
 setGlobalOptions({ 
-    region: "southamerica-east1", 
-    memory: "128MiB" // Deixamos apenas a memória mínima
+    region: "us-central1", 
+    memory: "128MiB",      // A memória mais baixa possível
+    cpu: 1,                 // O CPU mais baixo possível para 2ª Gen
+    minInstances: 0,        // Garante que não há funções ativas a gastar quota
+    concurrency: 80         // Número de pedidos por instância (padrão)
 });
-
+// ============================================================================
+// Política de CORS Centralizada
+// ============================================================================
 const corsPolicy = [
     "https://fhtgestao.com.br",
     "https://www.fhtgestao.com.br",
     "https://fht-sistema.web.app",
     "https://fht-sistema.firebaseapp.com",
-    "http://localhost:3000"
+    "http://localhost:3000" // Manter para desenvolvimento local
 ];
 
 // ===================================================================================
-// === GATILHOS DE EVENTOS DO FIRESTORE (onDocument...) - V2 ========================
+// === GATILHOS DE EVENTOS DO FIRESTORE (onDocument...)
 // ===================================================================================
-
 export const onUserWrittenSetClaims = onDocumentWritten("users/{userId}",
     (event: FirestoreEvent<Change<DocumentSnapshot> | undefined, { userId: string }>) => import("./logic").then(api => api.onUserWrittenSetClaimsHandler(event))
 );
@@ -60,7 +64,7 @@ export const onTimeSlotDelete = onDocumentDeleted("doctorTimeSlots/{timeSlotId}"
 );
 
 // ===================================================================================
-// === FUNÇÕES CHAMÁVEIS PELO CLIENTE (onCall) - V2 =================================
+// === FUNÇÕES CHAMÁVEIS PELO CLIENTE (onCall)
 // ===================================================================================
 
 // --- Funções de Gestão e Admin ---
@@ -141,8 +145,8 @@ export const createTelemedicineRoom = onCall({ cors: corsPolicy, secrets: ["DAIL
 );
 
 // ===================================================================================
-// === GATILHOS DE AUTENTICAÇÃO (Auth Triggers V1 - Estável) =========================
+// === GATILHOS DE AUTENTICAÇÃO (Auth Triggers V1 - Estável)
 // ===================================================================================
-export const onUserDeletedCleanup = functions.region("southamerica-east1").auth.user().onDelete(
+export const onUserDeletedCleanup = functions.region("us-central1").auth.user().onDelete(
     (user: UserRecord) => import("./logic").then(api => api.onUserDeletedCleanupHandler(user))
 );

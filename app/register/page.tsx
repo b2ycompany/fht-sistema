@@ -768,6 +768,9 @@ function RegisterForm() {
         }
     };
     
+    // ============================================================================
+    // 🔹 FUNÇÃO ATUALIZADA COM LÓGICA DE ROLLBACK 🔹
+    // ============================================================================
     const handleSubmit = async () => {
         if (!role || currentStepConfig?.id !== 'summary') {
             toast({ variant: "destructive", title: "Erro ao Finalizar", description: "Não é possível finalizar nesta etapa." });
@@ -778,28 +781,23 @@ function RegisterForm() {
         const loginEmail = role === 'doctor' ? personalInfo.email : legalRepresentativeInfo.email;
         const displayName = role === 'doctor' ? personalInfo.name : hospitalInfo.companyName;
 
-        // ============================================================================
-        // NOVA LÓGICA DE ESPERA (POLLING) IMPLEMENTADA AQUI
-        // ============================================================================
+        let firebaseUser: User | null = null; // Variável para guardar o utilizador criado
+
         const pollForRoleClaim = async (user: User, expectedRole: string, retries = 10, interval = 3000) => {
             for (let i = 0; i < retries; i++) {
                 setLoadingMessage(`Etapa 4/4: A verificar permissões (tentativa ${i + 1}/${retries})...`);
-                await new Promise(resolve => setTimeout(resolve, interval)); // Espera
-                const tokenResult = await user.getIdTokenResult(true); // Força a atualização do token
-                
+                await new Promise(resolve => setTimeout(resolve, interval));
+                const tokenResult = await user.getIdTokenResult(true);
                 if (tokenResult.claims.role === expectedRole) {
-                    console.log(`✅ Permissão '${expectedRole}' confirmada na tentativa ${i + 1}.`);
                     return true;
                 }
-                console.log(`🟡 Tentativa ${i + 1}/${retries}: Permissão '${expectedRole}' ainda não encontrada. A aguardar...`);
             }
-            console.error(`❌ A permissão '${expectedRole}' não foi encontrada após ${retries} tentativas.`);
             return false;
         };
 
         try {
             setLoadingMessage("Etapa 1/4: A criar a sua conta de utilizador...");
-            const firebaseUser = await createAuthUser(loginEmail, credentials.password, displayName);
+            firebaseUser = await createAuthUser(loginEmail, credentials.password, displayName);
             const userId = firebaseUser.uid;
 
             let registrationData: DoctorRegistrationPayload | HospitalRegistrationPayload;
@@ -808,9 +806,8 @@ function RegisterForm() {
                 setLoadingMessage("Etapa 2/4: A finalizar registo de convite...");
                 const { name: _pName, email: _pEmail, ...personalDetails } = personalInfo;
                 registrationData = { ...personalDetails, professionalCrm: personalInfo.professionalCrm, specialties: selectedSpecialties, isSpecialist: isSpecialist, address: { ...addressInfo, cep: addressInfo.cep.replace(/\D/g, "") }, registrationObjective: 'match', invitationToken: invitationToken, documents: {}, specialistDocuments: {}, };
-            } 
-            else {
-                 setLoadingMessage("Etapa 2/4: A enviar os seus documentos...");
+            } else {
+                setLoadingMessage("Etapa 2/4: A enviar os seus documentos...");
                 const finalDocRefs: { documents: Partial<DoctorDocumentsRef>; specialistDocuments: Partial<SpecialistDocumentsRef>; hospitalDocs: Partial<HospitalDocumentsRef>; legalRepDocuments: Partial<LegalRepDocumentsRef>; } = { documents: {}, specialistDocuments: {}, hospitalDocs: {}, legalRepDocuments: {} };
                 const filesToProcess: { docKey: AllDocumentKeys, fileState: FileWithProgress, typePathFragment: string, subFolder?: string }[] = [];
                 
@@ -862,41 +859,64 @@ function RegisterForm() {
             
             await completeUserRegistration(userId, loginEmail, displayName, role, registrationData);
 
-            // ============================================================================
-            // CORREÇÃO: Chamada duplicada removida e nova lógica de espera adicionada
-            // ============================================================================
-            
-            // A função onUserWrittenSetClaims no backend já faz este trabalho automaticamente.
-            // Esta remoção corrige o erro de CORS e evita trabalho duplicado.
-            // A chamada a `setHospitalManagerRole` foi removida.
-            
-            // Agora, esperamos ativamente pela permissão antes de continuar.
             const claimVerified = await pollForRoleClaim(firebaseUser, role);
             if (!claimVerified) {
-                throw new Error("Não foi possível verificar as suas permissões de acesso. Por favor, tente fazer login novamente ou contacte o suporte.");
+                // Se o polling falhar, lança um erro para acionar o rollback
+                throw new Error("Não foi possível verificar as suas permissões de acesso após o registo.");
             }
-            
+
             toast({
                 title: "Cadastro Realizado com Sucesso!",
-                description: "A redirecioná-lo para a página de login para garantir a sua segurança.",
+                description: "Aguarde, estamos a redirecioná-lo para a página de login...",
                 duration: 5000
             });
             
-            await signOut(auth); // Desloga para forçar um login novo com o token correto
+            await signOut(auth);
             router.push('/login');
 
         } catch (error: any) {
             let title = "Erro no Cadastro";
             let description = error.message || "Ocorreu um erro inesperado.";
-            if (error instanceof FirebaseError && error.code === 'auth/email-already-in-use') {
-                title = "Email já Cadastrado";
-                description = "Este email já está em uso por outra conta.";
+
+            if (error instanceof FirebaseError) {
+                if (error.code === 'auth/email-already-in-use') {
+                    title = "Email já Cadastrado";
+                    description = "Este email já está em uso por outra conta.";
+                    firebaseUser = null; // Não apagar um utilizador que já existia
+                } else if (error.code === 'storage/unauthorized') {
+                    title = "Erro de Permissão";
+                    description = "Falha ao enviar documentos. A sua conta será removida para que possa tentar novamente.";
+                }
             }
-            toast({ variant: "destructive", title: title, description: description, duration: 7000 });
+            
+            toast({ variant: "destructive", title: title, description: description, duration: 8000 });
+
+            // Se o utilizador foi criado nesta tentativa, mas algo falhou depois, apague-o.
+            if (firebaseUser) {
+                setLoadingMessage("A reverter o registo parcial...");
+                try {
+                    // A função delete() apaga o utilizador do Firebase Authentication
+                    await firebaseUser.delete();
+                    console.log(`[Rollback] Utilizador ${firebaseUser.uid} apagado com sucesso após falha no registo.`);
+                    toast({
+                        title: "Registo Cancelado",
+                        description: "Ocorreu um erro e o seu registo foi revertido. Nenhum utilizador foi criado. Por favor, tente novamente."
+                    });
+                } catch (deleteError) {
+                    console.error("[Rollback CRÍTICO] Falha ao apagar o utilizador parcial:", deleteError);
+                    toast({
+                        variant: "destructive",
+                        title: "Erro Crítico",
+                        description: "O seu registo falhou e não foi possível remover a conta parcial. Por favor, contacte o suporte."
+                    });
+                }
+            }
+            
             setIsLoading(false);
             setLoadingMessage("");
         }
     };
+
 
     const renderCurrentStep = () => {
         if (!currentStepConfig) {
