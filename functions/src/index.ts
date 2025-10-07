@@ -33,44 +33,18 @@ const corsPolicy = [
 ];
 
 // ===================================================================================
-// === GATILHOS DE EVENTOS DO FIRESTORE
+// === FUNÇÕES CHAMÁVEIS PELO CLIENTE (onCall)
 // ===================================================================================
 
-// ============================================================================
-// 🔹 CORREÇÃO DE MEMÓRIA APLICADA AQUI 🔹
-// Aumentamos a memória APENAS para esta função para evitar o 'crash'.
-// ============================================================================
-export const onUserWrittenSetClaims = onDocumentWritten(
-    {
-        document: "users/{userId}",
-        memory: "256MiB" // Memória aumentada
+// <<< NOVA FUNÇÃO ADICIONADA >>>
+export const finalizeRegistration = onCall(
+    { 
+        cors: corsPolicy, 
+        memory: "512MiB", // Damos mais memória a esta função crítica
+        timeoutSeconds: 300 // E mais tempo para os uploads e processamento
     },
-    (event: FirestoreEvent<Change<DocumentSnapshot> | undefined, { userId: string }>) => import("./logic").then(api => api.onUserWrittenSetClaimsHandler(event))
+    (request: CallableRequest) => import("./logic").then(api => api.finalizeRegistrationHandler(request))
 );
-
-export const findMatchesOnShiftRequirementWrite = onDocumentWritten({ document: "shiftRequirements/{requirementId}" },
-    (event: FirestoreEvent<Change<DocumentSnapshot> | undefined, { requirementId: string }>) => import("./logic").then(api => api.findMatchesOnShiftRequirementWriteHandler(event))
-);
-
-export const onContractFinalizedUpdateRequirement = onDocumentWritten("contracts/{contractId}",
-    (event: FirestoreEvent<Change<DocumentSnapshot> | undefined, { contractId: string }>) => import("./logic").then(api => api.onContractFinalizedUpdateRequirementHandler(event))
-);
-
-export const onContractFinalizedLinkDoctor = onDocumentWritten("contracts/{contractId}",
-    (event: FirestoreEvent<Change<DocumentSnapshot> | undefined, { contractId: string }>) => import("./logic").then(api => api.onContractFinalizedLinkDoctorHandler(event))
-);
-
-export const onShiftRequirementDelete = onDocumentDeleted("shiftRequirements/{requirementId}",
-    (event: FirestoreEvent<DocumentSnapshot | undefined, { requirementId: string }>) => import("./logic").then(api => api.onShiftRequirementDeleteHandler(event))
-);
-
-export const onTimeSlotDelete = onDocumentDeleted("doctorTimeSlots/{timeSlotId}",
-    (event: FirestoreEvent<DocumentSnapshot | undefined, { timeSlotId: string }>) => import("./logic").then(api => api.onTimeSlotDeleteHandler(event))
-);
-
-// ===================================================================================
-// === FUNÇÕES CHAMÁVEIS PELO CLIENTE (onCall) - SEM ALTERAÇÕES
-// ===================================================================================
 
 // --- Funções de Gestão e Admin ---
 export const setAdminClaim = onCall({ cors: corsPolicy },
@@ -147,6 +121,43 @@ export const migrateDoctorProfilesToUsers = onCall({ cors: corsPolicy },
 
 export const createTelemedicineRoom = onCall({ cors: corsPolicy, secrets: ["DAILY_APIKEY"] },
     (request: CallableRequest) => import("./logic").then(api => api.createTelemedicineRoomHandler(request))
+);
+
+
+// ===================================================================================
+// === GATILHOS DE EVENTOS DO FIRESTORE
+// ===================================================================================
+
+// ============================================================================
+// 🔹 CORREÇÃO DE MEMÓRIA APLICADA AQUI 🔹
+// Aumentamos a memória APENAS para esta função para evitar o 'crash'.
+// ============================================================================
+export const onUserWrittenSetClaims = onDocumentWritten(
+    {
+        document: "users/{userId}",
+        memory: "256MiB" // Memória aumentada
+    },
+    (event: FirestoreEvent<Change<DocumentSnapshot> | undefined, { userId: string }>) => import("./logic").then(api => api.onUserWrittenSetClaimsHandler(event))
+);
+
+export const findMatchesOnShiftRequirementWrite = onDocumentWritten({ document: "shiftRequirements/{requirementId}" },
+    (event: FirestoreEvent<Change<DocumentSnapshot> | undefined, { requirementId: string }>) => import("./logic").then(api => api.findMatchesOnShiftRequirementWriteHandler(event))
+);
+
+export const onContractFinalizedUpdateRequirement = onDocumentWritten("contracts/{contractId}",
+    (event: FirestoreEvent<Change<DocumentSnapshot> | undefined, { contractId: string }>) => import("./logic").then(api => api.onContractFinalizedUpdateRequirementHandler(event))
+);
+
+export const onContractFinalizedLinkDoctor = onDocumentWritten("contracts/{contractId}",
+    (event: FirestoreEvent<Change<DocumentSnapshot> | undefined, { contractId: string }>) => import("./logic").then(api => api.onContractFinalizedLinkDoctorHandler(event))
+);
+
+export const onShiftRequirementDelete = onDocumentDeleted("shiftRequirements/{requirementId}",
+    (event: FirestoreEvent<DocumentSnapshot | undefined, { requirementId: string }>) => import("./logic").then(api => api.onShiftRequirementDeleteHandler(event))
+);
+
+export const onTimeSlotDelete = onDocumentDeleted("doctorTimeSlots/{timeSlotId}",
+    (event: FirestoreEvent<DocumentSnapshot | undefined, { timeSlotId: string }>) => import("./logic").then(api => api.onTimeSlotDeleteHandler(event))
 );
 
 // ===================================================================================

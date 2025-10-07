@@ -38,6 +38,7 @@ import { FirebaseError } from "firebase/app";
 import { cn } from "@/lib/utils";
 import { auth } from "@/lib/firebase";
 import { getFunctions, httpsCallable } from "firebase/functions";
+import { v4 as uuidv4 } from 'uuid'; // Importar para gerar IDs únicos
 import {
   Loader2, Check, AlertTriangle, Info, Stethoscope, Building,
   FileUp, XCircleIcon, ExternalLink, CheckCircle, HeartPulse, Briefcase, Search, X
@@ -769,7 +770,7 @@ function RegisterForm() {
     };
     
     // ============================================================================
-    // 🔹 FUNÇÃO handleSubmit COM LÓGICA REORDENADA E ROBUSTA 🔹
+    // 🔹 NOVA FUNÇÃO handleSubmit SIMPLIFICADA 🔹
     // ============================================================================
     const handleSubmit = async () => {
         if (!role || currentStepConfig?.id !== 'summary') {
@@ -778,164 +779,91 @@ function RegisterForm() {
         }
         setIsLoading(true);
 
-        const loginEmail = role === 'doctor' ? personalInfo.email : legalRepresentativeInfo.email;
-        const displayName = role === 'doctor' ? personalInfo.name : hospitalInfo.companyName;
-
-        let firebaseUser: User | null = null; 
-
-        const pollForRoleClaim = async (user: User, expectedRole: string, retries = 10, interval = 2000) => {
-            for (let i = 0; i < retries; i++) {
-                // Força a atualização do token a cada tentativa
-                const tokenResult = await user.getIdTokenResult(true);
-                if (tokenResult.claims.role === expectedRole) {
-                    console.log(`✅ Permissão '${expectedRole}' confirmada na tentativa ${i + 1}.`);
-                    return true;
-                }
-                console.log(`🟡 Tentativa ${i + 1}/${retries}: Permissão '${expectedRole}' ainda não encontrada. A aguardar...`);
-                // Aguarda antes da próxima tentativa
-                await new Promise(resolve => setTimeout(resolve, interval));
-            }
-            console.error(`❌ A permissão '${expectedRole}' não foi encontrada após ${retries} tentativas.`);
-            return false;
-        };
-
+        const functions = getFunctions();
+        const finalizeRegistration = httpsCallable(functions, 'finalizeRegistration');
+        
         try {
-            // --- ETAPA 1: CRIAÇÃO DO UTILIZADOR E DADOS NO FIRESTORE ---
-            setLoadingMessage("Etapa 1/4: A criar a sua conta de utilizador...");
-            firebaseUser = await createAuthUser(loginEmail, credentials.password, displayName);
-            const userId = firebaseUser.uid;
+            // --- ETAPA 1: UPLOAD DOS FICHEIROS PARA UMA ÁREA TEMPORÁRIA ---
+            setLoadingMessage("Etapa 1/3: A enviar os seus documentos...");
+            
+            const uploadId = uuidv4(); // ID único para esta tentativa de upload
+            const tempFilePaths: { [key: string]: string } = {};
 
-            let registrationData: DoctorRegistrationPayload | HospitalRegistrationPayload;
+            const filesToProcess: { group: string, docKey: string, file: File }[] = [];
+            
+            if (role === 'doctor' && !invitationToken) {
+                Object.entries(doctorDocuments).forEach(([key, value]) => { if (value.file) filesToProcess.push({ group: 'documents', docKey: key, file: value.file }); });
+                if (isSpecialist) { Object.entries(specialistDocuments).forEach(([key, value]) => { if (value.file) filesToProcess.push({ group: 'specialistDocuments', docKey: key, file: value.file }); }); }
+            } else if (role === 'hospital') {
+                Object.entries(hospitalDocuments).forEach(([key, value]) => { if (value.file) filesToProcess.push({ group: 'hospitalDocs', docKey: key, file: value.file }); });
+                Object.entries(legalRepDocuments).forEach(([key, value]) => { if (value.file) filesToProcess.push({ group: 'legalRepDocuments', docKey: key, file: value.file }); });
+            }
 
-            // Prepara os dados de registo SEM os URLs dos ficheiros primeiro
+            const uploadPromises = filesToProcess.map(item => {
+                const tempPath = `tmp_uploads/${uploadId}/${item.docKey}_${Date.now()}_${item.file.name}`;
+                return uploadFileToStorage(item.file, tempPath, (progress) => {
+                    // Atualiza o progresso no estado se quiser um feedback visual
+                }).then(() => {
+                    // Guarda o caminho temporário para enviar ao backend
+                    tempFilePaths[`${item.group}_${item.docKey}`] = tempPath;
+                });
+            });
+
+            await Promise.all(uploadPromises);
+
+            // --- ETAPA 2: PREPARAR O PAYLOAD COMPLETO PARA O BACKEND ---
+            setLoadingMessage("Etapa 2/3: A processar o seu registo...");
+            const loginEmail = role === 'doctor' ? personalInfo.email : legalRepresentativeInfo.email;
+            
+            let registrationPayload: any;
             if (role === 'doctor') {
                 const { name: _pName, email: _pEmail, ...personalDetails } = personalInfo;
-                const doctorData: DoctorRegistrationPayload = { ...personalDetails, professionalCrm: personalInfo.professionalCrm, specialties: selectedSpecialties, isSpecialist: isSpecialist, documents: {}, specialistDocuments: {}, registrationObjective: doctorObjective || 'match', };
-                if (doctorObjective === 'match') { doctorData.address = { ...addressInfo, cep: addressInfo.cep.replace(/\D/g, "") }; }
-                if (invitationToken) { doctorData.invitationToken = invitationToken; }
-                registrationData = doctorData;
+                registrationPayload = { ...personalDetails, displayName: personalInfo.name, professionalCrm: personalInfo.professionalCrm, specialties: selectedSpecialties, isSpecialist: isSpecialist, registrationObjective: doctorObjective || 'match' };
+                if (doctorObjective === 'match') { registrationPayload.address = { ...addressInfo, cep: addressInfo.cep.replace(/\D/g, "") }; }
+                if (invitationToken) { registrationPayload.invitationToken = invitationToken; }
             } else { // Hospital
                 const { companyName: _cName, email: _hEmail, ...hospitalDetails } = hospitalInfo;
-                registrationData = { ...hospitalDetails, address: { ...hospitalAddressInfo, cep: hospitalAddressInfo.cep.replace(/\D/g, "") }, legalRepresentativeInfo: legalRepresentativeInfo, hospitalDocs: {}, legalRepDocuments: {}, };
+                registrationPayload = { ...hospitalDetails, displayName: hospitalInfo.companyName, address: { ...hospitalAddressInfo, cep: hospitalAddressInfo.cep.replace(/\D/g, "") }, legalRepresentativeInfo: legalRepresentativeInfo };
             }
             
-            // Grava os dados iniciais no Firestore, o que aciona a Cloud Function para definir a role
-            await completeUserRegistration(userId, loginEmail, displayName, role, registrationData);
+            const finalPayload = {
+                credentials: {
+                    email: loginEmail,
+                    password: credentials.password
+                },
+                ...registrationPayload
+            };
 
-            // --- ETAPA 2: AGUARDAR ATIVAMENTE PELA ROLE ---
-            setLoadingMessage("Etapa 2/4: A verificar as suas permissões...");
-            const claimVerified = await pollForRoleClaim(firebaseUser, role);
-            if (!claimVerified) {
-                // Se a role não for atribuída a tempo, lança um erro para acionar o rollback
-                throw new Error("Não foi possível verificar as suas permissões de acesso. O registo será revertido.");
-            }
-
-            // --- ETAPA 3: UPLOAD DOS FICHEIROS (AGORA COM PERMISSÃO GARANTIDA) ---
-            if (invitationToken && role === 'doctor') {
-                 // Para convites, não há upload nesta fase, então pulamos
-                 setLoadingMessage("Etapa 3/4: A finalizar registo de convite...");
-            } else {
-                setLoadingMessage("Etapa 3/4: A enviar os seus documentos...");
-                const finalDocRefs: { documents: Partial<DoctorDocumentsRef>; specialistDocuments: Partial<SpecialistDocumentsRef>; hospitalDocs: Partial<HospitalDocumentsRef>; legalRepDocuments: Partial<LegalRepDocumentsRef>; } = { documents: {}, specialistDocuments: {}, hospitalDocs: {}, legalRepDocuments: {} };
-                const filesToProcess: { docKey: AllDocumentKeys, fileState: FileWithProgress, typePathFragment: string, subFolder?: string }[] = [];
-                
-                if (role === 'doctor') {
-                    if(doctorObjective === 'caravan') {
-                        ['personalRg', 'personalCpf', 'professionalCrm'].forEach(key => {
-                            if (doctorDocuments[key as DoctorDocKeys].file) filesToProcess.push({ docKey: key as DoctorDocKeys, fileState: doctorDocuments[key as DoctorDocKeys], typePathFragment: "doctor_documents" });
-                        });
-                    }
-                    if (doctorObjective === 'match') {
-                        doctorDocKeysArray.forEach(key => { if (doctorDocuments[key].file) filesToProcess.push({ docKey: key, fileState: doctorDocuments[key], typePathFragment: "doctor_documents" }); });
-                        if (isSpecialist) { specialistDocKeysArray.forEach(key => { if (specialistDocuments[key].file) filesToProcess.push({ docKey: key, fileState: specialistDocuments[key], typePathFragment: "doctor_documents", subFolder: "specialist" }); });}
-                    }
-                } else if (role === 'hospital') {
-                    hospitalDocKeysArray.forEach(key => { if (hospitalDocuments[key].file) filesToProcess.push({ docKey: key, fileState: hospitalDocuments[key], typePathFragment: "hospital_documents" }); });
-                    legalRepDocKeysArray.forEach(key => { if (legalRepDocuments[key].file) filesToProcess.push({ docKey: key, fileState: legalRepDocuments[key], typePathFragment: "hospital_documents", subFolder: "legal_rep" }); });
-                }
-                
-                if (filesToProcess.length > 0) {
-                    const uploadPromises = filesToProcess.map(item => 
-                        uploadFileToStorage(item.fileState.file!, `${item.typePathFragment}/${userId}/${item.subFolder ? `${item.subFolder}/` : ''}${item.docKey}_${Date.now()}_${item.fileState.file!.name}`, (progress) => updateFileState(item.docKey, prev => ({ ...prev, progress })))
-                        .then(url => {
-                            updateFileState(item.docKey, prev => ({ ...prev, url, isUploading: false, file: null, name: prev.name || item.fileState.file!.name }));
-                            // Atribui a URL ao objeto de referência correto
-                             if (item.typePathFragment === "doctor_documents") {
-                                if (item.subFolder === "specialist") { (finalDocRefs.specialistDocuments as any)[item.docKey] = url; } 
-                                else { (finalDocRefs.documents as any)[item.docKey] = url; }
-                            } else if (item.typePathFragment === "hospital_documents") {
-                                if (item.subFolder === "legal_rep") { (finalDocRefs.legalRepDocuments as any)[item.docKey] = url; } 
-                                else { (finalDocRefs.hospitalDocs as any)[item.docKey] = url; }
-                            }
-                        }).catch(uploadError => {
-                            updateFileState(item.docKey, prev => ({ ...prev, isUploading: false, error: (uploadError as Error).message || "Falha no upload." }));
-                            throw uploadError; 
-                        })
-                    );
-                    await Promise.all(uploadPromises);
-
-                    // Atualiza o documento no Firestore com as URLs dos ficheiros
-                    const updatePayload: any = role === 'doctor' 
-                        ? { documents: finalDocRefs.documents, specialistDocuments: finalDocRefs.specialistDocuments }
-                        : { hospitalDocs: finalDocRefs.hospitalDocs, legalRepDocuments: finalDocRefs.legalRepDocuments };
-                    
-                    // Reutiliza a função de registo para fazer um "update" apenas com as novas URLs
-                    await completeUserRegistration(userId, loginEmail, displayName, role, updatePayload, true);
-                }
-            }
+            // --- ETAPA 3: CHAMAR A FUNÇÃO DE BACKEND E AGUARDAR O RESULTADO ---
+            await finalizeRegistration({
+                registrationPayload: finalPayload,
+                tempFilePaths: tempFilePaths,
+                role: role
+            });
             
-            // --- ETAPA 4: FINALIZAÇÃO ---
-            setLoadingMessage("Etapa 4/4: A finalizar...");
+            setLoadingMessage("Etapa 3/3: A finalizar...");
             toast({
                 title: "Cadastro Realizado com Sucesso!",
                 description: "Aguarde, estamos a redirecioná-lo para a página de login...",
                 duration: 5000
             });
             
-            await signOut(auth);
             router.push('/login');
 
         } catch (error: any) {
-            if (error instanceof FirebaseError && error.code === 'auth/email-already-in-use') {
-                toast({
-                    variant: "destructive",
-                    title: "Email já Cadastrado",
-                    description: "Este email já está em uso por outra conta.",
-                    duration: 8000
-                });
-                setIsLoading(false);
-                setLoadingMessage("");
-                return; 
+            console.error("!!! ERRO NO handleSubmit !!!", error);
+            let description = "Ocorreu um erro inesperado. Por favor, tente novamente.";
+            // A HttpsError do Firebase vem com a mensagem do backend
+            if (error.code && error.message) {
+                description = error.message;
             }
             
-            let title = "Erro no Cadastro";
-            let description = error.message || "Ocorreu um erro inesperado.";
-            if (error instanceof FirebaseError && error.code === 'storage/unauthorized') {
-                title = "Erro de Permissão";
-                description = "Falha ao enviar documentos. A sua conta será removida para que possa tentar novamente.";
-            }
-            
-            toast({ variant: "destructive", title: title, description: description, duration: 8000 });
-
-            if (firebaseUser) {
-                setLoadingMessage("A reverter o registo parcial...");
-                try {
-                    await firebaseUser.delete();
-                    console.log(`[Rollback] Utilizador ${firebaseUser.uid} apagado com sucesso após falha no registo.`);
-                    toast({
-                        title: "Registo Cancelado",
-                        description: "Ocorreu um erro e o seu registo foi revertido. Nenhum utilizador foi criado. Por favor, tente novamente."
-                    });
-                } catch (deleteError) {
-                    console.error("[Rollback CRÍTICO] Falha ao apagar o utilizador parcial:", deleteError);
-                    toast({
-                        variant: "destructive",
-                        title: "Erro Crítico",
-                        description: "O seu registo falhou e não foi possível remover a conta parcial. Por favor, contacte o suporte."
-                    });
-                }
-            }
-            
+            toast({
+                variant: "destructive",
+                title: "Erro no Cadastro",
+                description: description,
+                duration: 8000,
+            });
             setIsLoading(false);
             setLoadingMessage("");
         }

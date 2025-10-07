@@ -190,6 +190,121 @@ async function drawTextWithWrapping(page: any, text: string, options: { x: numbe
 // --- LÓGICA DE CADA FUNÇÃO (HANDLERS) ---
 
 // ============================================================================
+// 🔹 NOVA FUNÇÃO TRANSACIONAL PARA REGISTO 🔹
+// ============================================================================
+export const finalizeRegistrationHandler = async (request: CallableRequest) => {
+    const { registrationPayload, tempFilePaths, role } = request.data;
+    const { credentials, ...profileData } = registrationPayload;
+
+    if (!credentials || !profileData || !role || !tempFilePaths) {
+        throw new HttpsError("invalid-argument", "Dados de registo incompletos.");
+    }
+
+    let newUser: UserRecord | null = null;
+    const finalFileUrls: any = { documents: {}, specialistDocuments: {}, hospitalDocs: {}, legalRepDocuments: {} };
+
+    try {
+        // ETAPA 1: Criar utilizador no Auth
+        logger.info(`Iniciando criação do utilizador para o email: ${credentials.email}`);
+        newUser = await auth.createUser({
+            email: credentials.email,
+            password: credentials.password,
+            displayName: profileData.displayName,
+        });
+        
+        // CORREÇÃO: Adiciona uma verificação e cria uma constante não-nula para o ID.
+        if (!newUser) {
+            throw new Error("Falha na criação do utilizador no Firebase Auth.");
+        }
+        const newUserId = newUser.uid;
+
+        logger.info(`Utilizador ${newUserId} criado com sucesso no Auth.`);
+
+        // ETAPA 2: Definir a role (Custom Claim)
+        await auth.setCustomUserClaims(newUserId, { role: role });
+        logger.info(`Claim '${role}' definida com sucesso para o utilizador ${newUserId}.`);
+
+        // ETAPA 3: Mover ficheiros do local temporário para o definitivo
+        const bucket = storage.bucket();
+        const movePromises = Object.entries(tempFilePaths).map(async ([key, tempPath]) => {
+            if (typeof tempPath !== 'string' || tempPath === '') return;
+
+            const tempFile = bucket.file(tempPath);
+            const fileName = tempPath.split('/').pop();
+            
+            // Determina o caminho final com base na estrutura do seu frontend
+            let finalPath = '';
+            const pathParts = key.split('_'); // Ex: 'hospitalDocs_socialContract'
+            const docType = pathParts[0];
+            const docKey = pathParts[1];
+            
+            // CORREÇÃO: Usa a constante newUserId em vez de newUser.uid
+            if (docType === "hospitalDocs") finalPath = `hospital_documents/${newUserId}/${fileName}`;
+            else if (docType === "legalRepDocuments") finalPath = `hospital_documents/${newUserId}/legal_rep/${fileName}`;
+            else if (docType === "documents") finalPath = `doctor_documents/${newUserId}/${fileName}`;
+            else if (docType === "specialistDocuments") finalPath = `doctor_documents/${newUserId}/specialist/${fileName}`;
+            else return; // Ignora se o tipo de documento for desconhecido
+
+            const finalFile = bucket.file(finalPath);
+            await tempFile.move(finalPath);
+            logger.info(`Ficheiro movido de ${tempPath} para ${finalPath}`);
+
+            const [publicUrl] = await finalFile.getSignedUrl({ action: 'read', expires: '03-09-2491' });
+
+            // Guarda o URL final
+            if (docType === "hospitalDocs") finalFileUrls.hospitalDocs[docKey] = publicUrl;
+            else if (docType === "legalRepDocuments") finalFileUrls.legalRepDocuments[docKey] = publicUrl;
+            else if (docType === "documents") finalFileUrls.documents[docKey] = publicUrl;
+            else if (docType === "specialistDocuments") finalFileUrls.specialistDocuments[docKey] = publicUrl;
+        });
+
+        await Promise.all(movePromises);
+        logger.info(`Todos os ${movePromises.length} ficheiros foram movidos com sucesso.`);
+
+        // ETAPA 4: Guardar o perfil completo no Firestore
+        const finalProfileData = {
+            ...profileData,
+            ...finalFileUrls, // Adiciona os URLs dos documentos
+            uid: newUserId,   // CORREÇÃO: Usa a constante newUserId
+            userType: role,
+            createdAt: FieldValue.serverTimestamp(),
+            updatedAt: FieldValue.serverTimestamp(),
+            status: role === 'doctor' ? 'PENDING_APPROVAL' : 'ACTIVE'
+        };
+
+        await db.collection("users").doc(newUserId).set(finalProfileData);
+        logger.info(`Perfil completo do utilizador ${newUserId} guardado com sucesso no Firestore.`);
+
+        // ETAPA 5: Limpeza (apagar a pasta temporária) - opcional, mas recomendado
+        if (tempFilePaths && Object.values(tempFilePaths).length > 0) {
+            const firstPath = Object.values(tempFilePaths)[0] as string;
+            const uploadId = firstPath.split('/')[1];
+            if (uploadId) {
+                await bucket.deleteFiles({ prefix: `tmp_uploads/${uploadId}/` });
+                logger.info(`Pasta temporária tmp_uploads/${uploadId}/ limpa com sucesso.`);
+            }
+        }
+        
+        return { success: true, userId: newUserId };
+
+    } catch (error: any) {
+        logger.error("!!! ERRO CRÍTICO NO FLUXO DE REGISTO !!! A iniciar rollback.", error);
+        
+        // --- LÓGICA DE ROLLBACK ---
+        if (newUser) {
+            logger.warn(`A apagar utilizador de autenticação parcial: ${newUser.uid}`);
+            await auth.deleteUser(newUser.uid).catch(e => logger.error("Falha ao apagar utilizador do Auth no rollback:", e));
+        }
+        // Poderia adicionar a lógica para apagar ficheiros já movidos se necessário
+
+        if (error.code === 'auth/email-already-exists') {
+            throw new HttpsError("already-exists", "Este endereço de e-mail já está em uso.");
+        }
+        throw new HttpsError("internal", "Ocorreu um erro inesperado durante o registo. Nenhuma conta foi criada. Por favor, tente novamente.");
+    }
+};
+
+// ============================================================================
 // CORREÇÃO APLICADA AQUI: Função alterada para ser mais robusta, atualização e melhorado
 // ============================================================================
 export const onUserWrittenSetClaimsHandler = async (event: FirestoreEvent<Change<DocumentSnapshot> | undefined, { userId: string }>) => {
