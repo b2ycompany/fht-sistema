@@ -5,10 +5,8 @@ import React, { createContext, useContext, useEffect, useState, type ReactNode }
 import { onAuthStateChanged, signOut, type User } from "firebase/auth";
 import { auth } from "@/lib/firebase";
 import { getCurrentUserData, type UserProfile, AdminProfile, confirmFirstLogin } from "@/lib/auth-service";
-// <<< ADICIONADO: Importar usePathname para saber a página atual >>>
 import { useRouter, usePathname } from "next/navigation";
 
-// Sua função de redirecionamento foi mantida
 const getRedirectPathForProfile = (profile: UserProfile | null): string => {
     if (!profile || !profile.userType) {
         return '/login'; 
@@ -51,34 +49,27 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [loading, setLoading] = useState(true);
   const [profileLoading, setProfileLoading] = useState(true);
   const router = useRouter();
-  // <<< ADICIONADO: Hook para obter o caminho da URL >>>
   const pathname = usePathname();
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       setLoading(true);
       setProfileLoading(true);
-      setUser(firebaseUser); // Define o utilizador Firebase imediatamente
+      setUser(firebaseUser);
       
       if (firebaseUser) {
         try {
           const tokenResult = await firebaseUser.getIdTokenResult(true);
           const userRole = tokenResult.claims.role as string | undefined;
 
-          // ============================================================================
-          // 🔹 CORREÇÃO DEFINITIVA: Criar exceção para a página de registo 🔹
-          // ============================================================================
           const isRegisterPage = pathname === '/register';
 
-          // Apenas força o logout se o utilizador NÃO tiver role E NÃO estiver na página de registo
           if (!userRole && !isRegisterPage) {
               console.error(`[AuthProvider] Utilizador ${firebaseUser.uid} autenticado mas sem uma role válida e fora da página de registo. A forçar logout.`);
               await signOut(auth);
-              // A limpeza dos estados será feita no próximo ciclo do onAuthStateChanged
               return; 
           }
           
-          // Se o utilizador tiver uma role (ou estiver na página de registo), prossiga
           if (userRole) {
             console.log("[AuthProvider] Role válida encontrada. A carregar perfil do utilizador...");
             const profile = await getCurrentUserData();
@@ -107,7 +98,6 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
           setProfileLoading(false);
         }
       } else {
-        // Se não há utilizador logado, limpa os dados
         setUserProfile(null);
         setProfileLoading(false);
       }
@@ -115,7 +105,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     });
 
     return () => unsubscribe();
-  }, [router, pathname]); // <<< ADICIONADO: pathname como dependência
+  }, [router, pathname]);
 
   const contextValue = { user, userProfile, loading, profileLoading };
 

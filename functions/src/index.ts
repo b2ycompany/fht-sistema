@@ -14,20 +14,16 @@ if (admin.apps.length === 0) {
   admin.initializeApp();
 }
 
-// ============================================================================
-// 🔹 CORREÇÃO DA REGIÃO 🔹
-
-// ============================================================================
+// Configurações globais mantidas para as outras funções
 setGlobalOptions({ 
     region: "us-central1", 
-    memory: "128MiB",      // A memória mais baixa possível
-    cpu: 1,                 // O CPU mais baixo possível para 2ª Gen
-    minInstances: 0,        // Garante que não há funções ativas a gastar quota
-    concurrency: 80         // Número de pedidos por instância (padrão)
+    memory: "128MiB",
+    cpu: 1,
+    minInstances: 0,
+    concurrency: 80
 });
-// ============================================================================
+
 // Política de CORS Centralizada
-// ============================================================================
 const corsPolicy = [
     "https://fhtgestao.com.br",
     "https://www.fhtgestao.com.br",
@@ -37,9 +33,18 @@ const corsPolicy = [
 ];
 
 // ===================================================================================
-// === GATILHOS DE EVENTOS DO FIRESTORE (onDocument...)
+// === GATILHOS DE EVENTOS DO FIRESTORE
 // ===================================================================================
-export const onUserWrittenSetClaims = onDocumentWritten("users/{userId}",
+
+// ============================================================================
+// 🔹 CORREÇÃO DE MEMÓRIA APLICADA AQUI 🔹
+// Aumentamos a memória APENAS para esta função para evitar o 'crash'.
+// ============================================================================
+export const onUserWrittenSetClaims = onDocumentWritten(
+    {
+        document: "users/{userId}",
+        memory: "256MiB" // Memória aumentada
+    },
     (event: FirestoreEvent<Change<DocumentSnapshot> | undefined, { userId: string }>) => import("./logic").then(api => api.onUserWrittenSetClaimsHandler(event))
 );
 
@@ -64,7 +69,7 @@ export const onTimeSlotDelete = onDocumentDeleted("doctorTimeSlots/{timeSlotId}"
 );
 
 // ===================================================================================
-// === FUNÇÕES CHAMÁVEIS PELO CLIENTE (onCall)
+// === FUNÇÕES CHAMÁVEIS PELO CLIENTE (onCall) - SEM ALTERAÇÕES
 // ===================================================================================
 
 // --- Funções de Gestão e Admin ---
@@ -145,7 +150,7 @@ export const createTelemedicineRoom = onCall({ cors: corsPolicy, secrets: ["DAIL
 );
 
 // ===================================================================================
-// === GATILHOS DE AUTENTICAÇÃO (Auth Triggers V1 - Estável)
+// === GATILHOS DE AUTENTICAÇÃO (Auth Triggers V1 - Estável) - SEM ALTERAÇÕES
 // ===================================================================================
 export const onUserDeletedCleanup = functions.region("us-central1").auth.user().onDelete(
     (user: UserRecord) => import("./logic").then(api => api.onUserDeletedCleanupHandler(user))
