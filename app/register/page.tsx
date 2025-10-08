@@ -770,7 +770,7 @@ function RegisterForm() {
     };
     
     // ============================================================================
-    // 🔹 NOVA FUNÇÃO handleSubmit SIMPLIFICADA 🔹
+    // 🔹 NOVA FUNÇÃO handleSubmit RECOMENDADA 🔹
     // ============================================================================
     const handleSubmit = async () => {
         if (!role || currentStepConfig?.id !== 'summary') {
@@ -791,6 +791,7 @@ function RegisterForm() {
 
             const filesToProcess: { group: string, docKey: string, file: File }[] = [];
             
+            // Agrupa todos os arquivos que precisam ser enviados
             if (role === 'doctor' && !invitationToken) {
                 Object.entries(doctorDocuments).forEach(([key, value]) => { if (value.file) filesToProcess.push({ group: 'documents', docKey: key, file: value.file }); });
                 if (isSpecialist) { Object.entries(specialistDocuments).forEach(([key, value]) => { if (value.file) filesToProcess.push({ group: 'specialistDocuments', docKey: key, file: value.file }); }); }
@@ -799,13 +800,15 @@ function RegisterForm() {
                 Object.entries(legalRepDocuments).forEach(([key, value]) => { if (value.file) filesToProcess.push({ group: 'legalRepDocuments', docKey: key, file: value.file }); });
             }
 
+            // Realiza o upload em paralelo para a pasta temporária
             const uploadPromises = filesToProcess.map(item => {
                 const tempPath = `tmp_uploads/${uploadId}/${item.docKey}_${Date.now()}_${item.file.name}`;
                 return uploadFileToStorage(item.file, tempPath, (progress) => {
-                    // Atualiza o progresso no estado se quiser um feedback visual
+                    updateFileState(item.docKey as AllDocumentKeys, prev => ({ ...prev, progress, isUploading: true }));
                 }).then(() => {
-                    // Guarda o caminho temporário para enviar ao backend
+                    // Guarda o caminho temporário (não a URL) para enviar ao backend
                     tempFilePaths[`${item.group}_${item.docKey}`] = tempPath;
+                    updateFileState(item.docKey as AllDocumentKeys, prev => ({ ...prev, isUploading: false }));
                 });
             });
 
@@ -815,15 +818,29 @@ function RegisterForm() {
             setLoadingMessage("Etapa 2/3: A processar o seu registo...");
             const loginEmail = role === 'doctor' ? personalInfo.email : legalRepresentativeInfo.email;
             
-            let registrationPayload: any;
+            let registrationData: any;
             if (role === 'doctor') {
-                const { name: _pName, email: _pEmail, ...personalDetails } = personalInfo;
-                registrationPayload = { ...personalDetails, displayName: personalInfo.name, professionalCrm: personalInfo.professionalCrm, specialties: selectedSpecialties, isSpecialist: isSpecialist, registrationObjective: doctorObjective || 'match' };
-                if (doctorObjective === 'match') { registrationPayload.address = { ...addressInfo, cep: addressInfo.cep.replace(/\D/g, "") }; }
-                if (invitationToken) { registrationPayload.invitationToken = invitationToken; }
+                const { name, email, ...personalDetails } = personalInfo;
+                registrationData = { 
+                    ...personalDetails, 
+                    displayName: name, 
+                    email: email, // O email é necessário no payload para o backend
+                    professionalCrm: personalInfo.professionalCrm, 
+                    specialties: selectedSpecialties, 
+                    isSpecialist: isSpecialist, 
+                    registrationObjective: doctorObjective || 'match' 
+                };
+                if (doctorObjective === 'match') { registrationData.address = { ...addressInfo, cep: addressInfo.cep.replace(/\D/g, "") }; }
+                if (invitationToken) { registrationData.invitationToken = invitationToken; }
             } else { // Hospital
-                const { companyName: _cName, email: _hEmail, ...hospitalDetails } = hospitalInfo;
-                registrationPayload = { ...hospitalDetails, displayName: hospitalInfo.companyName, address: { ...hospitalAddressInfo, cep: hospitalAddressInfo.cep.replace(/\D/g, "") }, legalRepresentativeInfo: legalRepresentativeInfo };
+                const { companyName, email, ...hospitalDetails } = hospitalInfo;
+                registrationData = { 
+                    ...hospitalDetails, 
+                    displayName: companyName, 
+                    email: email, // O email é necessário no payload para o backend
+                    address: { ...hospitalAddressInfo, cep: hospitalAddressInfo.cep.replace(/\D/g, "") }, 
+                    legalRepresentativeInfo: legalRepresentativeInfo 
+                };
             }
             
             const finalPayload = {
@@ -831,36 +848,32 @@ function RegisterForm() {
                     email: loginEmail,
                     password: credentials.password
                 },
-                ...registrationPayload
+                ...registrationData
             };
 
             // --- ETAPA 3: CHAMAR A FUNÇÃO DE BACKEND E AGUARDAR O RESULTADO ---
+            setLoadingMessage("Etapa 3/3: A finalizar o seu cadastro...");
             await finalizeRegistration({
                 registrationPayload: finalPayload,
                 tempFilePaths: tempFilePaths,
                 role: role
             });
             
-            setLoadingMessage("Etapa 3/3: A finalizar...");
             toast({
                 title: "Cadastro Realizado com Sucesso!",
-                description: "Aguarde, estamos a redirecioná-lo para a página de login...",
+                description: "Aguarde, estamos a redirecioná-lo...",
                 duration: 5000
             });
             
             router.push('/login');
 
         } catch (error: any) {
-            console.error("!!! ERRO NO handleSubmit !!!", error);
-            let description = "Ocorreu um erro inesperado. Por favor, tente novamente.";
-            // A HttpsError do Firebase vem com a mensagem do backend
-            if (error.code && error.message) {
-                description = error.message;
-            }
+            console.error("ERRO NO PROCESSO DE CADASTRO:", error);
+            let description = error.message || "Ocorreu um erro inesperado. Tente novamente.";
             
             toast({
                 variant: "destructive",
-                title: "Erro no Cadastro",
+                title: "Falha no Cadastro",
                 description: description,
                 duration: 8000,
             });

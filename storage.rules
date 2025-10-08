@@ -1,48 +1,29 @@
 rules_version = '2';
-
 service firebase.storage {
-  match /b/{bucket}/o { // NÃO ALTERAR ESTA LINHA
+  match /b/{bucket}/o {
 
-    // Documentos de Médicos
+    // 1. Pasta temporária para uploads de cadastro.
+    // Permite que qualquer usuário autenticado escreva, mas ninguém leia.
+    match /tmp_uploads/{uploadId}/{allPaths=**} {
+      allow write: if request.auth != null;
+      allow read: if false;
+    }
+
+    // 2. Documentos de Médicos (incluindo subpastas como 'specialist').
+    // Apenas o dono do perfil (ou um admin) pode ler/escrever.
     match /doctor_documents/{userId}/{allPaths=**} {
-      // Opção 1 (Mais segura): Leitura apenas pelo próprio médico
-      allow read: if request.auth != null && request.auth.uid == userId;
-      // Opção 2 (Menos segura, permite outros autenticados lerem):
-      // allow read: if request.auth != null;
       allow write: if request.auth != null && request.auth.uid == userId;
+      allow read: if request.auth != null && (request.auth.uid == userId || request.auth.token.role == 'admin');
     }
 
-    // Documentos de Hospitais
+    // 3. Documentos de Hospitais (incluindo subpastas como 'legal_rep').
+    // Apenas o dono do perfil (ou um admin) pode ler/escrever.
     match /hospital_documents/{userId}/{allPaths=**} {
-      // Opção 1 (Mais segura):
-      allow read: if request.auth != null && request.auth.uid == userId;
-      // Opção 2:
-      // allow read: if request.auth != null;
       allow write: if request.auth != null && request.auth.uid == userId;
+      allow read: if request.auth != null && (request.auth.uid == userId || request.auth.token.role == 'admin');
     }
-
-    // Documentos de Especialista (para Médicos)
-    match /specialist_documents/{userId}/{allPaths=**} {
-      // Opção 1 (Mais segura):
-      allow read: if request.auth != null && request.auth.uid == userId;
-      // Opção 2:
-      // allow read: if request.auth != null;
-      allow write: if request.auth != null && request.auth.uid == userId;
-    }
-
-    // Documentos do Representante Legal (para Hospitais)
-    match /legal_rep_documents/{userId}/{allPaths=**} {
-      // Opção 1 (Mais segura):
-      allow read: if request.auth != null && request.auth.uid == userId;
-      // Opção 2:
-      // allow read: if request.auth != null;
-      allow write: if request.auth != null && request.auth.uid == userId;
-    }
-
-    // REGRA DE BLOQUEIO PADRÃO (fallback) - IMPORTANTE
-    // Coloque esta regra por último para negar acesso a outros caminhos não especificados.
-    match /{allPaths=**} {
-      allow read, write: if false;
-    }
+    
+    // NOTA: Não é necessária uma regra de bloqueio final.
+    // Qualquer caminho que não corresponda às regras acima é negado por padrão.
   }
 }
