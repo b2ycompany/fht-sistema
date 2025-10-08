@@ -21,24 +21,18 @@ import { useToast } from "@/hooks/use-toast";
 import { Progress } from "@/components/ui/progress";
 import {
   createAuthUser,
-  completeUserRegistration,
+  // Removido: completeUserRegistration - agora é feito pelo backend
   type UserType,
-  type DoctorRegistrationPayload,
-  type HospitalRegistrationPayload,
   type AddressInfo,
   type PersonalInfo,
   type LegalRepresentativeInfo,
-  type DoctorDocumentsRef,
-  type SpecialistDocumentsRef,
-  type HospitalDocumentsRef,
-  type LegalRepDocumentsRef
 } from "@/lib/auth-service";
 import { uploadFileToStorage } from "@/lib/storage-service";
 import { FirebaseError } from "firebase/app";
 import { cn } from "@/lib/utils";
 import { auth } from "@/lib/firebase";
 import { getFunctions, httpsCallable } from "firebase/functions";
-import { v4 as uuidv4 } from 'uuid'; // Importar para gerar IDs únicos
+import { v4 as uuidv4 } from 'uuid';
 import {
   Loader2, Check, AlertTriangle, Info, Stethoscope, Building,
   FileUp, XCircleIcon, ExternalLink, CheckCircle, HeartPulse, Briefcase, Search, X
@@ -51,6 +45,7 @@ import { Badge } from "@/components/ui/badge";
 import { User, signOut } from "firebase/auth";
 
 
+// --- As interfaces e constantes permanecem as mesmas ---
 // Interfaces e constantes
 interface Credentials { password: string; confirmPassword: string; }
 interface HospitalInfo { companyName: string; cnpj: string; stateRegistration?: string; phone: string; email: string; }
@@ -76,6 +71,8 @@ const initialSpecialistDocsStateValue: SpecialistDocumentsState = createInitialD
 const initialHospitalDocsStateValue: HospitalDocumentsState = createInitialDocState(hospitalDocKeysArray, DOCUMENT_LABELS as any);
 const initialLegalRepDocsStateValue: LegalRepDocumentsState = createInitialDocState(legalRepDocKeysArray, DOCUMENT_LABELS as any);
 
+
+// --- O resto dos componentes auxiliares (LoadingForm, StepIndicator, etc.) permanecem os mesmos ---
 const LoadingForm = ({ message = "A carregar formulário..." }: { message?: string }) => (
     <div className="flex flex-col items-center justify-center min-h-[350px]">
       <Loader2 className="h-10 w-10 animate-spin text-blue-600 mb-4" />
@@ -319,6 +316,7 @@ const InputWithIMask: React.FC<InputWithIMaskProps> = ({ maskOptions, onAccept, 
 };
 
 
+
 function RegisterForm() {
     const [step, setStep] = useState(0);
     const [role, setRole] = useState<UserType | null>(null);
@@ -382,7 +380,7 @@ function RegisterForm() {
                 setAvailableSpecialties(specialties);
             } catch (error: any) {
                 console.error("Falha ao buscar especialidades:", error);
-                setSpecialtiesError("Falha ao carregar especialidades.");
+                setSpecialtiesError(error.message || "Falha ao carregar especialidades.");
             } finally {
                 setIsLoadingSpecialties(false);
             }
@@ -770,7 +768,7 @@ function RegisterForm() {
     };
     
     // ============================================================================
-    // 🔹 NOVA FUNÇÃO handleSubmit RECOMENDADA 🔹
+    // 🔹 ANTIGA FUNÇÃO handleSubmit - SERÁ SUBSTITUÍDA
     // ============================================================================
     const handleSubmit = async () => {
         if (!role || currentStepConfig?.id !== 'summary') {
@@ -881,6 +879,7 @@ function RegisterForm() {
             setLoadingMessage("");
         }
     };
+
 
     const renderCurrentStep = () => {
         if (!currentStepConfig) {

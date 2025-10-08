@@ -6,56 +6,62 @@ service cloud.firestore {
     // 🔹 1. Regras da coleção "users"
     // ========================================================
     match /users/{userId} {
-      // Usuário autenticado pode ler e editar o próprio perfil
+      // Usuário autenticado pode ler e editar o próprio perfil.
       allow get, update: if request.auth != null && request.auth.uid == userId;
-
-      // Admin e Hospital podem listar e ler todos os perfis (usado em dashboards e relatórios)
+      
+      // Admin e Hospital podem listar e ler todos os perfis.
       allow list, get: if request.auth != null && request.auth.token.role in ['admin', 'hospital'];
-
-      // Admin pode criar novos usuários
+      
+      // Admin pode criar novos usuários.
       allow create: if request.auth != null && request.auth.token.role == 'admin';
-
-      // Permitir consultas agregadas (COUNT, SUM, etc.)
-      allow aggregate: if request.auth != null && request.auth.token.role in ['admin', 'hospital'];
     }
 
     // ========================================================
-    // 🔹 2. Regras da coleção "hospitals"
+    // 🔹 2. Regras da coleção "specialties" (NOVA REGRA)
+    // ========================================================
+    match /specialties/{specialtyId} {
+        // Permite que qualquer usuário autenticado leia a lista de especialidades.
+        allow read: if request.auth != null;
+    }
+
+    // ========================================================
+    // 🔹 3. Regras da coleção "hospitals"
     // ========================================================
     match /hospitals/{hospitalId} {
-      // Admin e Hospital têm acesso completo
+      // Admin e Hospital têm acesso completo.
       allow read, write: if request.auth != null && request.auth.token.role in ['admin', 'hospital'];
     }
 
     // ========================================================
-    // 🔹 3. Regras da coleção "caravanas"
+    // 🔹 4. Regras da coleção "caravanas"
     // ========================================================
     match /caravanas/{caravanaId} {
-      // Admin e Caravan Admin podem ler e editar caravanas
+      // Admin e Caravan Admin podem ler e editar caravanas.
       allow read, write: if request.auth != null && request.auth.token.role in ['admin', 'caravan_admin'];
     }
 
     // ========================================================
-    // 🔹 4. Regras da coleção "appointments" (exemplo)
+    // 🔹 5. Regras da coleção "appointments" (exemplo)
     // ========================================================
     match /appointments/{appointmentId} {
-      // Médicos, recepcionistas, enfermeiros de triagem e hospitais podem ler ou criar
+      // Médicos, recepcionistas, enfermeiros de triagem e hospitais podem ler ou criar.
       allow read, create, update: if request.auth != null && 
         request.auth.token.role in ['admin', 'hospital', 'doctor', 'receptionist', 'triage_nurse'];
-
-      // Admin tem acesso total
+      
+      // Admin tem acesso total.
       allow delete: if request.auth != null && request.auth.token.role == 'admin';
     }
 
     // ========================================================
-    // 🔹 5. Regras da coleção "metrics" ou "reports" (caso exista)
+    // 🔹 6. Regras da coleção "metrics" ou "reports"
     // ========================================================
     match /metrics/{metricId} {
-      allow read, write, aggregate: if request.auth != null && request.auth.token.role in ['admin', 'hospital'];
+      // A permissão 'aggregate' foi removida por não ser válida em regras de segurança.
+      allow read, write: if request.auth != null && request.auth.token.role in ['admin', 'hospital'];
     }
 
     // ========================================================
-    // 🔹 6. Regras da coleção "settings" (configurações gerais)
+    // 🔹 7. Regras da coleção "settings" (configurações gerais)
     // ========================================================
     match /settings/{settingId} {
       allow read: if request.auth != null;
@@ -63,11 +69,12 @@ service cloud.firestore {
     }
 
     // ========================================================
-    // 🔹 7. Regras genéricas (fallback)
+    // 🔹 8. Regras genéricas (fallback)
     // ========================================================
     match /{document=**} {
-      // Apenas usuários autenticados com role reconhecida
-      allow read, write, aggregate: if request.auth != null && 
+      // Apenas usuários autenticados com role reconhecida.
+      // A permissão 'aggregate' foi removida por não ser válida.
+      allow read, write: if request.auth != null && 
         request.auth.token.role in [
           'admin',
           'hospital',
