@@ -2,78 +2,48 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // ========================================================
-    // 🔹 1. Regras da coleção "users"
-    // ========================================================
+    // Regra para a coleção "specialties"
+    match /specialties/{specialtyId} {
+      allow read: if true;
+    }
+
+    // Regras da coleção "users"
     match /users/{userId} {
-      // Usuário autenticado pode ler e editar o próprio perfil.
       allow get, update: if request.auth != null && request.auth.uid == userId;
-      
-      // Admin e Hospital podem listar e ler todos os perfis.
       allow list, get: if request.auth != null && request.auth.token.role in ['admin', 'hospital'];
-      
-      // Admin pode criar novos usuários.
       allow create: if request.auth != null && request.auth.token.role == 'admin';
     }
 
-    // ========================================================
-    // 🔹 2. Regras da coleção "specialties" (NOVA REGRA)
-    // ========================================================
-    match /specialties/{specialtyId} {
-        // Permite que qualquer usuário autenticado leia a lista de especialidades.
-        allow read: if request.auth != null;
-    }
-
-    // ========================================================
-    // 🔹 3. Regras da coleção "hospitals"
-    // ========================================================
+    // Regras da coleção "hospitals"
     match /hospitals/{hospitalId} {
-      // Admin e Hospital têm acesso completo.
       allow read, write: if request.auth != null && request.auth.token.role in ['admin', 'hospital'];
     }
 
-    // ========================================================
-    // 🔹 4. Regras da coleção "caravanas"
-    // ========================================================
+    // Regras da coleção "caravanas"
     match /caravanas/{caravanaId} {
-      // Admin e Caravan Admin podem ler e editar caravanas.
       allow read, write: if request.auth != null && request.auth.token.role in ['admin', 'caravan_admin'];
     }
 
-    // ========================================================
-    // 🔹 5. Regras da coleção "appointments" (exemplo)
-    // ========================================================
+    // Regras da coleção "appointments"
     match /appointments/{appointmentId} {
-      // Médicos, recepcionistas, enfermeiros de triagem e hospitais podem ler ou criar.
       allow read, create, update: if request.auth != null && 
         request.auth.token.role in ['admin', 'hospital', 'doctor', 'receptionist', 'triage_nurse'];
-      
-      // Admin tem acesso total.
       allow delete: if request.auth != null && request.auth.token.role == 'admin';
     }
 
-    // ========================================================
-    // 🔹 6. Regras da coleção "metrics" ou "reports"
-    // ========================================================
+    // Regras da coleção "metrics" ou "reports"
     match /metrics/{metricId} {
-      // A permissão 'aggregate' foi removida por não ser válida em regras de segurança.
       allow read, write: if request.auth != null && request.auth.token.role in ['admin', 'hospital'];
     }
 
-    // ========================================================
-    // 🔹 7. Regras da coleção "settings" (configurações gerais)
-    // ========================================================
+    // Regras da coleção "settings"
     match /settings/{settingId} {
       allow read: if request.auth != null;
       allow write: if request.auth != null && request.auth.token.role == 'admin';
     }
 
-    // ========================================================
-    // 🔹 8. Regras genéricas (fallback)
-    // ========================================================
+    // Regra genérica (fallback)
     match /{document=**} {
-      // Apenas usuários autenticados com role reconhecida.
-      // A permissão 'aggregate' foi removida por não ser válida.
       allow read, write: if request.auth != null && 
         request.auth.token.role in [
           'admin',

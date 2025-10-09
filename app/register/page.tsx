@@ -21,7 +21,6 @@ import { useToast } from "@/hooks/use-toast";
 import { Progress } from "@/components/ui/progress";
 import {
   createAuthUser,
-  // Removido: completeUserRegistration - agora é feito pelo backend
   type UserType,
   type AddressInfo,
   type PersonalInfo,
@@ -767,9 +766,6 @@ function RegisterForm() {
         }
     };
     
-    // ============================================================================
-    // 🔹 ANTIGA FUNÇÃO handleSubmit - SERÁ SUBSTITUÍDA
-    // ============================================================================
     const handleSubmit = async () => {
         if (!role || currentStepConfig?.id !== 'summary') {
             toast({ variant: "destructive", title: "Erro ao Finalizar", description: "Não é possível finalizar nesta etapa." });
@@ -779,17 +775,47 @@ function RegisterForm() {
 
         const functions = getFunctions();
         const finalizeRegistration = httpsCallable(functions, 'finalizeRegistration');
+        const loginEmail = role === 'doctor' ? personalInfo.email : legalRepresentativeInfo.email;
         
-        try {
-            // --- ETAPA 1: UPLOAD DOS FICHEIROS PARA UMA ÁREA TEMPORÁRIA ---
-            setLoadingMessage("Etapa 1/3: A enviar os seus documentos...");
-            
-            const uploadId = uuidv4(); // ID único para esta tentativa de upload
-            const tempFilePaths: { [key: string]: string } = {};
+        let user: User | null = null;
 
+        try {
+            // --- ETAPA 1: CRIAR E AUTENTICAR O USUÁRIO NO CLIENTE ---
+            setLoadingMessage("Etapa 1/4: Criando sua conta...");
+
+            // CORREÇÃO: Determina o displayName antes da chamada da função.
+            const displayName = role === 'doctor' ? personalInfo.name : hospitalInfo.companyName;
+            
+            try {
+                // CORREÇÃO: Chama createAuthUser com 3 argumentos e atribui o resultado direto.
+                user = await createAuthUser(loginEmail, credentials.password, displayName);
+
+                if (!user) {
+                    throw new Error("Não foi possível obter os dados do usuário após a criação.");
+                }
+
+                await user.getIdToken(true);
+                
+                console.log("Usuário criado e autenticado com sucesso no cliente. UID:", user.uid);
+
+            } catch (error: any) {
+                if (error.code === 'auth/email-already-in-use') {
+                    toast({ variant: "destructive", title: "Email já cadastrado", description: "Este e-mail já está em uso. Por favor, utilize outro ou tente recuperar sua senha." });
+                } else {
+                    toast({ variant: "destructive", title: "Erro ao Criar Conta", description: error.message });
+                }
+                setIsLoading(false);
+                setLoadingMessage("");
+                return;
+            }
+
+            // --- ETAPA 2: UPLOAD DOS FICHEIROS PARA A ÁREA TEMPORÁRIA ---
+            setLoadingMessage("Etapa 2/4: Enviando seus documentos...");
+            
+            const uploadId = uuidv4();
+            const tempFilePaths: { [key: string]: string } = {};
             const filesToProcess: { group: string, docKey: string, file: File }[] = [];
             
-            // Agrupa todos os arquivos que precisam ser enviados
             if (role === 'doctor' && !invitationToken) {
                 Object.entries(doctorDocuments).forEach(([key, value]) => { if (value.file) filesToProcess.push({ group: 'documents', docKey: key, file: value.file }); });
                 if (isSpecialist) { Object.entries(specialistDocuments).forEach(([key, value]) => { if (value.file) filesToProcess.push({ group: 'specialistDocuments', docKey: key, file: value.file }); }); }
@@ -798,13 +824,12 @@ function RegisterForm() {
                 Object.entries(legalRepDocuments).forEach(([key, value]) => { if (value.file) filesToProcess.push({ group: 'legalRepDocuments', docKey: key, file: value.file }); });
             }
 
-            // Realiza o upload em paralelo para a pasta temporária
             const uploadPromises = filesToProcess.map(item => {
+                console.log(`Iniciando upload para ${item.docKey}. Usuário atual:`, auth.currentUser?.uid);
                 const tempPath = `tmp_uploads/${uploadId}/${item.docKey}_${Date.now()}_${item.file.name}`;
                 return uploadFileToStorage(item.file, tempPath, (progress) => {
                     updateFileState(item.docKey as AllDocumentKeys, prev => ({ ...prev, progress, isUploading: true }));
                 }).then(() => {
-                    // Guarda o caminho temporário (não a URL) para enviar ao backend
                     tempFilePaths[`${item.group}_${item.docKey}`] = tempPath;
                     updateFileState(item.docKey as AllDocumentKeys, prev => ({ ...prev, isUploading: false }));
                 });
@@ -812,69 +837,44 @@ function RegisterForm() {
 
             await Promise.all(uploadPromises);
 
-            // --- ETAPA 2: PREPARAR O PAYLOAD COMPLETO PARA O BACKEND ---
-            setLoadingMessage("Etapa 2/3: A processar o seu registo...");
-            const loginEmail = role === 'doctor' ? personalInfo.email : legalRepresentativeInfo.email;
-            
+            // --- ETAPA 3: PREPARAR O PAYLOAD PARA O BACKEND ---
+            setLoadingMessage("Etapa 3/4: Processando seu registro...");
             let registrationData: any;
             if (role === 'doctor') {
                 const { name, email, ...personalDetails } = personalInfo;
-                registrationData = { 
-                    ...personalDetails, 
-                    displayName: name, 
-                    email: email, // O email é necessário no payload para o backend
-                    professionalCrm: personalInfo.professionalCrm, 
-                    specialties: selectedSpecialties, 
-                    isSpecialist: isSpecialist, 
-                    registrationObjective: doctorObjective || 'match' 
-                };
+                registrationData = { ...personalDetails, displayName: name, email: email, professionalCrm: personalInfo.professionalCrm, specialties: selectedSpecialties, isSpecialist: isSpecialist, registrationObjective: doctorObjective || 'match' };
                 if (doctorObjective === 'match') { registrationData.address = { ...addressInfo, cep: addressInfo.cep.replace(/\D/g, "") }; }
                 if (invitationToken) { registrationData.invitationToken = invitationToken; }
-            } else { // Hospital
+            } else {
                 const { companyName, email, ...hospitalDetails } = hospitalInfo;
-                registrationData = { 
-                    ...hospitalDetails, 
-                    displayName: companyName, 
-                    email: email, // O email é necessário no payload para o backend
-                    address: { ...hospitalAddressInfo, cep: hospitalAddressInfo.cep.replace(/\D/g, "") }, 
-                    legalRepresentativeInfo: legalRepresentativeInfo 
-                };
+                registrationData = { ...hospitalDetails, displayName: companyName, email: email, address: { ...hospitalAddressInfo, cep: hospitalAddressInfo.cep.replace(/\D/g, "") }, legalRepresentativeInfo: legalRepresentativeInfo };
             }
-            
-            const finalPayload = {
-                credentials: {
-                    email: loginEmail,
-                    password: credentials.password
-                },
-                ...registrationData
-            };
 
-            // --- ETAPA 3: CHAMAR A FUNÇÃO DE BACKEND E AGUARDAR O RESULTADO ---
-            setLoadingMessage("Etapa 3/3: A finalizar o seu cadastro...");
+            // --- ETAPA 4: CHAMAR A FUNÇÃO DE BACKEND PARA FINALIZAR ---
+            setLoadingMessage("Etapa 4/4: Finalizando...");
             await finalizeRegistration({
-                registrationPayload: finalPayload,
+                registrationPayload: registrationData,
                 tempFilePaths: tempFilePaths,
                 role: role
             });
             
-            toast({
-                title: "Cadastro Realizado com Sucesso!",
-                description: "Aguarde, estamos a redirecioná-lo...",
-                duration: 5000
-            });
-            
+            toast({ title: "Cadastro Realizado com Sucesso!", description: "Aguarde, estamos a redirecioná-lo...", duration: 5000 });
             router.push('/login');
 
         } catch (error: any) {
             console.error("ERRO NO PROCESSO DE CADASTRO:", error);
-            let description = error.message || "Ocorreu um erro inesperado. Tente novamente.";
+            toast({ variant: "destructive", title: "Falha no Cadastro", description: error.message || "Ocorreu um erro inesperado. Tente novamente.", duration: 8000 });
+
+            if (user) {
+                try {
+                    await user.delete();
+                    toast({ variant: "default", title: "Aviso", description: "A sua conta parcial foi removida. Por favor, tente o cadastro novamente." });
+                } catch (deleteError) {
+                    console.error("Falha ao deletar usuário parcial:", deleteError);
+                    toast({ variant: "destructive", title: "Erro Crítico", description: "Não foi possível remover sua conta parcial. Por favor, contate o suporte." });
+                }
+            }
             
-            toast({
-                variant: "destructive",
-                title: "Falha no Cadastro",
-                description: description,
-                duration: 8000,
-            });
             setIsLoading(false);
             setLoadingMessage("");
         }
