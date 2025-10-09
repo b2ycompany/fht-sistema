@@ -13,7 +13,7 @@ const firebaseConfig = {
   // =================================================================
   // 🔹 CORREÇÃO APLICADA AQUI 🔹
   // =================================================================
-  storageBucket: "fht-sistema.appspot.com",
+  storageBucket: "fht-sistema.firebasestorage.app",
   messagingSenderId: "583837273524",
   appId: "1:583837273524:web:1583addfce581e61ac76e1",
   measurementId: "G-6FJ2H3G32N"

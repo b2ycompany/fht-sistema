@@ -62,12 +62,20 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
           const tokenResult = await firebaseUser.getIdTokenResult(true);
           const userRole = tokenResult.claims.role as string | undefined;
 
-          const isRegisterPage = pathname === '/register';
+          // =================================================================
+          // 🔹 CORREÇÃO APLICADA AQUI 🔹
+          // =================================================================
+          const isPublicRoute = ['/login', '/register', '/reset-password']
+            .some(route => pathname.startsWith(route));
 
-          if (!userRole && !isRegisterPage) {
-              console.error(`[AuthProvider] Utilizador ${firebaseUser.uid} autenticado mas sem uma role válida e fora da página de registo. A forçar logout.`);
-              await signOut(auth);
-              return; 
+          // Se não houver role, mas estivermos numa rota pública (como o registo),
+          // avisamos no console mas NÃO forçamos o logout.
+          if (!userRole && !isPublicRoute) {
+            console.warn(
+              `[AuthProvider] Utilizador ${firebaseUser.uid} autenticado mas sem role válida. Forçando logout para segurança. Pathname: ${pathname}`
+            );
+            await signOut(auth);
+            return;
           }
           
           if (userRole) {
@@ -83,10 +91,10 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
             }
   
             const targetPath = getRedirectPathForProfile(profile);
-            const currentPath = window.location.pathname;
             const publicRoutes = ['/login', '/register', '/reset-password'];
   
-            if (publicRoutes.includes(currentPath)) {
+            // Redireciona apenas se o utilizador estiver numa rota pública após o login
+            if (publicRoutes.some(route => pathname.startsWith(route))) {
               router.replace(targetPath);
             }
           }
