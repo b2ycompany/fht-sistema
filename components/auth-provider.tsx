@@ -39,6 +39,8 @@ interface AuthContextType {
   userProfile: UserProfile | null;
   loading: boolean;
   profileLoading: boolean;
+  isRegistering: boolean; // <-- NOVO ESTADO
+  setIsRegistering: (isRegistering: boolean) => void; // <-- NOVA FUNÇÃO
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -48,6 +50,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [profileLoading, setProfileLoading] = useState(true);
+  const [isRegistering, setIsRegistering] = useState(false); // <-- NOVO ESTADO
   const router = useRouter();
   const pathname = usePathname();
 
@@ -66,17 +69,20 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
             .some(route => pathname.startsWith(route));
 
           // =================================================================
-          // 🔹 CORREÇÃO FINAL E DEFINITIVA APLICADA AQUI 🔹
+          // 🔹 LÓGICA FINAL E ROBUSTA 🔹
           // =================================================================
-          if (!userRole && !isPublicRoute) {
+          // Agora, só forçamos o logout se o usuário não tiver role, não estiver
+          // numa rota pública E NÃO ESTIVER NO MEIO DE UM CADASTRO.
+          if (!userRole && !isPublicRoute && !isRegistering) {
             console.warn(
-              `[AuthProvider] Usuário ${firebaseUser.uid} autenticado mas sem role válida e fora de uma rota pública. Forçando logout para segurança. Pathname: ${pathname}`
+              `[AuthProvider] Usuário ${firebaseUser.uid} autenticado mas sem role válida. Forçando logout para segurança. Pathname: ${pathname}`
             );
             await signOut(auth);
+            setProfileLoading(false);
+            setLoading(false);
             return;
           }
-
-          // Se o usuário TEM uma role, procede normalmente
+          
           if (userRole) {
             console.log("[AuthProvider] Role válida encontrada. Carregando perfil do usuário...");
             const profile = await getCurrentUserData();
@@ -91,14 +97,11 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   
             const targetPath = getRedirectPathForProfile(profile);
             
-            // Redireciona apenas se o usuário estiver em uma rota pública após o login
             if (isPublicRoute) {
               router.replace(targetPath);
             }
-          } 
-          // Se o usuário NÃO TEM role, mas ESTÁ em uma rota pública, apenas loga e não faz nada.
-          else if (isPublicRoute) {
-            console.log(`[AuthProvider] Usuário ${firebaseUser.uid} sem role, mas em rota pública (${pathname}). Permitindo continuação do fluxo.`);
+          } else if (isPublicRoute || isRegistering) {
+            console.log(`[AuthProvider] Usuário ${firebaseUser.uid} sem role, mas fluxo de registro/público permitido. Pathname: ${pathname}`);
           }
 
         } catch (error) {
@@ -115,9 +118,9 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     });
 
     return () => unsubscribe();
-  }, [router, pathname]);
+  }, [router, pathname, isRegistering]); // Adicionado isRegistering às dependências
 
-  const contextValue = { user, userProfile, loading, profileLoading };
+  const contextValue = { user, userProfile, loading, profileLoading, isRegistering, setIsRegistering };
 
   return (
     <AuthContext.Provider value={contextValue}>

@@ -323,7 +323,7 @@ function RegisterForm() {
     const [loadingMessage, setLoadingMessage] = useState("");
     const router = useRouter();
     const { toast } = useToast();
-    const { user: authUser, loading: authLoading } = useAuthHook();
+    const { user: authUser, loading: authLoading, setIsRegistering } = useAuthHook(); // Adicione setIsRegistering
     const [doctorObjective, setDoctorObjective] = useState<'caravan' | 'match' | null>(null);
     const [invitationToken, setInvitationToken] = useState<string | null>(null);
     const [availableSpecialties, setAvailableSpecialties] = useState<Specialty[]>([]);
@@ -771,7 +771,9 @@ function RegisterForm() {
             toast({ variant: "destructive", title: "Erro ao Finalizar", description: "Não é possível finalizar nesta etapa." });
             return;
         }
+        
         setIsLoading(true);
+        setIsRegistering(true); // <-- AVISA QUE O CADASTRO COMEÇOU
 
         const functions = getFunctions();
         const finalizeRegistration = httpsCallable(functions, 'finalizeRegistration');
@@ -780,38 +782,25 @@ function RegisterForm() {
         let user: User | null = null;
 
         try {
-            // --- ETAPA 1: CRIAR E AUTENTICAR O USUÁRIO NO CLIENTE ---
             setLoadingMessage("Etapa 1/4: Criando sua conta...");
-
-            // CORREÇÃO: Determina o displayName antes da chamada da função.
             const displayName = role === 'doctor' ? personalInfo.name : hospitalInfo.companyName;
             
             try {
-                // CORREÇÃO: Chama createAuthUser com 3 argumentos e atribui o resultado direto.
                 user = await createAuthUser(loginEmail, credentials.password, displayName);
-
-                if (!user) {
-                    throw new Error("Não foi possível obter os dados do usuário após a criação.");
-                }
-
+                if (!user) { throw new Error("Não foi possível obter os dados do usuário após a criação."); }
                 await user.getIdToken(true);
-                
                 console.log("Usuário criado e autenticado com sucesso no cliente. UID:", user.uid);
-
             } catch (error: any) {
                 if (error.code === 'auth/email-already-in-use') {
-                    toast({ variant: "destructive", title: "Email já cadastrado", description: "Este e-mail já está em uso. Por favor, utilize outro ou tente recuperar sua senha." });
+                    toast({ variant: "destructive", title: "Email já cadastrado", description: "Este e-mail já está em uso." });
                 } else {
                     toast({ variant: "destructive", title: "Erro ao Criar Conta", description: error.message });
                 }
-                setIsLoading(false);
-                setLoadingMessage("");
-                return;
+                // Retornar aqui para não prosseguir
+                return; 
             }
 
-            // --- ETAPA 2: UPLOAD DOS FICHEIROS PARA A ÁREA TEMPORÁRIA ---
             setLoadingMessage("Etapa 2/4: Enviando seus documentos...");
-            
             const uploadId = uuidv4();
             const tempFilePaths: { [key: string]: string } = {};
             const filesToProcess: { group: string, docKey: string, file: File }[] = [];
@@ -825,7 +814,6 @@ function RegisterForm() {
             }
 
             const uploadPromises = filesToProcess.map(item => {
-                console.log(`Iniciando upload para ${item.docKey}. Usuário atual:`, auth.currentUser?.uid);
                 const tempPath = `tmp_uploads/${uploadId}/${item.docKey}_${Date.now()}_${item.file.name}`;
                 return uploadFileToStorage(item.file, tempPath, (progress) => {
                     updateFileState(item.docKey as AllDocumentKeys, prev => ({ ...prev, progress, isUploading: true }));
@@ -834,10 +822,8 @@ function RegisterForm() {
                     updateFileState(item.docKey as AllDocumentKeys, prev => ({ ...prev, isUploading: false }));
                 });
             });
-
             await Promise.all(uploadPromises);
 
-            // --- ETAPA 3: PREPARAR O PAYLOAD PARA O BACKEND ---
             setLoadingMessage("Etapa 3/4: Processando seu registro...");
             let registrationData: any;
             if (role === 'doctor') {
@@ -850,7 +836,6 @@ function RegisterForm() {
                 registrationData = { ...hospitalDetails, displayName: companyName, email: email, address: { ...hospitalAddressInfo, cep: hospitalAddressInfo.cep.replace(/\D/g, "") }, legalRepresentativeInfo: legalRepresentativeInfo };
             }
 
-            // --- ETAPA 4: CHAMAR A FUNÇÃO DE BACKEND PARA FINALIZAR ---
             setLoadingMessage("Etapa 4/4: Finalizando...");
             await finalizeRegistration({
                 registrationPayload: registrationData,
@@ -863,20 +848,22 @@ function RegisterForm() {
 
         } catch (error: any) {
             console.error("ERRO NO PROCESSO DE CADASTRO:", error);
-            toast({ variant: "destructive", title: "Falha no Cadastro", description: error.message || "Ocorreu um erro inesperado. Tente novamente.", duration: 8000 });
+            toast({ variant: "destructive", title: "Falha no Cadastro", description: error.message || "Ocorreu um erro inesperado.", duration: 8000 });
 
             if (user) {
                 try {
                     await user.delete();
-                    toast({ variant: "default", title: "Aviso", description: "A sua conta parcial foi removida. Por favor, tente o cadastro novamente." });
+                    toast({ variant: "default", title: "Aviso", description: "Sua conta parcial foi removida. Por favor, tente o cadastro novamente." });
                 } catch (deleteError) {
                     console.error("Falha ao deletar usuário parcial:", deleteError);
-                    toast({ variant: "destructive", title: "Erro Crítico", description: "Não foi possível remover sua conta parcial. Por favor, contate o suporte." });
+                    toast({ variant: "destructive", title: "Erro Crítico", description: "Não foi possível remover sua conta parcial. Contate o suporte." });
                 }
             }
-            
+        } finally {
+            // Este bloco será executado SEMPRE, com sucesso ou erro.
             setIsLoading(false);
             setLoadingMessage("");
+            setIsRegistering(false); // <-- AVISA QUE O CADASTRO TERMINOU
         }
     };
 
