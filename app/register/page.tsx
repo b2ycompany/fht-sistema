@@ -1205,12 +1205,21 @@ function RegisterForm() {
 
             <div className="bg-white p-4 sm:p-6 md:p-8 rounded-lg shadow-xl border border-gray-200 min-h-[350px] relative">
                 {isLoading && (
-                     <div className="absolute inset-0 bg-white/80 backdrop-blur-sm flex flex-col items-center justify-center z-20 rounded-lg">
-                         <Loader2 className="h-10 w-10 sm:h-12 sm:w-12 animate-spin text-blue-600" />
-                         <p className="mt-4 text-base sm:text-lg font-medium text-gray-700">
-                             A processar o seu cadastro...
+                     // =================================================================
+                     // 🔹 SUGESTÃO DE MELHORIA PARA O OVERLAY DE CARREGAMENTO 🔹
+                     // =================================================================
+                     <div className="absolute inset-0 bg-white/90 backdrop-blur-sm flex flex-col items-center justify-center z-20 rounded-lg text-center p-4">
+                         <Loader2 className="h-12 w-12 animate-spin text-blue-600" />
+                         <h2 className="mt-6 text-xl font-semibold text-gray-800">
+                             Finalizando seu Cadastro
+                         </h2>
+                         <p className="mt-2 text-gray-600">
+                             Isso pode levar um momento. Por favor, não feche esta página.
                          </p>
-                         <p className="mt-1 text-sm text-gray-500 min-h-[20px]">{loadingMessage}</p>
+                         <p className="mt-4 text-sm text-blue-700 font-medium min-h-[20px]">
+                             {loadingMessage}
+                         </p>
+                         {/* Você pode adicionar uma barra de progresso geral aqui se quiser */}
                      </div>
                 )}
                 <div className={cn("transition-opacity duration-300", isLoading && "opacity-30 pointer-events-none")}>

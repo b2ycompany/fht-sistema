@@ -34,9 +34,8 @@ import {
     DialogTitle,
     DialogTrigger
 } from "@/components/ui/dialog";
-// Importamos o seletor de cidades corrigido
 import { CitySelector } from "@/components/ui/city-selector";
-
+import { ptBR } from 'date-fns/locale'; // <-- 1. IMPORTAÇÃO ADICIONADA
 import { cn, formatCurrency } from "@/lib/utils";
 import { Timestamp } from "firebase/firestore";
 import { auth } from "@/lib/firebase";
@@ -58,6 +57,7 @@ import {
   MapPin, Clock, Check, ChevronsUpDown
 } from "lucide-react";
 
+// Componentes auxiliares (LoadingState, EmptyState, ErrorState)... (sem alterações)
 const LoadingState = React.memo(({ message = "Carregando..." }: { message?: string }) => ( <div className="flex flex-col justify-center items-center text-center py-10 min-h-[150px] w-full"> <Loader2 className="h-8 w-8 animate-spin text-blue-600" /> <span className="ml-3 text-sm text-gray-600 mt-3">{message}</span> </div> ));
 LoadingState.displayName = 'LoadingState';
 const EmptyState = React.memo(({ message, actionButton }: { message: string; actionButton?: React.ReactNode }) => ( <div className="text-center text-sm text-gray-500 py-10 min-h-[150px] flex flex-col items-center justify-center bg-gray-50/70 rounded-md border border-dashed border-gray-300 w-full"> <ClipboardList className="w-12 h-12 text-gray-400 mb-4"/> <p className="font-medium text-gray-600 mb-1">Nada por aqui ainda!</p> <p className="max-w-xs">{message}</p> {actionButton && <div className="mt-4">{actionButton}</div>} </div> ));
@@ -72,14 +72,7 @@ const citiesByState: { [key: string]: string[] } = {
   "RJ": ["Rio de Janeiro", "São Gonçalo", "Duque de Caxias", "Nova Iguaçu", "Niterói", "Belford Roxo", "Campos dos Goytacazes", "São João de Meriti", "Petrópolis", "Volta Redonda"],
   "MG": ["Belo Horizonte", "Uberlândia", "Contagem", "Juiz de Fora", "Betim", "Montes Claros", "Ribeirão das Neves", "Uberaba", "Governador Valadares", "Ipatinga"],
 };
-
-// ATUALIZADO: Garante que o valor para 'Telemedicina' seja sempre capitalizado
-const serviceTypesOptions = Object.entries(ServiceTypeRates).map(([v, r]) => {
-  const label = v.split('_').map(w=>w[0].toUpperCase()+w.slice(1)).join(' ');
-  // Força o valor para "Telemedicina" ser sempre capitalizado, enquanto mantém outros valores como estão.
-  const value = label.toLowerCase() === 'telemedicina' ? 'Telemedicina' : v;
-  return { value, label, rateExample: r };
-});
+const serviceTypesOptions = Object.entries(ServiceTypeRates).map(([v, r]) => { const label = v.split('_').map(w=>w[0].toUpperCase()+w.slice(1)).join(' '); const value = label.toLowerCase() === 'telemedicina' ? 'Telemedicina' : v; return { value, label, rateExample: r }; });
 
 const TimeSlotListItem: React.FC<{ slot: TimeSlot; onEdit: () => void; onDelete: () => void; }> = ({ slot, onEdit, onDelete }) => {
   const slotDate = slot.date instanceof Timestamp ? slot.date.toDate() : null;
@@ -165,7 +158,6 @@ const TimeSlotFormDialog: React.FC<{ onFormSubmitted: () => void; initialData?: 
   useEffect(() => {
       if (selectedState) {
           setAvailableCities(citiesByState[selectedState] || []);
-          // Evita limpar as cidades se o estado selecionado for o mesmo do dado inicial (no modo de edição)
           if (!initialData || selectedState !== initialData.state) {
               setSelectedCities([]);
           }
@@ -229,7 +221,10 @@ const TimeSlotFormDialog: React.FC<{ onFormSubmitted: () => void; initialData?: 
   };
   
   return (
-    <DialogContent className="sm:max-w-2xl md:max-w-3xl">
+    // =================================================================
+    // 🔹 CORREÇÃO DE LAYOUT APLICADA AQUI 🔹
+    // =================================================================
+    <DialogContent className="sm:max-w-lg">
       <DialogHeader>
         <DialogTitle className="text-xl">{isEditing ? "Editar Disponibilidade" : "Adicionar Nova Disponibilidade"}</DialogTitle>
         <DialogDescription>
@@ -246,11 +241,15 @@ const TimeSlotFormDialog: React.FC<{ onFormSubmitted: () => void; initialData?: 
           <div className="space-y-2">
             <Label className="font-semibold text-gray-800 flex items-center"><CalendarDays className="h-4 w-4 mr-2 text-blue-600"/>Data(s) da Disponibilidade*</Label>
             <p className="text-xs text-gray-500">{isEditing ? "Data original (não pode ser alterada)." : "Selecione um ou mais dias no calendário."}</p>
-            <div className="flex flex-col sm:flex-row gap-2 items-start">
+            <div className="flex justify-center flex-col items-center sm:items-start">
               {isEditing ? (
                   <Calendar mode="single" selected={dates[0]} disabled footer={<p className="text-xs text-gray-700 font-medium p-2 border-t">Data: {dates[0]?.toLocaleDateString('pt-BR')}</p>}/>
               ) : (
-                  <Calendar 
+                  <Calendar
+                    // =================================================================
+                    // 🔹 CORREÇÃO DE IDIOMA APLICADA AQUI 🔹
+                    // =================================================================
+                    locale={ptBR} 
                     mode="multiple" 
                     selected={dates} 
                     onSelect={setDates as SelectMultipleEventHandler} 
@@ -260,7 +259,7 @@ const TimeSlotFormDialog: React.FC<{ onFormSubmitted: () => void; initialData?: 
                     modifiersStyles={modifiersStyles}
                   />
               )}
-              {dates.length > 0 && !isEditing && <Button variant="outline" size="sm" onClick={() => setDates([])} className="text-xs self-start sm:self-end w-full sm:w-auto"><X className="h-3 w-3 mr-1"/> Limpar Datas</Button>}
+              {dates.length > 0 && !isEditing && <Button variant="outline" size="sm" onClick={() => setDates([])} className="text-xs self-center mt-2 w-full sm:w-auto"><X className="h-3 w-3 mr-1"/> Limpar Datas</Button>}
             </div>
           </div>
           <div className="space-y-2">

@@ -193,55 +193,66 @@ async function drawTextWithWrapping(page: any, text: string, options: { x: numbe
 // 🔹 FUNÇÃO DE REGISTO CORRIGIDA 🔹
 // ============================================================================
 export const finalizeRegistrationHandler = async (request: CallableRequest) => {
-    // Pega o UID do usuário que já está autenticado e chamou a função
     const uid = request.auth?.uid;
     if (!uid) {
         throw new HttpsError("unauthenticated", "A função só pode ser chamada por um usuário autenticado.");
     }
 
     const { registrationPayload, tempFilePaths, role } = request.data;
-    // O payload não contém mais 'credentials'
-    const profileData = registrationPayload;
+    let profileData = registrationPayload;
 
     if (!profileData || !role || !tempFilePaths) {
         throw new HttpsError("invalid-argument", "Dados de registo incompletos.");
     }
 
+    // =================================================================
+    // 🔹 CORREÇÃO DA ESTRUTURA DE DADOS DO HOSPITAL APLICADA AQUI 🔹
+    // =================================================================
+    // Documentação: Este bloco verifica se o registo é de um 'hospital'.
+    // Se for, ele desconstrói o objeto `profileData` para extrair os campos
+    // da empresa (`cnpj`, `stateRegistration`, etc.) e os agrupa
+    // dentro de um novo objeto aninhado chamado `companyInfo`.
+    // Isso garante que os dados do hospital sejam salvos no formato correto no Firestore.
+    if (role === 'hospital') {
+        const { cnpj, stateRegistration, phone, address, legalRepresentativeInfo, ...rest } = profileData;
+        profileData = {
+            ...rest,
+            companyInfo: { // <-- Cria o objeto companyInfo que faltava
+                cnpj,
+                stateRegistration,
+                phone,
+                address
+            },
+            legalRepresentativeInfo
+        };
+    }
+
     const finalFileUrls: any = { documents: {}, specialistDocuments: {}, hospitalDocs: {}, legalRepDocuments: {} };
 
     try {
-        const newUserId = uid; // Usa o UID do contexto
+        const newUserId = uid;
         logger.info(`Iniciando finalização do registo para o utilizador: ${newUserId}`);
         
-        // ETAPA 1 (agora): Definir a role (Custom Claim)
         await auth.setCustomUserClaims(newUserId, { role: role });
         logger.info(`Claim '${role}' definida com sucesso para o utilizador ${newUserId}.`);
 
-        // ETAPA 2 (agora): Mover ficheiros do local temporário para o definitivo
         const bucket = storage.bucket();
         const movePromises = Object.entries(tempFilePaths).map(async ([key, tempPath]) => {
             if (typeof tempPath !== 'string' || tempPath === '') return;
-
-            const tempFile = bucket.file(tempPath);
-            const fileName = tempPath.split('/').pop();
-            
+            const tempFile = bucket.file(tempPath as string);
+            const fileName = (tempPath as string).split('/').pop();
             let finalPath = '';
             const pathParts = key.split('_'); 
             const docType = pathParts[0];
             const docKey = pathParts[1];
-            
             if (docType === "hospitalDocs") finalPath = `hospital_documents/${newUserId}/${fileName}`;
             else if (docType === "legalRepDocuments") finalPath = `hospital_documents/${newUserId}/legal_rep/${fileName}`;
             else if (docType === "documents") finalPath = `doctor_documents/${newUserId}/${fileName}`;
             else if (docType === "specialistDocuments") finalPath = `doctor_documents/${newUserId}/specialist/${fileName}`;
             else return; 
-
             const finalFile = bucket.file(finalPath);
             await tempFile.move(finalPath);
-            logger.info(`Ficheiro movido de ${tempPath} para ${finalPath}`);
-
             const [publicUrl] = await finalFile.getSignedUrl({ action: 'read', expires: '03-09-2491' });
-
             if (docType === "hospitalDocs") finalFileUrls.hospitalDocs[docKey] = publicUrl;
             else if (docType === "legalRepDocuments") finalFileUrls.legalRepDocuments[docKey] = publicUrl;
             else if (docType === "documents") finalFileUrls.documents[docKey] = publicUrl;
@@ -249,9 +260,7 @@ export const finalizeRegistrationHandler = async (request: CallableRequest) => {
         });
 
         await Promise.all(movePromises);
-        logger.info(`Todos os ${movePromises.length} ficheiros foram movidos com sucesso.`);
 
-        // ETAPA 3 (agora): Guardar o perfil completo no Firestore
         const finalProfileData = {
             ...profileData,
             ...finalFileUrls, 
@@ -265,13 +274,11 @@ export const finalizeRegistrationHandler = async (request: CallableRequest) => {
         await db.collection("users").doc(newUserId).set(finalProfileData);
         logger.info(`Perfil completo do utilizador ${newUserId} guardado com sucesso no Firestore.`);
 
-        // ETAPA 4 (agora): Limpeza da pasta temporária
         if (tempFilePaths && Object.values(tempFilePaths).length > 0) {
             const firstPath = Object.values(tempFilePaths)[0] as string;
             const uploadId = firstPath.split('/')[1];
             if (uploadId) {
                 await bucket.deleteFiles({ prefix: `tmp_uploads/${uploadId}/` });
-                logger.info(`Pasta temporária tmp_uploads/${uploadId}/ limpa com sucesso.`);
             }
         }
         
@@ -279,13 +286,10 @@ export const finalizeRegistrationHandler = async (request: CallableRequest) => {
 
     } catch (error: any) {
         logger.error(`!!! ERRO CRÍTICO NA FINALIZAÇÃO DO REGISTO PARA O UTILIZADOR ${uid} !!!`, error);
-        // O rollback do usuário agora é responsabilidade do cliente,
-        // mas logamos o erro para que a falha seja investigada.
-        // O cliente que chamou esta função receberá o erro e deverá
-        // acionar a exclusão do usuário criado.
-        throw new HttpsError("internal", "Ocorreu um erro inesperado ao finalizar o registo. A conta parcial pode precisar ser removida.");
+        throw new HttpsError("internal", "Ocorreu um erro inesperado ao finalizar o registo.");
     }
 };
+
 
 // ============================================================================
 // CORREÇÃO APLICADA AQUI: Função alterada para ser mais robusta, atualização e melhorado
@@ -818,7 +822,7 @@ export const generateDocumentPdfHandler = async (request: CallableRequest<Docume
         const crmText = `CRM: ${doctorCrm}`;
         const crmTextWidth = font.widthOfTextAtSize(crmText, 11);
         page.drawText(crmText, { x: (width - crmTextWidth) / 2, y: signatureY - 30, font: font, size: 11 });
-        page.drawText(date, { x: 50, y: 50, font, size: 10 });
+        page.drawText(date, { x: 50, y: 50, font: font, size: 10 });
 
         const pdfBytes = await pdfDoc.save();
         const documentsRef = db.collection('documents').doc();
