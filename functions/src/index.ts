@@ -14,7 +14,7 @@ if (admin.apps.length === 0) {
   admin.initializeApp();
 }
 
-// Configurações globais mantidas para as outras funções
+// Configurações globais para funções que não precisam de muita memória
 setGlobalOptions({ 
     region: "us-central1", 
     memory: "128MiB",
@@ -29,158 +29,75 @@ const corsPolicy = [
     "https://www.fhtgestao.com.br",
     "https://fht-sistema.web.app",
     "https://fht-sistema.firebaseapp.com",
-    "http://localhost:3000" // Manter para desenvolvimento local
+    "http://localhost:3000"
 ];
 
 // ===================================================================================
 // === FUNÇÕES CHAMÁVEIS PELO CLIENTE (onCall)
 // ===================================================================================
 
-// <<< NOVA FUNÇÃO ADICIONADA >>>
 export const finalizeRegistration = onCall(
     { 
         cors: corsPolicy, 
-        memory: "512MiB", // Damos mais memória a esta função crítica
-        timeoutSeconds: 300 // E mais tempo para os uploads e processamento
+        memory: "512MiB", // Aumentado para lidar com uploads de documentos
+        timeoutSeconds: 300 
     },
     (request: CallableRequest) => import("./logic").then(api => api.finalizeRegistrationHandler(request))
 );
 
 // --- Funções de Gestão e Admin ---
-export const setAdminClaim = onCall({ cors: corsPolicy },
-    (request: CallableRequest) => import("./logic").then(api => api.setAdminClaimHandler(request))
-);
+export const setAdminClaim = onCall({ cors: corsPolicy }, (request: CallableRequest) => import("./logic").then(api => api.setAdminClaimHandler(request)));
+export const approveDoctor = onCall({ cors: corsPolicy }, (request: CallableRequest) => import("./logic").then(api => api.approveDoctorHandler(request)));
+export const createStaffUser = onCall({ cors: corsPolicy, memory: "256MiB" }, (request: CallableRequest) => import("./logic").then(api => api.createStaffUserHandler(request)));
+export const confirmUserSetup = onCall({ cors: corsPolicy }, (request: CallableRequest) => import("./logic").then(api => api.confirmUserSetupHandler(request)));
+export const associateDoctorToUnit = onCall({ cors: corsPolicy }, (request: CallableRequest) => import("./logic").then(api => api.associateDoctorToUnitHandler(request)));
+export const searchAssociatedDoctors = onCall({ cors: corsPolicy }, (request: CallableRequest) => import("./logic").then(api => api.searchAssociatedDoctorsHandler(request)));
+export const setHospitalManagerRole = onCall({ cors: corsPolicy }, (request: CallableRequest) => import("./logic").then(api => api.setHospitalManagerRoleHandler(request)));
+export const resetStaffUserPassword = onCall({ cors: corsPolicy }, (request: CallableRequest) => import("./logic").then(api => api.resetStaffUserPasswordHandler(request)));
 
-export const approveDoctor = onCall({ cors: corsPolicy },
-    (request: CallableRequest) => import("./logic").then(api => api.approveDoctorHandler(request))
-);
-
-export const createStaffUser = onCall({ cors: corsPolicy },
-    (request: CallableRequest) => import("./logic").then(api => api.createStaffUserHandler(request))
-);
-
-export const confirmUserSetup = onCall({ cors: corsPolicy },
-    (request: CallableRequest) => import("./logic").then(api => api.confirmUserSetupHandler(request))
-);
-
-// REMOVIDO: A antiga função de convite foi substituída pela de criação direta
-// export const sendDoctorInvitation = onCall({ cors: corsPolicy },
-//     (request: CallableRequest) => import("./logic").then(api => api.sendDoctorInvitationHandler(request))
-// );
-
-export const associateDoctorToUnit = onCall({ cors: corsPolicy },
-    (request: CallableRequest) => import("./logic").then(api => api.associateDoctorToUnitHandler(request))
-);
-
-export const searchAssociatedDoctors = onCall({ cors: corsPolicy },
-    (request: CallableRequest) => import("./logic").then(api => api.searchAssociatedDoctorsHandler(request))
-);
-
-export const setHospitalManagerRole = onCall({ cors: corsPolicy },
-    (request: CallableRequest) => import("./logic").then(api => api.setHospitalManagerRoleHandler(request))
-);
-
-export const resetStaffUserPassword = onCall({ cors: corsPolicy },
-    (request: CallableRequest) => import("./logic").then(api => api.resetStaffUserPasswordHandler(request))
-);
-
-// <<< NOVAS FUNÇÕES PARA MÉDICOS ADICIONADAS AQUI >>>
-export const createDoctorUser = onCall({ cors: corsPolicy },
-    (request: CallableRequest) => import("./logic").then(api => api.createDoctorUserHandler(request))
-);
-
-export const resetDoctorUserPassword = onCall({ cors: corsPolicy },
-    (request: CallableRequest) => import("./logic").then(api => api.resetDoctorUserPasswordHandler(request))
-);
-
+// --- Funções de Gestão de Médicos ---
+export const createDoctorUser = onCall({ cors: corsPolicy, memory: "256MiB" }, (request: CallableRequest) => import("./logic").then(api => api.createDoctorUserHandler(request)));
+export const resetDoctorUserPassword = onCall({ cors: corsPolicy }, (request: CallableRequest) => import("./logic").then(api => api.resetDoctorUserPasswordHandler(request)));
 
 // --- Funções de Atendimento e Consulta ---
-export const createConsultationRoom = onCall({ cors: corsPolicy, secrets: ["DAILY_APIKEY"] },
-    (request: CallableRequest) => import("./logic").then(api => api.createConsultationRoomHandler(request))
-);
-
-export const createAppointment = onCall({ cors: corsPolicy, secrets: ["DAILY_APIKEY"] },
-    (request: CallableRequest) => import("./logic").then(api => api.createAppointmentHandler(request))
-);
+export const createConsultationRoom = onCall({ cors: corsPolicy, secrets: ["DAILY_APIKEY"] }, (request: CallableRequest) => import("./logic").then(api => api.createConsultationRoomHandler(request)));
+export const createAppointment = onCall({ cors: corsPolicy, secrets: ["DAILY_APIKEY"] }, (request: CallableRequest) => import("./logic").then(api => api.createAppointmentHandler(request)));
+export const createTelemedicineRoom = onCall({ cors: corsPolicy, secrets: ["DAILY_APIKEY"] }, (request: CallableRequest) => import("./logic").then(api => api.createTelemedicineRoomHandler(request)));
 
 // --- Funções de Geração de Documentos ---
-export const generateContractPdf = onCall({ cors: corsPolicy, memory: "512MiB" },
-    (request: CallableRequest) => import("./logic").then(api => api.generateContractPdfHandler(request))
-);
-
-export const generatePrescriptionPdf = onCall({ cors: corsPolicy, memory: "512MiB" },
-    (request: CallableRequest) => import("./logic").then(api => api.generatePrescriptionPdfHandler(request))
-);
-
-export const generateDocumentPdf = onCall({ cors: corsPolicy, memory: "512MiB" },
-    (request: CallableRequest) => import("./logic").then(api => api.generateDocumentPdfHandler(request))
-);
+export const generateContractPdf = onCall({ cors: corsPolicy, memory: "512MiB" }, (request: CallableRequest) => import("./logic").then(api => api.generateContractPdfHandler(request)));
+export const generatePrescriptionPdf = onCall({ cors: corsPolicy, memory: "512MiB" }, (request: CallableRequest) => import("./logic").then(api => api.generatePrescriptionPdfHandler(request)));
+export const generateDocumentPdf = onCall({ cors: corsPolicy, memory: "512MiB" }, (request: CallableRequest) => import("./logic").then(api => api.generateDocumentPdfHandler(request)));
 
 // --- Funções de Plantão e Ponto ---
-export const registerTimeRecord = onCall({ cors: corsPolicy, memory: "512MiB" },
-    (request: CallableRequest) => import("./logic").then(api => api.registerTimeRecordHandler(request))
-);
-
-export const registerCheckout = onCall({ cors: corsPolicy, memory: "512MiB" },
-    (request: CallableRequest) => import("./logic").then(api => api.registerCheckoutHandler(request))
-);
+export const registerTimeRecord = onCall({ cors: corsPolicy, memory: "512MiB" }, (request: CallableRequest) => import("./logic").then(api => api.registerTimeRecordHandler(request)));
+export const registerCheckout = onCall({ cors: corsPolicy, memory: "512MiB" }, (request: CallableRequest) => import("./logic").then(api => api.registerCheckoutHandler(request)));
 
 // --- Funções de Manutenção e Scripts ---
-export const correctServiceTypeCapitalization = onCall({ cors: corsPolicy },
-    (request: CallableRequest) => import("./logic").then(api => api.correctServiceTypeCapitalizationHandler(request))
-);
-
-export const migrateDoctorProfilesToUsers = onCall({ cors: corsPolicy },
-    (request: CallableRequest) => import("./logic").then(api => api.migrateDoctorProfilesToUsersHandler(request))
-);
-
-export const createTelemedicineRoom = onCall({ cors: corsPolicy, secrets: ["DAILY_APIKEY"] },
-    (request: CallableRequest) => import("./logic").then(api => api.createTelemedicineRoomHandler(request))
-);
-
-export const migrateHospitalProfile = onCall({ cors: corsPolicy },
-    (request: CallableRequest) => import("./logic").then(api => api.migrateHospitalProfileToV2Handler(request))
-);
+export const correctServiceTypeCapitalization = onCall({ cors: corsPolicy }, (request: CallableRequest) => import("./logic").then(api => api.correctServiceTypeCapitalizationHandler(request)));
+export const migrateDoctorProfilesToUsers = onCall({ cors: corsPolicy }, (request: CallableRequest) => import("./logic").then(api => api.migrateDoctorProfilesToUsersHandler(request)));
+export const migrateHospitalProfile = onCall({ cors: corsPolicy }, (request: CallableRequest) => import("./logic").then(api => api.migrateHospitalProfileToV2Handler(request)));
 
 
 // ===================================================================================
 // === GATILHOS DE EVENTOS DO FIRESTORE
 // ===================================================================================
-
-// ============================================================================
-// 🔹 CORREÇÃO DE MEMÓRIA APLICADA AQUI 🔹
-// Aumentamos a memória APENAS para esta função para evitar o 'crash'.
-// ============================================================================
 export const onUserWrittenSetClaims = onDocumentWritten(
     {
         document: "users/{userId}",
-        memory: "256MiB" // Memória aumentada
+        memory: "256MiB" // <-- CORREÇÃO APLICADA AQUI
     },
     (event: FirestoreEvent<Change<DocumentSnapshot> | undefined, { userId: string }>) => import("./logic").then(api => api.onUserWrittenSetClaimsHandler(event))
 );
 
-export const findMatchesOnShiftRequirementWrite = onDocumentWritten({ document: "shiftRequirements/{requirementId}" },
-    (event: FirestoreEvent<Change<DocumentSnapshot> | undefined, { requirementId: string }>) => import("./logic").then(api => api.findMatchesOnShiftRequirementWriteHandler(event))
-);
-
-export const onContractFinalizedUpdateRequirement = onDocumentWritten("contracts/{contractId}",
-    (event: FirestoreEvent<Change<DocumentSnapshot> | undefined, { contractId: string }>) => import("./logic").then(api => api.onContractFinalizedUpdateRequirementHandler(event))
-);
-
-export const onContractFinalizedLinkDoctor = onDocumentWritten("contracts/{contractId}",
-    (event: FirestoreEvent<Change<DocumentSnapshot> | undefined, { contractId: string }>) => import("./logic").then(api => api.onContractFinalizedLinkDoctorHandler(event))
-);
-
-export const onShiftRequirementDelete = onDocumentDeleted("shiftRequirements/{requirementId}",
-    (event: FirestoreEvent<DocumentSnapshot | undefined, { requirementId: string }>) => import("./logic").then(api => api.onShiftRequirementDeleteHandler(event))
-);
-
-export const onTimeSlotDelete = onDocumentDeleted("doctorTimeSlots/{timeSlotId}",
-    (event: FirestoreEvent<DocumentSnapshot | undefined, { timeSlotId: string }>) => import("./logic").then(api => api.onTimeSlotDeleteHandler(event))
-);
+export const findMatchesOnShiftRequirementWrite = onDocumentWritten({ document: "shiftRequirements/{requirementId}" }, (event: FirestoreEvent<Change<DocumentSnapshot> | undefined, { requirementId: string }>) => import("./logic").then(api => api.findMatchesOnShiftRequirementWriteHandler(event)));
+export const onContractFinalizedUpdateRequirement = onDocumentWritten("contracts/{contractId}", (event: FirestoreEvent<Change<DocumentSnapshot> | undefined, { contractId: string }>) => import("./logic").then(api => api.onContractFinalizedUpdateRequirementHandler(event)));
+export const onContractFinalizedLinkDoctor = onDocumentWritten("contracts/{contractId}", (event: FirestoreEvent<Change<DocumentSnapshot> | undefined, { contractId: string }>) => import("./logic").then(api => api.onContractFinalizedLinkDoctorHandler(event)));
+export const onShiftRequirementDelete = onDocumentDeleted("shiftRequirements/{requirementId}", (event: FirestoreEvent<DocumentSnapshot | undefined, { requirementId: string }>) => import("./logic").then(api => api.onShiftRequirementDeleteHandler(event)));
+export const onTimeSlotDelete = onDocumentDeleted("doctorTimeSlots/{timeSlotId}", (event: FirestoreEvent<DocumentSnapshot | undefined, { timeSlotId: string }>) => import("./logic").then(api => api.onTimeSlotDeleteHandler(event)));
 
 // ===================================================================================
-// === GATILHOS DE AUTENTICAÇÃO (Auth Triggers V1 - Estável) - SEM ALTERAÇÕES
+// === GATILHOS DE AUTENTICAÇÃO (V1)
 // ===================================================================================
 export const onUserDeletedCleanup = functions.region("us-central1").auth.user().onDelete(
     (user: UserRecord) => import("./logic").then(api => api.onUserDeletedCleanupHandler(user))

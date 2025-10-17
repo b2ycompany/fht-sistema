@@ -138,7 +138,6 @@ const AddShiftDialog: React.FC<AddShiftDialogProps> = ({ onShiftSubmitted, initi
 
   const filteredSpecialties = useMemo(() => medicalSpecialties.filter(s => typeof s === 'string' && s.toLowerCase().includes(specialtySearchValue.toLowerCase()) && !requiredSpecialties.includes(s)), [specialtySearchValue, requiredSpecialties]);
   
-  // Função segura para lidar com a seleção de múltiplas datas
   const handleDateSelect: SelectMultipleEventHandler = (selectedDays) => {
     setDates(selectedDays || []);
   };
@@ -469,13 +468,14 @@ export default function HospitalShiftsPage() {
       try {
           const requirementsRef = collection(db, "shiftRequirements");
           const statusClause = Array.isArray(status) ? where("status", "in", status) : where("status", "==", status);
-          const q = query( requirementsRef, where("hospitalId", "==", currentUser.uid), statusClause, orderBy("dates", "asc") );
+          const q = query( requirementsRef, where("publishedByUID", "==", currentUser.uid), statusClause, orderBy("dates", "asc") );
 
           const snapshot = await getDocs(q);
           const data = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as ShiftRequirement));
           setter(data);
           updateListState(stateKey, { isLoading: false });
       } catch (error: any) {
+          console.error(`Erro ao carregar demandas ${stateKey}:`, error);
           updateListState(stateKey, { isLoading: false, error: error.message || `Erro ao carregar demandas ${stateKey}.` });
       }
   }, []);
@@ -541,7 +541,7 @@ export default function HospitalShiftsPage() {
       let totalCost = 0;
       shiftsForCost.forEach(shift => {
           const shiftDate = shift.dates[0]?.toDate();
-          if (shiftDate > thirtyDaysAgo) {
+          if (shiftDate && shiftDate > thirtyDaysAgo) {
             const [startH, startM] = shift.startTime.split(':').map(Number);
             const [endH, endM] = shift.endTime.split(':').map(Number);
             let duration = (endH + endM/60) - (startH + startM/60);
@@ -550,14 +550,14 @@ export default function HospitalShiftsPage() {
           }
       });
       
-      const filledShiftsWithTimestamps = recentShifts.filter(s => filledStatuses.includes(s.status!) && s.createdAt && s.updatedAt);
+      const filledShiftsWithTimestamps = recentShifts.filter(s => s.status && filledStatuses.includes(s.status) && s.createdAt && s.updatedAt);
       let totalFillTime = 0;
       if (filledShiftsWithTimestamps.length > 0) {
-        totalFillTime = filledShiftsWithTimestamps.reduce((acc, shift) => {
+        const totalFillTimeInMillis = filledShiftsWithTimestamps.reduce((acc, shift) => {
             const diff = shift.updatedAt!.toDate().getTime() - shift.createdAt!.toDate().getTime();
             return acc + diff;
         }, 0);
-        const avgFillTimeInMillis = totalFillTime / filledShiftsWithTimestamps.length;
+        const avgFillTimeInMillis = totalFillTimeInMillis / filledShiftsWithTimestamps.length;
         totalFillTime = avgFillTimeInMillis / (1000 * 60 * 60);
       }
       

@@ -44,8 +44,7 @@ import { Badge } from "@/components/ui/badge";
 import { User, signOut } from "firebase/auth";
 
 
-// --- As interfaces e constantes permanecem as mesmas ---
-// Interfaces e constantes
+// --- Interfaces e constantes ---
 interface Credentials { password: string; confirmPassword: string; }
 interface HospitalInfo { companyName: string; cnpj: string; stateRegistration?: string; phone: string; email: string; }
 interface FileWithProgress { file: File | null; name: string; url?: string; progress: number; isUploading: boolean; error?: string; }
@@ -70,8 +69,7 @@ const initialSpecialistDocsStateValue: SpecialistDocumentsState = createInitialD
 const initialHospitalDocsStateValue: HospitalDocumentsState = createInitialDocState(hospitalDocKeysArray, DOCUMENT_LABELS as any);
 const initialLegalRepDocsStateValue: LegalRepDocumentsState = createInitialDocState(legalRepDocKeysArray, DOCUMENT_LABELS as any);
 
-
-// --- O resto dos componentes auxiliares (LoadingForm, StepIndicator, etc.) permanecem os mesmos ---
+// --- Componentes auxiliares ---
 const LoadingForm = ({ message = "A carregar formulário..." }: { message?: string }) => (
     <div className="flex flex-col items-center justify-center min-h-[350px]">
       <Loader2 className="h-10 w-10 animate-spin text-blue-600 mb-4" />
@@ -323,7 +321,7 @@ function RegisterForm() {
     const [loadingMessage, setLoadingMessage] = useState("");
     const router = useRouter();
     const { toast } = useToast();
-    const { user: authUser, loading: authLoading, setIsRegistering } = useAuthHook(); // Adicione setIsRegistering
+    const { user: authUser, loading: authLoading, setIsRegistering } = useAuthHook();
     const [doctorObjective, setDoctorObjective] = useState<'caravan' | 'match' | null>(null);
     const [invitationToken, setInvitationToken] = useState<string | null>(null);
     const [availableSpecialties, setAvailableSpecialties] = useState<Specialty[]>([]);
@@ -773,7 +771,7 @@ function RegisterForm() {
         }
         
         setIsLoading(true);
-        setIsRegistering(true); // <-- AVISA QUE O CADASTRO COMEÇOU
+        setIsRegistering(true); // <<<<<<<<<<<<<<<<<<<<<<< PASSO 1: AVISA QUE O CADASTRO COMEÇOU
 
         const functions = getFunctions();
         const finalizeRegistration = httpsCallable(functions, 'finalizeRegistration');
@@ -785,20 +783,9 @@ function RegisterForm() {
             setLoadingMessage("Etapa 1/4: Criando sua conta...");
             const displayName = role === 'doctor' ? personalInfo.name : hospitalInfo.companyName;
             
-            try {
-                user = await createAuthUser(loginEmail, credentials.password, displayName);
-                if (!user) { throw new Error("Não foi possível obter os dados do usuário após a criação."); }
-                await user.getIdToken(true);
-                console.log("Usuário criado e autenticado com sucesso no cliente. UID:", user.uid);
-            } catch (error: any) {
-                if (error.code === 'auth/email-already-in-use') {
-                    toast({ variant: "destructive", title: "Email já cadastrado", description: "Este e-mail já está em uso." });
-                } else {
-                    toast({ variant: "destructive", title: "Erro ao Criar Conta", description: error.message });
-                }
-                // Retornar aqui para não prosseguir
-                return; 
-            }
+            user = await createAuthUser(loginEmail, credentials.password, displayName);
+            if (!user) { throw new Error("Não foi possível obter os dados do usuário após a criação."); }
+            console.log("Usuário criado e autenticado com sucesso no cliente. UID:", user.uid);
 
             setLoadingMessage("Etapa 2/4: Enviando seus documentos...");
             const uploadId = uuidv4();
@@ -843,8 +830,20 @@ function RegisterForm() {
                 role: role
             });
             
-            toast({ title: "Cadastro Realizado com Sucesso!", description: "Aguarde, estamos a redirecioná-lo...", duration: 5000 });
-            router.push('/login');
+            // ============================================================================
+            // 🔹 SOLUÇÃO DEFINITIVA APLICADA AQUI 🔹
+            // ============================================================================
+            if (auth.currentUser) {
+              console.log("[RegisterForm] Forçando a atualização do token para carregar a nova 'role'...");
+              await new Promise(resolve => setTimeout(resolve, 1500)); 
+              await auth.currentUser.getIdToken(true);
+              console.log(`[RegisterForm] Token atualizado com sucesso com a role: '${role}'`);
+            }
+            // ============================================================================
+            
+            toast({ title: "Cadastro Realizado com Sucesso!", description: "Aguarde, estamos a redirecioná-lo...", duration: 3000 });
+            
+            router.push('/login'); 
 
         } catch (error: any) {
             console.error("ERRO NO PROCESSO DE CADASTRO:", error);
@@ -860,10 +859,9 @@ function RegisterForm() {
                 }
             }
         } finally {
-            // Este bloco será executado SEMPRE, com sucesso ou erro.
             setIsLoading(false);
             setLoadingMessage("");
-            setIsRegistering(false); // <-- AVISA QUE O CADASTRO TERMINOU
+            setIsRegistering(false); // <<<<<<<<<<<<<<<<<<<<<<< PASSO 2: AVISA QUE O CADASTRO TERMINOU
         }
     };
 
@@ -1205,9 +1203,6 @@ function RegisterForm() {
 
             <div className="bg-white p-4 sm:p-6 md:p-8 rounded-lg shadow-xl border border-gray-200 min-h-[350px] relative">
                 {isLoading && (
-                     // =================================================================
-                     // 🔹 SUGESTÃO DE MELHORIA PARA O OVERLAY DE CARREGAMENTO 🔹
-                     // =================================================================
                      <div className="absolute inset-0 bg-white/90 backdrop-blur-sm flex flex-col items-center justify-center z-20 rounded-lg text-center p-4">
                          <Loader2 className="h-12 w-12 animate-spin text-blue-600" />
                          <h2 className="mt-6 text-xl font-semibold text-gray-800">
@@ -1219,7 +1214,6 @@ function RegisterForm() {
                          <p className="mt-4 text-sm text-blue-700 font-medium min-h-[20px]">
                              {loadingMessage}
                          </p>
-                         {/* Você pode adicionar uma barra de progresso geral aqui se quiser */}
                      </div>
                 )}
                 <div className={cn("transition-opacity duration-300", isLoading && "opacity-30 pointer-events-none")}>

@@ -2,7 +2,6 @@
 import { HttpsError, CallableRequest } from "firebase-functions/v2/https";
 import { logger } from "firebase-functions/v2";
 import * as admin from "firebase-admin";
-// <<< ALTERAÇÃO: A importação UserRecord é agora usada pela função de cleanup >>>
 import { UserRecord } from "firebase-admin/auth";
 import { Change } from "firebase-functions";
 import { DocumentSnapshot, FieldValue, getFirestore, Query, GeoPoint, DocumentData } from "firebase-admin/firestore";
@@ -334,7 +333,7 @@ export const resetDoctorUserPasswordHandler = async (request: CallableRequest) =
 };
 
 // ============================================================================
-// 🔹 FUNÇÃO DE REGISTO (JÁ CORRETA PARA NOVOS HOSPITAIS) 🔹
+// 🔹 FUNÇÃO DE REGISTO (CORRIGIDA E COM MELHORES LOGS) 🔹
 // ============================================================================
 export const finalizeRegistrationHandler = async (request: CallableRequest) => {
     const uid = request.auth?.uid;
@@ -348,15 +347,15 @@ export const finalizeRegistrationHandler = async (request: CallableRequest) => {
     if (!profileData || !role || !tempFilePaths) {
         throw new HttpsError("invalid-argument", "Dados de registo incompletos.");
     }
+    
+    logger.info(`[${uid}] Iniciando finalização de registro para role: ${role}`);
 
-    // Documentação: Este bloco garante que os registos de 'hospital' sejam salvos
-    // com a estrutura de dados correta, aninhando as informações da empresa
-    // dentro de um objeto 'companyInfo'.
+    // Garante a estrutura de dados correta para hospitais
     if (role === 'hospital') {
         const { cnpj, stateRegistration, phone, address, legalRepresentativeInfo, ...rest } = profileData;
         profileData = {
             ...rest,
-            companyInfo: { // <-- Cria o objeto companyInfo que faltava
+            companyInfo: { 
                 cnpj,
                 stateRegistration,
                 phone,
@@ -364,17 +363,23 @@ export const finalizeRegistrationHandler = async (request: CallableRequest) => {
             },
             legalRepresentativeInfo
         };
+        logger.info(`[${uid}] Estrutura de dados do hospital criada com sucesso.`);
     }
 
     const finalFileUrls: any = { documents: {}, specialistDocuments: {}, hospitalDocs: {}, legalRepDocuments: {} };
 
     try {
-        const newUserId = uid;
-        logger.info(`Iniciando finalização do registo para o utilizador: ${newUserId}`);
-        
-        await auth.setCustomUserClaims(newUserId, { role: role });
-        logger.info(`Claim '${role}' definida com sucesso para o utilizador ${newUserId}.`);
+        // Passo 1: Definir as permissões (claims). É o passo mais crítico.
+        try {
+            logger.info(`[${uid}] Tentando definir a claim de role: '${role}'...`);
+            await auth.setCustomUserClaims(uid, { role: role });
+            logger.info(`[${uid}] SUCESSO: Claim '${role}' definida para o utilizador.`);
+        } catch (claimError) {
+            logger.error(`[${uid}] !!! FALHA CRÍTICA ao definir a claim de role !!!`, claimError);
+            throw new HttpsError("internal", "Falha ao definir as permissões do usuário. Tente novamente.");
+        }
 
+        // Passo 2: Mover arquivos do bucket temporário para o permanente.
         const bucket = storage.bucket();
         const movePromises = Object.entries(tempFilePaths).map(async ([key, tempPath]) => {
             if (typeof tempPath !== 'string' || tempPath === '') return;
@@ -384,10 +389,10 @@ export const finalizeRegistrationHandler = async (request: CallableRequest) => {
             const pathParts = key.split('_'); 
             const docType = pathParts[0];
             const docKey = pathParts[1];
-            if (docType === "hospitalDocs") finalPath = `hospital_documents/${newUserId}/${fileName}`;
-            else if (docType === "legalRepDocuments") finalPath = `hospital_documents/${newUserId}/legal_rep/${fileName}`;
-            else if (docType === "documents") finalPath = `doctor_documents/${newUserId}/${fileName}`;
-            else if (docType === "specialistDocuments") finalPath = `doctor_documents/${newUserId}/specialist/${fileName}`;
+            if (docType === "hospitalDocs") finalPath = `hospital_documents/${uid}/${fileName}`;
+            else if (docType === "legalRepDocuments") finalPath = `hospital_documents/${uid}/legal_rep/${fileName}`;
+            else if (docType === "documents") finalPath = `doctor_documents/${uid}/${fileName}`;
+            else if (docType === "specialistDocuments") finalPath = `doctor_documents/${uid}/specialist/${fileName}`;
             else return; 
             const finalFile = bucket.file(finalPath);
             await tempFile.move(finalPath);
@@ -399,35 +404,44 @@ export const finalizeRegistrationHandler = async (request: CallableRequest) => {
         });
 
         await Promise.all(movePromises);
+        logger.info(`[${uid}] Arquivos movidos com sucesso do bucket temporário para o final.`);
 
+        // Passo 3: Montar e salvar o perfil final no Firestore.
         const finalProfileData = {
             ...profileData,
             ...finalFileUrls, 
-            uid: newUserId,   
+            uid: uid,   
             userType: role,
             createdAt: FieldValue.serverTimestamp(),
             updatedAt: FieldValue.serverTimestamp(),
             status: role === 'doctor' ? 'PENDING_APPROVAL' : 'ACTIVE'
         };
 
-        await db.collection("users").doc(newUserId).set(finalProfileData);
-        logger.info(`Perfil completo do utilizador ${newUserId} guardado com sucesso no Firestore.`);
+        await db.collection("users").doc(uid).set(finalProfileData);
+        logger.info(`[${uid}] Perfil completo do utilizador salvo com sucesso no Firestore.`);
 
+        // Passo 4: Limpar a pasta temporária de uploads.
         if (tempFilePaths && Object.values(tempFilePaths).length > 0) {
             const firstPath = Object.values(tempFilePaths)[0] as string;
             const uploadId = firstPath.split('/')[1];
             if (uploadId) {
                 await bucket.deleteFiles({ prefix: `tmp_uploads/${uploadId}/` });
+                logger.info(`[${uid}] Pasta temporária 'tmp_uploads/${uploadId}/' limpa com sucesso.`);
             }
         }
         
-        return { success: true, userId: newUserId };
+        logger.info(`[${uid}] Processo de finalização de registro concluído com sucesso.`);
+        return { success: true, userId: uid, role: role };
 
     } catch (error: any) {
-        logger.error(`!!! ERRO CRÍTICO NA FINALIZAÇÃO DO REGISTO PARA O UTILIZADOR ${uid} !!!`, error);
-        throw new HttpsError("internal", "Ocorreu um erro inesperado ao finalizar o registo.");
+        logger.error(`[${uid}] !!! ERRO INESPERADO no processo de finalização de registro !!!`, error);
+        if (error instanceof HttpsError) {
+            throw error;
+        }
+        throw new HttpsError("internal", "Ocorreu um erro inesperado ao finalizar o registo. Verifique os logs.");
     }
 };
+
 
 export const onUserWrittenSetClaimsHandler = async (event: FirestoreEvent<Change<DocumentSnapshot> | undefined, { userId: string }>) => {
     const change = event.data;
