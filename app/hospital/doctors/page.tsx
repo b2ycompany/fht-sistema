@@ -1,3 +1,4 @@
+// app/hospital/doctors/page.tsx
 "use client";
 
 import React, { useState, useEffect, useCallback } from 'react';
@@ -18,7 +19,7 @@ import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem } from "
 import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from '@/components/ui/badge';
 import { Label } from '@/components/ui/label';
-import { Loader2, UserPlus, Search, Link as LinkIcon, ListFilter, X } from 'lucide-react';
+import { Loader2, UserPlus, Search, Link as LinkIcon, ListFilter, X, KeyRound } from 'lucide-react';
 
 // Interface para os resultados da busca
 interface DoctorSearchResult {
@@ -28,26 +29,33 @@ interface DoctorSearchResult {
     specialties: string[];
 }
 
-
-// --- NOVO Componente do Diálogo de CONVITE de Médico ---
-const InviteDoctorDialog = ({ onInvitationSuccess }: { onInvitationSuccess: () => void }) => {
+// --- COMPONENTE DO DIÁLOGO DE CRIAÇÃO DE MÉDICO (SUBSTITUI O DE CONVITE) ---
+const CreateDoctorDialog = ({ onCreationSuccess }: { onCreationSuccess: () => void }) => {
     const { toast } = useToast();
     const [isSubmitting, setIsSubmitting] = useState(false);
+    const [doctorName, setDoctorName] = useState('');
     const [doctorEmail, setDoctorEmail] = useState('');
 
-    const handleInviteDoctor = async () => {
-        if (!doctorEmail) {
-            toast({ title: "Campo Incompleto", description: "O e-mail do médico é obrigatório.", variant: "destructive" });
+    const handleCreateDoctor = async () => {
+        if (!doctorName || !doctorEmail) {
+            toast({ title: "Campos Incompletos", description: "Nome e e-mail do médico são obrigatórios.", variant: "destructive" });
             return;
         }
         setIsSubmitting(true);
         try {
-            const inviteFunction = httpsCallable(functions, 'sendDoctorInvitation');
-            await inviteFunction({ doctorEmail });
-            toast({ title: "Sucesso!", description: `Convite enviado para ${doctorEmail}. O médico receberá um e-mail para se cadastrar.`, className: "bg-green-600 text-white" });
-            onInvitationSuccess();
+            const createFunction = httpsCallable(functions, 'createDoctorUser');
+            const result = await createFunction({ name: doctorName, email: doctorEmail });
+            const temporaryPassword = (result.data as any).temporaryPassword;
+
+            // Exibe a senha para o gestor
+            toast({
+                title: "Médico Criado com Sucesso!",
+                description: `A senha temporária é: ${temporaryPassword}. Anote e informe ao médico.`,
+                duration: 10000, // Deixa o toast visível por mais tempo
+            });
+            onCreationSuccess();
         } catch (error: any) {
-            toast({ title: "Erro ao Enviar Convite", description: error.message, variant: "destructive" });
+            toast({ title: "Erro ao Criar Médico", description: error.message, variant: "destructive" });
         } finally {
             setIsSubmitting(false);
         }
@@ -56,27 +64,30 @@ const InviteDoctorDialog = ({ onInvitationSuccess }: { onInvitationSuccess: () =
     return (
         <DialogContent>
             <DialogHeader>
-                <DialogTitle>Convidar Novo Médico</DialogTitle>
+                <DialogTitle>Adicionar Novo Médico</DialogTitle>
                 <DialogDescription>
-                    Insira o e-mail do médico para enviar um convite de cadastro. Após o cadastro e aprovação, ele será vinculado à sua unidade.
+                    Cadastre o médico diretamente. A senha inicial será exibida para você repassar a ele. O cadastro ficará pendente de aprovação.
                 </DialogDescription>
             </DialogHeader>
             <div className="grid gap-4 py-4">
+                <div className="space-y-1.5">
+                    <Label htmlFor="name">Nome Completo do Médico</Label>
+                    <Input id="name" value={doctorName} onChange={(e) => setDoctorName(e.target.value)} placeholder="Dr. Nome Sobrenome" />
+                </div>
                 <div className="space-y-1.5">
                     <Label htmlFor="email">Email do Médico</Label>
                     <Input id="email" type="email" value={doctorEmail} onChange={(e) => setDoctorEmail(e.target.value)} placeholder="email@exemplo.com" />
                 </div>
             </div>
             <DialogFooter>
-                <Button onClick={handleInviteDoctor} disabled={isSubmitting}>
+                <Button onClick={handleCreateDoctor} disabled={isSubmitting}>
                     {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                    Enviar Convite
+                    Criar Cadastro e Gerar Senha
                 </Button>
             </DialogFooter>
         </DialogContent>
     );
 };
-
 
 /**
  * Componente de Diálogo para Buscar e Associar Médicos Vinculados
@@ -240,10 +251,11 @@ const AssociateDoctorDialog = ({ onAssociationSuccess }: { onAssociationSuccess:
  */
 export default function HospitalDoctorsPage() {
     const { user } = useAuth();
+    const { toast } = useToast();
     const [associatedDoctors, setAssociatedDoctors] = useState<UserProfile[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [isAssociateDialogOpen, setIsAssociateDialogOpen] = useState(false);
-    const [isInviteDoctorDialogOpen, setIsInviteDoctorDialogOpen] = useState(false);
+    const [isCreateDoctorDialogOpen, setIsCreateDoctorDialogOpen] = useState(false);
 
     const fetchAssociatedDoctors = useCallback(async () => {
         if (!user) return;
@@ -261,6 +273,24 @@ export default function HospitalDoctorsPage() {
     useEffect(() => {
         fetchAssociatedDoctors();
     }, [fetchAssociatedDoctors]);
+    
+    const handleResetPassword = async (doctorId: string, doctorName: string) => {
+        if (!confirm(`Tem certeza que deseja resetar a senha de ${doctorName}? Uma nova senha será gerada.`)) {
+            return;
+        }
+        try {
+            const resetFunction = httpsCallable(functions, 'resetDoctorUserPassword');
+            const result = await resetFunction({ doctorId });
+            const newPassword = (result.data as any).newTemporaryPassword;
+            toast({
+                title: `Senha de ${doctorName} Resetada!`,
+                description: `A nova senha é: ${newPassword}.`,
+                duration: 10000,
+            });
+        } catch (error: any) {
+            toast({ title: "Erro ao Resetar Senha", description: error.message, variant: "destructive" });
+        }
+    };
 
     return (
         <div className="space-y-6">
@@ -277,14 +307,15 @@ export default function HospitalDoctorsPage() {
                             fetchAssociatedDoctors();
                         }} />
                     </Dialog>
-                    {/* Botão para CONVIDAR novo médico */}
-                    <Dialog open={isInviteDoctorDialogOpen} onOpenChange={setIsInviteDoctorDialogOpen}>
+                    {/* Botão para CRIAR novo médico */}
+                    <Dialog open={isCreateDoctorDialogOpen} onOpenChange={setIsCreateDoctorDialogOpen}>
                         <DialogTrigger asChild>
-                            <Button><UserPlus className="mr-2 h-4 w-4" /> Convidar Novo Médico</Button>
+                             <Button><UserPlus className="mr-2 h-4 w-4" /> Adicionar Novo Médico</Button>
                         </DialogTrigger>
-                        <InviteDoctorDialog onInvitationSuccess={() => {
-                            setIsInviteDoctorDialogOpen(false);
-                            // Não precisa de recarregar a lista, pois o médico precisa de se cadastrar e ser aprovado.
+                        <CreateDoctorDialog onCreationSuccess={() => {
+                            setIsCreateDoctorDialogOpen(false);
+                            // Opcional: Recarregar a lista para ver o novo médico com status pendente, se a sua busca incluir eles.
+                            // fetchAssociatedDoctors(); 
                         }} />
                     </Dialog>
                 </div>
@@ -293,25 +324,31 @@ export default function HospitalDoctorsPage() {
             <Card>
                 <CardHeader>
                     <CardTitle>Médicos Associados à Unidade</CardTitle>
-                    <CardDescription>Esta é a lista de médicos que já têm vínculo com a sua unidade e foram aprovados.</CardDescription>
+                    <CardDescription>Esta é a lista de médicos que já têm vínculo com a sua unidade.</CardDescription>
                 </CardHeader>
                 <CardContent>
                     {isLoading ? <div className="flex justify-center p-8"><Loader2 className="h-8 w-8 animate-spin" /></div> : (
                         associatedDoctors.length > 0 ? (
                              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                                 {associatedDoctors.map(doctor => (
-                                    <Card key={doctor.uid}>
+                                    <Card key={doctor.uid} className="flex flex-col">
                                         <CardHeader>
                                             <CardTitle>{doctor.displayName}</CardTitle>
                                             <CardDescription>
                                                 {(doctor as any).professionalCrm || 'CRM não informado'}
                                             </CardDescription>
                                         </CardHeader>
-                                        <CardContent>
+                                        <CardContent className="flex-grow">
                                             <div className="flex flex-wrap gap-1">
                                                 {(doctor as any).specialties?.map((spec: string) => <Badge key={spec} variant="secondary">{spec}</Badge>)}
                                             </div>
                                         </CardContent>
+                                        <div className="p-4 pt-0 mt-auto">
+                                            <Button variant="ghost" className="w-full justify-start text-sm" onClick={() => handleResetPassword(doctor.uid, doctor.displayName || 'Médico')}>
+                                                <KeyRound className="mr-2 h-4 w-4" />
+                                                Resetar Senha
+                                            </Button>
+                                        </div>
                                     </Card>
                                 ))}
                             </div>

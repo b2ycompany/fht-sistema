@@ -28,7 +28,6 @@ interface UserProfile extends DocumentData {
     updatedAt?: FieldValue;
 }
 
-// ... (O resto das suas interfaces permanece o mesmo) ...
 interface ShiftRequirementData {
   hospitalId: string;
   hospitalName?: string;
@@ -144,7 +143,6 @@ const storage = getStorage();
 
 
 // --- FUNÇÕES AUXILIARES ---
-// ... (Todas as suas funções auxiliares permanecem as mesmas) ...
 const timeToMinutes = (timeStr: string): number => {
     if (!timeStr || !timeStr.includes(":")) { return 0; }
     const [hours, minutes] = timeStr.split(":").map(Number);
@@ -190,7 +188,153 @@ async function drawTextWithWrapping(page: any, text: string, options: { x: numbe
 // --- LÓGICA DE CADA FUNÇÃO (HANDLERS) ---
 
 // ============================================================================
-// 🔹 FUNÇÃO DE REGISTO CORRIGIDA 🔹
+// 🔹 FUNÇÃO DE CRIAÇÃO DE FUNCIONÁRIOS (ROBUSTECIDA) 🔹
+// ============================================================================
+export const createStaffUserHandler = async (request: CallableRequest) => {
+    if (!request.auth) {
+        logger.warn("Tentativa de criação de staff por utilizador não autenticado.");
+        throw new HttpsError("unauthenticated", "Apenas utilizadores autenticados podem adicionar membros à equipa.");
+    }
+    const callerUid = request.auth.uid;
+    logger.info(`Iniciando criação de staff. Chamado por: ${callerUid}`);
+    try {
+        const callerDoc = await db.collection("users").doc(callerUid).get();
+        if (!callerDoc.exists) {
+            logger.error(`PERFIL NÃO ENCONTRADO para o chamador: ${callerUid}`);
+            throw new HttpsError("not-found", "O seu perfil de utilizador não foi encontrado.");
+        }
+        const callerProfile = callerDoc.data();
+        const allowedRoles = ['hospital', 'admin'];
+        if (!callerProfile || !allowedRoles.includes(callerProfile.userType)) {
+            logger.error(`PERMISSÃO NEGADA para ${callerUid}. Role encontrada: '${callerProfile?.userType}'`);
+            throw new HttpsError("permission-denied", "Você não tem permissão para realizar esta ação.");
+        }
+        logger.info(`Permissão validada para ${callerUid}. Role: ${callerProfile.userType}`);
+        const { name, email, userType, hospitalId } = request.data;
+        if (!name || !email || !userType || !hospitalId) {
+            logger.error("Dados de entrada inválidos.", request.data);
+            throw new HttpsError("invalid-argument", "Nome, email, função e ID da unidade são obrigatórios.");
+        }
+        const temporaryPassword = `fht-${Math.random().toString(36).slice(2, 10)}`;
+        const userRecord = await auth.createUser({
+            email: email,
+            emailVerified: true,
+            displayName: name,
+            password: temporaryPassword,
+            disabled: false,
+        });
+        logger.info(`Utilizador de autenticação criado com sucesso para ${email} com UID ${userRecord.uid}`);
+        const userProfile = {
+            displayName: name,
+            displayName_lowercase: name.toLowerCase(),
+            email: email,
+            userType: userType,
+            hospitalId: hospitalId,
+            status: 'ACTIVE' as const,
+            createdAt: FieldValue.serverTimestamp(),
+            updatedAt: FieldValue.serverTimestamp(),
+        };
+        await db.collection("users").doc(userRecord.uid).set(userProfile);
+        logger.info(`SUCESSO: Funcionário ${userRecord.uid} criado para o hospital ${hospitalId}.`);
+        return {
+            success: true,
+            user: { uid: userRecord.uid, ...userProfile },
+            temporaryPassword: temporaryPassword
+        };
+    } catch (error: any) {
+        logger.error(`!!! ERRO CRÍTICO ao criar profissional para o chamador ${callerUid} !!!`, { error: error.message, data: request.data });
+        if (error instanceof HttpsError) throw error;
+        if (error.code === 'auth/email-already-exists') {
+            throw new HttpsError("already-exists", "Este endereço de e-mail já está em uso.");
+        }
+        throw new HttpsError("internal", "Ocorreu um erro inesperado no servidor. Contacte o suporte.");
+    }
+};
+
+// ============================================================================
+// 🔹 NOVA LÓGICA PARA ADICIONAR MÉDICOS (SUBSTITUI O CONVITE) 🔹
+// ============================================================================
+export const createDoctorUserHandler = async (request: CallableRequest) => {
+    if (!request.auth) {
+        throw new HttpsError("unauthenticated", "Apenas utilizadores autenticados podem adicionar médicos.");
+    }
+    const callerUid = request.auth.uid; // Este é o hospitalId
+    try {
+        const callerDoc = await db.collection("users").doc(callerUid).get();
+        if (!callerDoc.exists || callerDoc.data()?.userType !== 'hospital') {
+            throw new HttpsError("permission-denied", "Apenas gestores de unidade podem realizar esta ação.");
+        }
+        const { name, email } = request.data;
+        if (!name || !email) {
+            throw new HttpsError("invalid-argument", "Nome e email do médico são obrigatórios.");
+        }
+        const temporaryPassword = `fht-med-${Math.random().toString(36).slice(2, 8)}`;
+        const userRecord = await auth.createUser({
+            email: email,
+            emailVerified: true,
+            displayName: name,
+            password: temporaryPassword,
+            disabled: false,
+        });
+        const userProfile = {
+            displayName: name,
+            displayName_lowercase: name.toLowerCase(),
+            email: email,
+            userType: 'doctor',
+            healthUnitIds: [callerUid], // Vincula o médico ao hospital que o criou
+            status: 'PENDING_APPROVAL' as const, // Médicos precisam de aprovação do admin
+            createdAt: FieldValue.serverTimestamp(),
+            updatedAt: FieldValue.serverTimestamp(),
+        };
+        await db.collection("users").doc(userRecord.uid).set(userProfile);
+        logger.info(`SUCESSO: Médico ${userRecord.uid} criado e vinculado ao hospital ${callerUid}.`);
+        return {
+            success: true,
+            user: { uid: userRecord.uid, ...userProfile },
+            temporaryPassword: temporaryPassword
+        };
+    } catch (error: any) {
+        logger.error(`!!! ERRO CRÍTICO ao criar médico para o chamador ${callerUid} !!!`, { error: error.message, data: request.data });
+        if (error.code === 'auth/email-already-exists') {
+            throw new HttpsError("already-exists", "Um utilizador com este e-mail já existe. Use a função 'Buscar Médico'.");
+        }
+        throw new HttpsError("internal", "Ocorreu um erro inesperado ao criar o médico.");
+    }
+};
+
+export const resetDoctorUserPasswordHandler = async (request: CallableRequest) => {
+    if (!request.auth) {
+        throw new HttpsError("unauthenticated", "Apenas utilizadores autenticados podem resetar senhas.");
+    }
+    const callerUid = request.auth.uid;
+    const { doctorId } = request.data;
+    if (!doctorId) {
+        throw new HttpsError("invalid-argument", "O ID do médico é obrigatório.");
+    }
+    try {
+        const doctorDoc = await db.collection("users").doc(doctorId).get();
+        if (!doctorDoc.exists) throw new HttpsError("not-found", "Médico não encontrado.");
+        
+        const doctorProfile = doctorDoc.data();
+        if (!doctorProfile?.healthUnitIds?.includes(callerUid)) {
+            throw new HttpsError("permission-denied", "Você só pode resetar senhas de médicos vinculados à sua unidade.");
+        }
+        const newTemporaryPassword = `fht-med-reset-${Math.random().toString(36).slice(2, 8)}`;
+        await auth.updateUser(doctorId, { password: newTemporaryPassword });
+        logger.info(`Senha do médico ${doctorId} resetada com sucesso por ${callerUid}.`);
+        return {
+            success: true,
+            newTemporaryPassword: newTemporaryPassword
+        };
+    } catch (error: any) {
+        logger.error(`Falha ao resetar a senha do médico ${doctorId}:`, error);
+        if (error instanceof HttpsError) throw error;
+        throw new HttpsError("internal", "Ocorreu um erro inesperado ao resetar a senha.");
+    }
+};
+
+// ============================================================================
+// 🔹 FUNÇÃO DE REGISTO (JÁ CORRETA PARA NOVOS HOSPITAIS) 🔹
 // ============================================================================
 export const finalizeRegistrationHandler = async (request: CallableRequest) => {
     const uid = request.auth?.uid;
@@ -205,14 +349,9 @@ export const finalizeRegistrationHandler = async (request: CallableRequest) => {
         throw new HttpsError("invalid-argument", "Dados de registo incompletos.");
     }
 
-    // =================================================================
-    // 🔹 CORREÇÃO DA ESTRUTURA DE DADOS DO HOSPITAL APLICADA AQUI 🔹
-    // =================================================================
-    // Documentação: Este bloco verifica se o registo é de um 'hospital'.
-    // Se for, ele desconstrói o objeto `profileData` para extrair os campos
-    // da empresa (`cnpj`, `stateRegistration`, etc.) e os agrupa
-    // dentro de um novo objeto aninhado chamado `companyInfo`.
-    // Isso garante que os dados do hospital sejam salvos no formato correto no Firestore.
+    // Documentação: Este bloco garante que os registos de 'hospital' sejam salvos
+    // com a estrutura de dados correta, aninhando as informações da empresa
+    // dentro de um objeto 'companyInfo'.
     if (role === 'hospital') {
         const { cnpj, stateRegistration, phone, address, legalRepresentativeInfo, ...rest } = profileData;
         profileData = {
@@ -290,10 +429,6 @@ export const finalizeRegistrationHandler = async (request: CallableRequest) => {
     }
 };
 
-
-// ============================================================================
-// CORREÇÃO APLICADA AQUI: Função alterada para ser mais robusta, atualização e melhorado
-// ============================================================================
 export const onUserWrittenSetClaimsHandler = async (event: FirestoreEvent<Change<DocumentSnapshot> | undefined, { userId: string }>) => {
     const change = event.data;
     if (!change) {
@@ -304,20 +439,17 @@ export const onUserWrittenSetClaimsHandler = async (event: FirestoreEvent<Change
     const dataAfter = change.after.data() as UserProfile | undefined;
     const dataBefore = change.before?.data() as UserProfile | undefined;
     
-    // Se o documento foi apagado, não faz nada
     if (!dataAfter) {
         logger.info(`Utilizador ${event.params.userId} foi apagado, nenhuma ação de claims a ser tomada.`);
         return;
     }
 
-    // A condição principal: só executa se o userType foi definido pela primeira vez ou alterado.
     if (dataAfter.userType && dataAfter.userType !== dataBefore?.userType) {
         const userId = event.params.userId;
         const { userType, hospitalId, displayName, invitationToken } = dataAfter;
 
         logger.info(`userType definido/alterado para '${userType}' para o utilizador ${userId}. A definir claims.`);
 
-        // Lógica de convite (mantida da sua função original)
         if (userType === 'doctor' && invitationToken) {
             const invitationsRef = db.collection("invitations");
             const q = invitationsRef.where("token", "==", invitationToken).where("status", "==", "pending");
@@ -355,7 +487,6 @@ export const onUserWrittenSetClaimsHandler = async (event: FirestoreEvent<Change
     }
 };
 
-// ... (O resto de todas as suas outras funções em logic.ts permanece exatamente o mesmo) ...
 export const findMatchesOnShiftRequirementWriteHandler = async (event: FirestoreEvent<Change<DocumentSnapshot> | undefined, { requirementId: string }>): Promise<void> => {
     const change = event.data;
     if (!change) return;
@@ -1032,78 +1163,6 @@ export const setAdminClaimHandler = async (request: CallableRequest) => {
     }
 };
 
-export const createStaffUserHandler = async (request: CallableRequest) => {
-    if (!request.auth) {
-        throw new HttpsError("unauthenticated", "Apenas utilizadores autenticados podem adicionar membros à equipa.");
-    }
-    
-    const callerUid = request.auth.uid;
-    const callerDoc = await db.collection("users").doc(callerUid).get();
-    const callerProfile = callerDoc.data();
-
-    const allowedRoles = ['hospital', 'admin'];
-    if (!callerProfile || !allowedRoles.includes(callerProfile.userType)) {
-        throw new HttpsError("permission-denied", "Você não tem permissão para realizar esta ação.");
-    }
-
-    const { name, email, userType, hospitalId } = request.data;
-    if (!name || !email || !userType || !hospitalId) {
-        throw new HttpsError("invalid-argument", "Nome, email, função e ID da unidade são obrigatórios.");
-    }
-
-    try {
-        const userRecord = await auth.createUser({
-            email: email,
-            emailVerified: true,
-            displayName: name,
-            disabled: false,
-        });
-
-        const userProfile = {
-            displayName: name,
-            email: email,
-            userType: userType,
-            hospitalId: hospitalId,
-            status: 'INVITED' as const,
-            createdAt: FieldValue.serverTimestamp(),
-            updatedAt: FieldValue.serverTimestamp(),
-        };
-        await db.collection("users").doc(userRecord.uid).set(userProfile);
-        
-        const actionCodeSettings = {
-            url: `https://www.fhtgestao.com.br/login`,
-            handleCodeInApp: true,
-        };
-        const passwordCreationLink = await auth.generatePasswordResetLink(email, actionCodeSettings);
-
-        await db.collection("mail").add({
-            to: email,
-            template: {
-                name: "welcome_staff",
-                data: {
-                    managerName: callerProfile.displayName,
-                    staffName: name,
-                    role: userType.replace('_', ' '),
-                    action_url: passwordCreationLink,
-                },
-            },
-        });
-        
-        return { success: true, user: { uid: userRecord.uid, ...userProfile } };
-
-    } catch (error: any) {
-        logger.error("Falha ao criar profissional:", error);
-        if (error.code === 'auth/email-already-exists') {
-            throw new HttpsError("already-exists", "Este endereço de e-mail já está em uso.");
-        }
-        if (error.code === 'auth/unauthorized-continue-uri') {
-             throw new HttpsError("internal", "O domínio de continuação não está autorizado. Verifique as configurações de autenticação.");
-        }
-        throw new HttpsError("internal", "Ocorreu um erro inesperado ao criar o profissional.");
-    }
-};
-
-
 export const confirmUserSetupHandler = async (request: CallableRequest) => {
     if (!request.auth) {
         throw new HttpsError("unauthenticated", "Utilizador não autenticado.");
@@ -1508,18 +1567,6 @@ export const setHospitalManagerRoleHandler = async (request: CallableRequest) =>
     }
 };
 
-
-// ============================================================================
-// === FUNÇÃO FINAL: Revertida para a sintaxe V1 estável =======================
-// ============================================================================
-
-/**
- * @summary Manipulador da lógica de limpeza quando um utilizador é apagado.
- * @description Esta função é chamada pelo gatilho V1 `onUserDeletedCleanup`.
- * Ela recebe o objeto `UserRecord` do utilizador apagado e remove os
- * documentos correspondentes das coleções 'users' e 'hospitals'.
- * @param {UserRecord} user - O objeto do utilizador que foi apagado.
- */
 export const onUserDeletedCleanupHandler = async (user: UserRecord) => {
     const uid = user.uid;
     logger.info(`[Sintaxe V1] Utilizador de autenticação com UID: ${uid} foi excluído. A iniciar limpeza.`);
@@ -1533,7 +1580,6 @@ export const onUserDeletedCleanupHandler = async (user: UserRecord) => {
         logger.error(`Falha ao excluir o documento de perfil ${uid} em 'users':`, error);
     }
     
-    // Tentativa de apagar também da coleção 'hospitals', caso o user fosse um hospital.
     const hospitalDocRef = db.collection("hospitals").doc(uid);
     const hospitalDoc = await hospitalDocRef.get();
     if(hospitalDoc.exists) {
@@ -1546,4 +1592,105 @@ export const onUserDeletedCleanupHandler = async (user: UserRecord) => {
     }
     
     return;
+};
+
+
+// ============================================================================
+// === FUNÇÕES ADICIONADAS PARA COMPLETAR A SOLUÇÃO
+// ============================================================================
+
+/**
+ * @summary Migra um perfil de hospital da estrutura antiga para a nova (com companyInfo).
+ * @description Esta função é chamada para corrigir perfis de hospitais existentes
+ * que não possuem o objeto aninhado 'companyInfo'.
+ * @param {string} hospitalId - O UID do usuário hospital a ser migrado.
+ */
+export const migrateHospitalProfileToV2Handler = async (request: CallableRequest) => {
+    if (request.auth?.token?.role !== 'admin') {
+        throw new HttpsError("permission-denied", "Apenas administradores podem executar esta migração.");
+    }
+    const { hospitalId } = request.data;
+    if (!hospitalId) {
+        throw new HttpsError("invalid-argument", "O ID do hospital é obrigatório.");
+    }
+    logger.info(`Iniciando migração de perfil para o Hospital ID: ${hospitalId}`);
+    const userRef = db.collection("users").doc(hospitalId);
+    try {
+        await db.runTransaction(async (transaction) => {
+            const userDoc = await transaction.get(userRef);
+            if (!userDoc.exists) {
+                throw new HttpsError("not-found", "Perfil de hospital não encontrado.");
+            }
+            const data = userDoc.data()!;
+            if (data.companyInfo || !data.cnpj) {
+                logger.info(`Perfil ${hospitalId} não necessita de migração.`);
+                return;
+            }
+            transaction.update(userRef, {
+                'companyInfo.cnpj': data.cnpj,
+                'companyInfo.stateRegistration': data.stateRegistration || null,
+                'companyInfo.phone': data.phone || null,
+                'companyInfo.address': data.address || null,
+                cnpj: FieldValue.delete(),
+                stateRegistration: FieldValue.delete(),
+                phone: FieldValue.delete(),
+                address: FieldValue.delete(),
+                updatedAt: FieldValue.serverTimestamp()
+            });
+        });
+        logger.info(`SUCESSO: Perfil do hospital ${hospitalId} foi migrado.`);
+        return { success: true, message: `Perfil ${hospitalId} migrado com sucesso!` };
+    } catch (error) {
+        logger.error(`Falha CRÍTICA ao migrar o perfil ${hospitalId}:`, error);
+        if (error instanceof HttpsError) throw error;
+        throw new HttpsError("internal", "Ocorreu um erro inesperado durante a migração.");
+    }
+};
+
+/**
+ * @summary Reseta a senha de um funcionário e retorna a nova senha temporária.
+ * @description Chamada por um administrador de hospital para gerar uma nova senha
+ * para um membro da sua equipe.
+ * @param {string} staffUserId - O UID do funcionário cuja senha será resetada.
+ */
+export const resetStaffUserPasswordHandler = async (request: CallableRequest) => {
+    if (!request.auth) {
+        throw new HttpsError("unauthenticated", "Apenas utilizadores autenticados podem resetar senhas.");
+    }
+    const callerUid = request.auth.uid;
+    const callerDoc = await db.collection("users").doc(callerUid).get();
+    const callerProfile = callerDoc.data();
+    const allowedRoles = ['hospital', 'admin'];
+    if (!callerProfile || !allowedRoles.includes(callerProfile.userType)) {
+        throw new HttpsError("permission-denied", "Você não tem permissão para realizar esta ação.");
+    }
+    const { staffUserId } = request.data;
+    if (!staffUserId) {
+        throw new HttpsError("invalid-argument", "O ID do funcionário é obrigatório.");
+    }
+    try {
+        const staffUserDoc = await db.collection("users").doc(staffUserId).get();
+        if (!staffUserDoc.exists) {
+            throw new HttpsError("not-found", "Funcionário não encontrado.");
+        }
+        const staffProfile = staffUserDoc.data();
+        if (callerProfile.userType === 'hospital' && staffProfile?.hospitalId !== callerUid) {
+            throw new HttpsError("permission-denied", "Você só pode resetar senhas de funcionários da sua própria unidade.");
+        }
+        const newTemporaryPassword = `fht-reset-${Math.random().toString(36).slice(2, 8)}`;
+        logger.info(`Gerando nova senha para o usuário ${staffUserId} a pedido de ${callerUid}`);
+        await auth.updateUser(staffUserId, {
+            password: newTemporaryPassword,
+        });
+        logger.info(`Senha do usuário ${staffUserId} atualizada com sucesso.`);
+        return {
+            success: true,
+            message: "Senha resetada com sucesso!",
+            newTemporaryPassword: newTemporaryPassword
+        };
+    } catch (error: any) {
+        logger.error(`Falha ao resetar a senha do usuário ${staffUserId}:`, error);
+        if (error instanceof HttpsError) throw error;
+        throw new HttpsError("internal", "Ocorreu um erro inesperado ao resetar a senha.");
+    }
 };

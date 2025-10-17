@@ -4,7 +4,7 @@
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useToast } from "@/hooks/use-toast";
-import { useAuth } from '@/components/auth-provider'; // CORREÇÃO FINAL: Caminho correto
+import { useAuth } from '@/components/auth-provider';
 import { createPatient, searchPatients, type Patient, type PatientPayload } from "@/lib/patient-service";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -13,6 +13,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Loader2, PlusCircle, AlertTriangle } from 'lucide-react';
+import { IMaskInput } from 'react-imask'; // <<< ADICIONADO PARA MÁSCARA
 
 // Função para formatar a data de YYYY-MM-DD para DD/MM/YYYY
 const formatDate = (dateStr?: string) => {
@@ -30,11 +31,10 @@ const AddPatientDialog: React.FC<{ onPatientAdded: () => void }> = ({ onPatientA
     const [phone, setPhone] = useState('');
     const [isSubmitting, setIsSubmitting] = useState(false);
     const { toast } = useToast();
-    const { user, userProfile } = useAuth(); // CORREÇÃO: usa user e userProfile
+    const { user, userProfile } = useAuth();
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
-        // CORREÇÃO: Valida com user e userProfile
         if (!user || !userProfile || !userProfile.hospitalId) {
             toast({ title: "Erro de Autenticação", description: "Utilizador ou unidade não identificada.", variant: "destructive" });
             return;
@@ -73,7 +73,15 @@ const AddPatientDialog: React.FC<{ onPatientAdded: () => void }> = ({ onPatientA
                     </div>
                     <div className="grid grid-cols-4 items-center gap-4">
                         <Label htmlFor="cpf" className="text-right">CPF</Label>
-                        <Input id="cpf" value={cpf} onChange={e => setCpf(e.target.value)} className="col-span-3" />
+                        {/* <<< CORREÇÃO: INPUT COM MÁSCARA APLICADA AQUI >>> */}
+                        <IMaskInput
+                            mask="000.000.000-00"
+                            value={cpf}
+                            unmask={true} // Salva o valor sem a máscara
+                            onAccept={(value) => setCpf(value as string)}
+                            placeholder="000.000.000-00"
+                            className="col-span-3 flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                        />
                     </div>
                     <div className="grid grid-cols-4 items-center gap-4">
                         <Label htmlFor="dob" className="text-right">Data de Nasc.</Label>
@@ -98,7 +106,7 @@ const AddPatientDialog: React.FC<{ onPatientAdded: () => void }> = ({ onPatientA
 
 export default function PatientsPage() {
     const router = useRouter();
-    const { userProfile, profileLoading } = useAuth(); // CORREÇÃO: usa userProfile
+    const { userProfile, profileLoading } = useAuth();
     const { toast } = useToast();
     const [patients, setPatients] = useState<Patient[]>([]);
     const [isLoading, setIsLoading] = useState(false);
@@ -108,7 +116,6 @@ export default function PatientsPage() {
 
     useEffect(() => {
         const performSearch = async () => {
-             // CORREÇÃO: Valida com userProfile
             if (!userProfile || !userProfile.hospitalId || searchTerm.length < 2) {
                 setPatients([]);
                 return;

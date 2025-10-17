@@ -63,9 +63,10 @@ export const confirmUserSetup = onCall({ cors: corsPolicy },
     (request: CallableRequest) => import("./logic").then(api => api.confirmUserSetupHandler(request))
 );
 
-export const sendDoctorInvitation = onCall({ cors: corsPolicy },
-    (request: CallableRequest) => import("./logic").then(api => api.sendDoctorInvitationHandler(request))
-);
+// REMOVIDO: A antiga função de convite foi substituída pela de criação direta
+// export const sendDoctorInvitation = onCall({ cors: corsPolicy },
+//     (request: CallableRequest) => import("./logic").then(api => api.sendDoctorInvitationHandler(request))
+// );
 
 export const associateDoctorToUnit = onCall({ cors: corsPolicy },
     (request: CallableRequest) => import("./logic").then(api => api.associateDoctorToUnitHandler(request))
@@ -78,6 +79,20 @@ export const searchAssociatedDoctors = onCall({ cors: corsPolicy },
 export const setHospitalManagerRole = onCall({ cors: corsPolicy },
     (request: CallableRequest) => import("./logic").then(api => api.setHospitalManagerRoleHandler(request))
 );
+
+export const resetStaffUserPassword = onCall({ cors: corsPolicy },
+    (request: CallableRequest) => import("./logic").then(api => api.resetStaffUserPasswordHandler(request))
+);
+
+// <<< NOVAS FUNÇÕES PARA MÉDICOS ADICIONADAS AQUI >>>
+export const createDoctorUser = onCall({ cors: corsPolicy },
+    (request: CallableRequest) => import("./logic").then(api => api.createDoctorUserHandler(request))
+);
+
+export const resetDoctorUserPassword = onCall({ cors: corsPolicy },
+    (request: CallableRequest) => import("./logic").then(api => api.resetDoctorUserPasswordHandler(request))
+);
+
 
 // --- Funções de Atendimento e Consulta ---
 export const createConsultationRoom = onCall({ cors: corsPolicy, secrets: ["DAILY_APIKEY"] },
@@ -121,6 +136,10 @@ export const migrateDoctorProfilesToUsers = onCall({ cors: corsPolicy },
 
 export const createTelemedicineRoom = onCall({ cors: corsPolicy, secrets: ["DAILY_APIKEY"] },
     (request: CallableRequest) => import("./logic").then(api => api.createTelemedicineRoomHandler(request))
+);
+
+export const migrateHospitalProfile = onCall({ cors: corsPolicy },
+    (request: CallableRequest) => import("./logic").then(api => api.migrateHospitalProfileToV2Handler(request))
 );
 
 
