@@ -216,18 +216,15 @@ const AddShiftDialog: React.FC<AddShiftDialogProps> = ({ onShiftSubmitted, initi
       <DialogClose asChild><Button variant="ghost" size="icon" className="absolute top-4 right-4"><X className="h-4 w-4" /><span className="sr-only">Fechar</span></Button></DialogClose>
       <div className="grid gap-5 py-4 max-h-[70vh] overflow-y-auto px-1 pr-3 md:pr-4">
         
-        {/* CORREÇÃO DO CALENDÁRIO USANDO O PADRÃO POPOVER */}
         <div className="space-y-2">
             <Label className="font-semibold text-gray-800 flex items-center"><CalendarDays/>Data(s)*</Label>
             <p className="text-xs text-gray-500">{isEditing ? "Original (não editável)." : "Selecione uma ou mais datas."}</p>
             {isEditing ? (
-                // Em modo de edição, apenas mostramos a data sem interatividade
                 <Input 
                     value={dates[0] ? new Date(dates[0]).toLocaleDateString('pt-BR') : 'Data não definida'} 
                     disabled 
                 />
             ) : (
-                // Em modo de criação, usamos o Popover para a melhor experiência
                 <Popover>
                     <PopoverTrigger asChild>
                         <Button variant={"outline"} className={cn("w-full justify-start text-left font-normal", !dates.length && "text-muted-foreground")}>
@@ -240,7 +237,7 @@ const AddShiftDialog: React.FC<AddShiftDialogProps> = ({ onShiftSubmitted, initi
                     </PopoverTrigger>
                     <PopoverContent className="w-auto p-0">
                         <Calendar
-                            locale={ptBR} // Traduz o calendário para Português
+                            locale={ptBR}
                             mode="multiple"
                             selected={dates}
                             onSelect={handleDateSelect}
@@ -468,7 +465,13 @@ export default function HospitalShiftsPage() {
       try {
           const requirementsRef = collection(db, "shiftRequirements");
           const statusClause = Array.isArray(status) ? where("status", "in", status) : where("status", "==", status);
-          const q = query( requirementsRef, where("publishedByUID", "==", currentUser.uid), statusClause, orderBy("dates", "asc") );
+          
+          const q = query(
+              requirementsRef,
+              where("publishedByUID", "==", currentUser.uid),
+              statusClause,
+              orderBy("dates", "asc")
+          );
 
           const snapshot = await getDocs(q);
           const data = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as ShiftRequirement));
@@ -623,6 +626,9 @@ export default function HospitalShiftsPage() {
                     </Card>
                   </TabsContent>
                   <TabsContent value="pending">
+                    {/* ============================================================================ */}
+                    {/* 🔹 CORREÇÃO 1: O componente aqui deve ser <Card> com 'C' maiúsculo.      */}
+                    {/* ============================================================================ */}
                     <Card>
                       <CardHeader><CardTitle>Demandas Pendentes</CardTitle></CardHeader>
                       <CardContent>
@@ -631,6 +637,9 @@ export default function HospitalShiftsPage() {
                     </Card>
                   </TabsContent>
                   <TabsContent value="confirmed">
+                    {/* ============================================================================ */}
+                    {/* 🔹 CORREÇÃO 2: O componente aqui também deve ser <Card> com 'C' maiúsculo. */}
+                    {/* ============================================================================ */}
                     <Card>
                       <CardHeader><CardTitle>Demandas Confirmadas</CardTitle></CardHeader>
                       <CardContent>
