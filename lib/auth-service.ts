@@ -528,3 +528,30 @@ export const updateUserVerificationStatus = async (
       throw new Error("Falha ao atualizar o status do cadastro.");
     }
 };
+
+// Adicione esta função ao final de lib/auth-service.ts
+export const getAssociatedDoctors = async (hospitalId: string): Promise<UserProfile[]> => {
+    if (!hospitalId) return [];
+    try {
+        const usersRef = collection(db, "users");
+        // CORREÇÃO: Busca médicos (userType='doctor') que contenham o hospitalId no array healthUnitIds
+        const q = query(
+            usersRef,
+            where("userType", "==", "doctor"),
+            where("healthUnitIds", "array-contains", hospitalId)
+        );
+        const querySnapshot = await getDocs(q);
+
+        if (querySnapshot.empty) {
+            return [];
+        }
+        
+        // Mapeia os resultados para o tipo UserProfile
+        const doctorList = querySnapshot.docs.map(d => ({ uid: d.id, ...d.data() } as UserProfile));
+        return doctorList;
+
+    } catch (error) {
+        console.error(`[AuthService] Erro ao buscar médicos associados para o hospital ${hospitalId}:`, error);
+        throw new Error("Não foi possível carregar a lista de médicos associados.");
+    }
+};

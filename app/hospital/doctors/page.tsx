@@ -6,14 +6,16 @@ import { useAuth } from '@/components/auth-provider';
 import { useToast } from '@/hooks/use-toast';
 import { httpsCallable } from 'firebase/functions';
 import { functions } from '@/lib/firebase';
-import { getStaffForHospital, type UserProfile } from '@/lib/auth-service';
+// CORREÇÃO: Importa a nova função de busca e remove a antiga 'getStaffForHospital' se não for mais usada aqui
+import { getAssociatedDoctors, type UserProfile } from '@/lib/auth-service'; 
 import { useDebounce } from '@/hooks/use-debounce';
 
-// Componentes da UI
+// Componentes da UI (sem alterações)
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogTrigger, DialogFooter } from '@/components/ui/dialog';
+// CORREÇÃO: Importado o 'DialogClose' que estava faltando no seu prompt, mas é bom ter
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogTrigger, DialogFooter, DialogClose } from '@/components/ui/dialog';
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem } from "@/components/ui/command";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -21,7 +23,7 @@ import { Badge } from '@/components/ui/badge';
 import { Label } from '@/components/ui/label';
 import { Loader2, UserPlus, Search, Link as LinkIcon, ListFilter, X, KeyRound } from 'lucide-react';
 
-// Interface para os resultados da busca
+// Interfaces (DoctorSearchResult, etc., sem alterações)
 interface DoctorSearchResult {
     uid: string;
     name: string;
@@ -29,7 +31,8 @@ interface DoctorSearchResult {
     specialties: string[];
 }
 
-// --- COMPONENTE DO DIÁLOGO DE CRIAÇÃO DE MÉDICO (SUBSTITUI O DE CONVITE) ---
+// --- Componente CreateDoctorDialog (SEM ALTERAÇÕES, já está correto) ---
+// (Vou colapsar por uma questão de espaço, mas o código é o mesmo do seu arquivo original)
 const CreateDoctorDialog = ({ onCreationSuccess }: { onCreationSuccess: () => void }) => {
     const { toast } = useToast();
     const [isSubmitting, setIsSubmitting] = useState(false);
@@ -51,7 +54,7 @@ const CreateDoctorDialog = ({ onCreationSuccess }: { onCreationSuccess: () => vo
             toast({
                 title: "Médico Criado com Sucesso!",
                 description: `A senha temporária é: ${temporaryPassword}. Anote e informe ao médico.`,
-                duration: 10000, // Deixa o toast visível por mais tempo
+                duration: 15000, // Tempo aumentado
             });
             onCreationSuccess();
         } catch (error: any) {
@@ -80,6 +83,9 @@ const CreateDoctorDialog = ({ onCreationSuccess }: { onCreationSuccess: () => vo
                 </div>
             </div>
             <DialogFooter>
+                <DialogClose asChild>
+                    <Button variant="outline">Cancelar</Button>
+                </DialogClose>
                 <Button onClick={handleCreateDoctor} disabled={isSubmitting}>
                     {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                     Criar Cadastro e Gerar Senha
@@ -89,9 +95,8 @@ const CreateDoctorDialog = ({ onCreationSuccess }: { onCreationSuccess: () => vo
     );
 };
 
-/**
- * Componente de Diálogo para Buscar e Associar Médicos Vinculados
- */
+// --- Componente AssociateDoctorDialog (SEM ALTERAÇÕES) ---
+// (Vou colapsar por uma questão de espaço, mas o código é o mesmo do seu arquivo original)
 const AssociateDoctorDialog = ({ onAssociationSuccess }: { onAssociationSuccess: () => void }) => {
     const { toast } = useToast();
     const [searchTerm, setSearchTerm] = useState('');
@@ -107,7 +112,8 @@ const AssociateDoctorDialog = ({ onAssociationSuccess }: { onAssociationSuccess:
         const fetchSpecialties = async () => {
             if (!hospitalId) return;
             try {
-                const searchFunction = httpsCallable(functions, 'searchAssociatedDoctors');
+                // Esta função busca *todos* os médicos associados para popular os filtros
+                const searchFunction = httpsCallable(functions, 'searchAssociatedDoctors'); 
                 const result = await searchFunction({ searchTerm: '', specialtiesFilter: [] });
                 const doctors = (result.data as any).doctors as DoctorSearchResult[];
                 
@@ -246,9 +252,8 @@ const AssociateDoctorDialog = ({ onAssociationSuccess }: { onAssociationSuccess:
     );
 };
 
-/**
- * Componente principal da página de Gestão de Médicos.
- */
+
+// --- Componente principal da página (LÓGICA DE BUSCA CORRIGIDA) ---
 export default function HospitalDoctorsPage() {
     const { user } = useAuth();
     const { toast } = useToast();
@@ -257,27 +262,28 @@ export default function HospitalDoctorsPage() {
     const [isAssociateDialogOpen, setIsAssociateDialogOpen] = useState(false);
     const [isCreateDoctorDialogOpen, setIsCreateDoctorDialogOpen] = useState(false);
 
-    const fetchAssociatedDoctors = useCallback(async () => {
+    // CORREÇÃO: Renomeado e usa a nova função getAssociatedDoctors
+    const fetchDoctors = useCallback(async () => {
         if (!user) return;
         setIsLoading(true);
         try {
-            const staff = await getStaffForHospital(user.uid);
-            setAssociatedDoctors(staff.filter(s => s.userType === 'doctor'));
+            // Chama a função correta para buscar médicos associados
+            const doctors = await getAssociatedDoctors(user.uid); 
+            setAssociatedDoctors(doctors);
         } catch (error) {
             console.error("Erro ao buscar médicos associados:", error);
+            toast({ title: "Erro ao Carregar Médicos", description: "Não foi possível buscar a lista de médicos associados.", variant: "destructive" });
         } finally {
             setIsLoading(false);
         }
-    }, [user]);
+    }, [user, toast]);
 
     useEffect(() => {
-        fetchAssociatedDoctors();
-    }, [fetchAssociatedDoctors]);
-    
+        fetchDoctors();
+    }, [fetchDoctors]);
+
     const handleResetPassword = async (doctorId: string, doctorName: string) => {
-        if (!confirm(`Tem certeza que deseja resetar a senha de ${doctorName}? Uma nova senha será gerada.`)) {
-            return;
-        }
+        if (!confirm(`Tem certeza que deseja resetar a senha de ${doctorName}? Uma nova senha será gerada.`)) return;
         try {
             const resetFunction = httpsCallable(functions, 'resetDoctorUserPassword');
             const result = await resetFunction({ doctorId });
@@ -285,7 +291,7 @@ export default function HospitalDoctorsPage() {
             toast({
                 title: `Senha de ${doctorName} Resetada!`,
                 description: `A nova senha é: ${newPassword}.`,
-                duration: 10000,
+                duration: 15000,
             });
         } catch (error: any) {
             toast({ title: "Erro ao Resetar Senha", description: error.message, variant: "destructive" });
@@ -293,29 +299,26 @@ export default function HospitalDoctorsPage() {
     };
 
     return (
-        <div className="space-y-6">
+        <div className="space-y-6 container mx-auto p-4 sm:p-6">
             <div className="flex items-center justify-between">
                 <h1 className="text-3xl font-bold">Gestão de Médicos</h1>
                 <div className="flex gap-2">
-                    {/* Botão para buscar/associar médico JÁ VINCULADO */}
                     <Dialog open={isAssociateDialogOpen} onOpenChange={setIsAssociateDialogOpen}>
                         <DialogTrigger asChild>
-                            <Button variant="outline"><Search className="mr-2 h-4 w-4" /> Buscar Médico</Button>
+                            <Button variant="outline"><Search className="mr-2 h-4 w-4" /> Buscar/Associar Médico</Button>
                         </DialogTrigger>
                         <AssociateDoctorDialog onAssociationSuccess={() => {
                             setIsAssociateDialogOpen(false);
-                            fetchAssociatedDoctors();
+                            fetchDoctors(); // Recarrega a lista após associar
                         }} />
                     </Dialog>
-                    {/* Botão para CRIAR novo médico */}
                     <Dialog open={isCreateDoctorDialogOpen} onOpenChange={setIsCreateDoctorDialogOpen}>
                         <DialogTrigger asChild>
-                             <Button><UserPlus className="mr-2 h-4 w-4" /> Adicionar Novo Médico</Button>
+                            <Button><UserPlus className="mr-2 h-4 w-4" /> Adicionar Novo Médico</Button>
                         </DialogTrigger>
                         <CreateDoctorDialog onCreationSuccess={() => {
                             setIsCreateDoctorDialogOpen(false);
-                            // Opcional: Recarregar a lista para ver o novo médico com status pendente, se a sua busca incluir eles.
-                            // fetchAssociatedDoctors(); 
+                             // Não precisa recarregar aqui, pois o médico precisa ser aprovado primeiro.
                         }} />
                     </Dialog>
                 </div>
@@ -324,7 +327,7 @@ export default function HospitalDoctorsPage() {
             <Card>
                 <CardHeader>
                     <CardTitle>Médicos Associados à Unidade</CardTitle>
-                    <CardDescription>Esta é a lista de médicos que já têm vínculo com a sua unidade.</CardDescription>
+                    <CardDescription>Lista de médicos vinculados à sua unidade.</CardDescription>
                 </CardHeader>
                 <CardContent>
                     {isLoading ? <div className="flex justify-center p-8"><Loader2 className="h-8 w-8 animate-spin" /></div> : (
@@ -341,9 +344,10 @@ export default function HospitalDoctorsPage() {
                                         <CardContent className="flex-grow">
                                             <div className="flex flex-wrap gap-1">
                                                 {(doctor as any).specialties?.map((spec: string) => <Badge key={spec} variant="secondary">{spec}</Badge>)}
+                                                {(!(doctor as any).specialties || (doctor as any).specialties.length === 0) && <Badge variant="outline">Sem especialidades</Badge>}
                                             </div>
                                         </CardContent>
-                                        <div className="p-4 pt-0 mt-auto">
+                                         <div className="p-4 pt-0 mt-auto">
                                             <Button variant="ghost" className="w-full justify-start text-sm" onClick={() => handleResetPassword(doctor.uid, doctor.displayName || 'Médico')}>
                                                 <KeyRound className="mr-2 h-4 w-4" />
                                                 Resetar Senha
@@ -353,8 +357,9 @@ export default function HospitalDoctorsPage() {
                                 ))}
                             </div>
                         ) : (
-                            <div className="text-center py-8">
-                                <p className="text-sm text-muted-foreground">Nenhum médico associado a esta unidade.</p>
+                            <div className="text-center py-8 border-2 border-dashed rounded-lg">
+                                <p className="text-sm text-muted-foreground">Nenhum médico associado a esta unidade ainda.</p>
+                                <p className="text-xs text-muted-foreground mt-1">Use 'Buscar/Associar Médico' para adicionar um existente ou 'Adicionar Novo' para cadastrar.</p>
                             </div>
                         )
                     )}
