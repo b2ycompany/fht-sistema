@@ -92,3 +92,41 @@ body {
     @apply bg-background text-foreground;
   }
 }
+/* Adicione estas regras ao final do seu arquivo app/globals.css */
+
+/* Garante que as células do cabeçalho (Dom, Seg, Ter...) ocupem espaço igual e centralizem o texto */
+.rdp-head_cell {
+  text-align: center !important; /* Centraliza o texto (Dom, Seg, etc.) */
+  width: 2.5rem; /* Ajuste se necessário para o tamanho dos dias */
+  padding: 0.5rem 0 !important; /* Espaçamento vertical */
+  font-size: 0.8rem; /* Tamanho da fonte dos dias da semana */
+  color: hsl(var(--muted-foreground)); /* Cor suave para os dias da semana */
+}
+
+/* Garante que a linha do cabeçalho (que contém Dom, Seg...) use layout de tabela */
+.rdp-head_row {
+    display: table-row !important;
+    width: 100% !important;
+}
+
+/* Garante que a tabela principal do calendário ocupe a largura total */
+.rdp-table {
+    width: 100% !important;
+    table-layout: fixed !important; /* Ajuda a manter as colunas alinhadas */
+}
+
+/* Ajuste opcional para o tamanho das células dos dias, se necessário */
+.rdp-cell {
+    width: 2.5rem; /* Deve ser igual ao width do .rdp-head_cell */
+    height: 2.5rem; /* Altura igual à largura para dias quadrados */
+    padding: 0.25rem !important;
+}
+
+/* Ajuste opcional para o botão do dia */
+.rdp-button {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}

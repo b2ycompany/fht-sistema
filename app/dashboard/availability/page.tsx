@@ -6,7 +6,8 @@ import { Button } from "@/components/ui/button";
 import type { VariantProps } from "class-variance-authority";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
 import { Calendar } from "@/components/ui/calendar";
-import { type SelectMultipleEventHandler } from "react-day-picker";
+// CORREÇÃO: Importar DayPickerProps para tipagem correta no Popover
+import { type SelectMultipleEventHandler, type DayPickerProps } from "react-day-picker";
 import {
     Select,
     SelectContent,
@@ -35,7 +36,7 @@ import {
     DialogTrigger
 } from "@/components/ui/dialog";
 import { CitySelector } from "@/components/ui/city-selector";
-import { ptBR } from 'date-fns/locale'; // <-- 1. IMPORTAÇÃO ADICIONADA
+import { ptBR } from 'date-fns/locale'; // Importação para tradução
 import { cn, formatCurrency } from "@/lib/utils";
 import { Timestamp } from "firebase/firestore";
 import { auth } from "@/lib/firebase";
@@ -74,6 +75,7 @@ const citiesByState: { [key: string]: string[] } = {
 };
 const serviceTypesOptions = Object.entries(ServiceTypeRates).map(([v, r]) => { const label = v.split('_').map(w=>w[0].toUpperCase()+w.slice(1)).join(' '); const value = label.toLowerCase() === 'telemedicina' ? 'Telemedicina' : v; return { value, label, rateExample: r }; });
 
+// Componente TimeSlotListItem (sem alterações)
 const TimeSlotListItem: React.FC<{ slot: TimeSlot; onEdit: () => void; onDelete: () => void; }> = ({ slot, onEdit, onDelete }) => {
   const slotDate = slot.date instanceof Timestamp ? slot.date.toDate() : null;
   const serviceTypeObj = serviceTypesOptions.find(opt => opt.value === slot.serviceType);
@@ -122,6 +124,7 @@ const TimeSlotListItem: React.FC<{ slot: TimeSlot; onEdit: () => void; onDelete:
 };
 TimeSlotListItem.displayName = 'TimeSlotListItem';
 
+// Componente TimeSlotFormDialog (COM CALENDÁRIO CORRIGIDO)
 const TimeSlotFormDialog: React.FC<{ onFormSubmitted: () => void; initialData?: TimeSlot | null; }> = ({ onFormSubmitted, initialData }) => {
   const { toast } = useToast();
   const isEditing = !!initialData && !!initialData.id;
@@ -141,6 +144,7 @@ const TimeSlotFormDialog: React.FC<{ onFormSubmitted: () => void; initialData?: 
   const [timeError, setTimeError] = useState<string | null>(null);
   const [availableCities, setAvailableCities] = useState<string[]>([]);
 
+  // Modificadores para o calendário (sem alterações)
   const modifiers = { selected: dates };
   const modifiersStyles = {
     selected: {
@@ -150,6 +154,12 @@ const TimeSlotFormDialog: React.FC<{ onFormSubmitted: () => void; initialData?: 
     },
   };
 
+  // Função segura para lidar com a seleção de múltiplas datas
+  const handleDateSelect: SelectMultipleEventHandler = (selectedDays) => {
+    setDates(selectedDays || []);
+  };
+
+  // Funções auxiliares (reset, validateTimes, useEffects, handleSpecialty, applyQuickTime - sem alterações)
   useEffect(() => { if (initialData?.state) { setAvailableCities(citiesByState[initialData.state] || []); } }, [initialData?.state]);
   const resetFormFields = useCallback(() => { setDates([]); setStartTime("07:00"); setEndTime("19:00"); setDesiredRateInput(""); setSelectedSpecialties([]); setSelectedState(""); setSelectedCities([]); setSelectedServiceType(""); setNotes(""); setTimeError(null); }, []);
   const validateTimes = useCallback((start: string, end: string) => { if (start && end && start === end) { setTimeError("Horário de início não pode ser igual ao de término."); } else { setTimeError(null); } }, []);
@@ -172,6 +182,7 @@ const TimeSlotFormDialog: React.FC<{ onFormSubmitted: () => void; initialData?: 
   const filteredSpecialties = useMemo(() => medicalSpecialties.filter(s => typeof s === 'string' && s.toLowerCase().includes(specialtySearchValue.toLowerCase()) && !selectedSpecialties.includes(s)), [specialtySearchValue, selectedSpecialties]);
   const applyQuickTime = (start: string, end: string) => { setStartTime(start); setEndTime(end); };
 
+  // Função de submit (sem alterações na lógica principal)
   const handleSubmit = async () => {
     const desiredHourlyRate = parseFloat(desiredRateInput.replace(',', '.'));
     if (dates.length === 0 && !isEditing) { toast({ title: "Data é obrigatória", variant: "destructive" }); return; }
@@ -221,59 +232,70 @@ const TimeSlotFormDialog: React.FC<{ onFormSubmitted: () => void; initialData?: 
   };
   
   return (
-    // =================================================================
-    // 🔹 CORREÇÃO DE LAYOUT APLICADA AQUI 🔹
-    // =================================================================
     <DialogContent className="sm:max-w-lg">
       <DialogHeader>
         <DialogTitle className="text-xl">{isEditing ? "Editar Disponibilidade" : "Adicionar Nova Disponibilidade"}</DialogTitle>
         <DialogDescription>
-          {isEditing ? "Altere os detalhes da sua disponibilidade. A data original não pode ser alterada." : "Selecione as datas e preencha os detalhes. Uma entrada de disponibilidade será criada para cada data selecionada."}
+          {isEditing ? "Altere os detalhes da sua disponibilidade. A data original não pode ser alterada." : "Selecione as datas e preencha os detalhes. Uma entrada será criada para cada data selecionada."}
         </DialogDescription>
       </DialogHeader>
-      <DialogClose asChild>
-          <Button variant="ghost" size="icon" className="absolute top-4 right-4">
-            <X className="h-4 w-4" />
-            <span className="sr-only">Fechar</span>
-          </Button>
-      </DialogClose>
+      <DialogClose asChild><Button variant="ghost" size="icon" className="absolute top-4 right-4"><X className="h-4 w-4" /><span className="sr-only">Fechar</span></Button></DialogClose>
+      
+      {/* Scrollable content area */}
       <div className="grid gap-5 py-4 max-h-[70vh] overflow-y-auto px-1 pr-3 md:pr-4 pb-12">
+          
+          {/* ================================================================= */}
+          {/* 🔹 CORREÇÃO DEFINITIVA DO CALENDÁRIO (Popover + Tradução) 🔹      */}
+          {/* ================================================================= */}
           <div className="space-y-2">
             <Label className="font-semibold text-gray-800 flex items-center"><CalendarDays className="h-4 w-4 mr-2 text-blue-600"/>Data(s) da Disponibilidade*</Label>
             <p className="text-xs text-gray-500">{isEditing ? "Data original (não pode ser alterada)." : "Selecione um ou mais dias no calendário."}</p>
-            <div className="flex justify-center flex-col items-center sm:items-start">
-              {isEditing ? (
-                  <Calendar mode="single" selected={dates[0]} disabled footer={<p className="text-xs text-gray-700 font-medium p-2 border-t">Data: {dates[0]?.toLocaleDateString('pt-BR')}</p>}/>
-              ) : (
-                  <Calendar
-                    // =================================================================
-                    // 🔹 CORREÇÃO DE IDIOMA APLICADA AQUI 🔹
-                    // =================================================================
-                    locale={ptBR} 
-                    mode="multiple" 
-                    selected={dates} 
-                    onSelect={setDates as SelectMultipleEventHandler} 
-                    disabled={{ before: new Date(new Date().setHours(0, 0, 0, 0)) }} 
-                    footer={ dates.length > 0 ? <p className="text-xs text-blue-700 font-medium p-2 border-t">{dates.length} dia(s) selecionado(s).</p> : <p className="text-xs text-gray-500 p-2 border-t">Nenhum dia selecionado.</p>}
-                    modifiers={modifiers}
-                    modifiersStyles={modifiersStyles}
-                  />
-              )}
-              {dates.length > 0 && !isEditing && <Button variant="outline" size="sm" onClick={() => setDates([])} className="text-xs self-center mt-2 w-full sm:w-auto"><X className="h-3 w-3 mr-1"/> Limpar Datas</Button>}
-            </div>
+            {isEditing ? (
+                // Modo Edição: Apenas exibe a data
+                <Input value={dates[0] ? new Date(dates[0]).toLocaleDateString('pt-BR') : 'Data não definida'} disabled />
+            ) : (
+                // Modo Criação: Usa o Popover para melhor layout e UX
+                <Popover>
+                    <PopoverTrigger asChild>
+                        <Button variant={"outline"} className={cn("w-full justify-start text-left font-normal", !dates.length && "text-muted-foreground")}>
+                            <CalendarDays className="mr-2 h-4 w-4" />
+                            {dates.length > 0 ? 
+                                (dates.length === 1 ? dates[0].toLocaleDateString('pt-BR') : `${dates.length} datas selecionadas`) : 
+                                <span>Escolha as datas</span>
+                            }
+                        </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-auto p-0">
+                        <Calendar
+                            locale={ptBR} // Tradução para Português
+                            mode="multiple"
+                            selected={dates}
+                            onSelect={handleDateSelect}
+                            initialFocus
+                            disabled={{ before: new Date(new Date().setHours(0, 0, 0, 0)) }}
+                            modifiers={modifiers}
+                            modifiersStyles={modifiersStyles}
+                            // As regras CSS no globals.css cuidarão do alinhamento interno
+                        />
+                    </PopoverContent>
+                </Popover>
+            )}
           </div>
+
+          {/* --- Restante do formulário (Horário, Localização, Tipo, Valor, Especialidades, Notas) --- */}
+          {/* CORREÇÃO: Labels simplificadas */}
           <div className="space-y-2">
-              <Label className="font-semibold text-gray-800 flex items-center"><Clock className="h-4 w-4 mr-2 text-blue-600"/>Horário da Disponibilidade*</Label>
+              <Label className="font-semibold text-gray-800 flex items-center"><Clock className="h-4 w-4 mr-2 text-blue-600"/>Horário*</Label>
               <div className="flex flex-wrap gap-2 mb-3"><Button variant="outline" size="sm" onClick={() => applyQuickTime("07:00", "19:00")} className="text-xs">Diurno (07-19h)</Button><Button variant="outline" size="sm" onClick={() => applyQuickTime("19:00", "07:00")} className="text-xs">Noturno (19-07h)</Button><Button variant="outline" size="sm" onClick={() => applyQuickTime("08:00", "12:00")} className="text-xs">Manhã (08-12h)</Button><Button variant="outline" size="sm" onClick={() => applyQuickTime("13:00", "18:00")} className="text-xs">Tarde (13-18h)</Button></div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4"><div className="space-y-1.5"><Label htmlFor="doc-start-time">Horário de Início*</Label><Select value={startTime} onValueChange={setStartTime}><SelectTrigger id="doc-start-time" className={cn("h-9", timeError && "border-red-500 ring-1 ring-red-500")}><SelectValue/></SelectTrigger><SelectContent>{timeOptions.map(t=><SelectItem key={"dst"+t} value={t}>{t}</SelectItem>)}</SelectContent></Select></div><div className="space-y-1.5"><Label htmlFor="doc-end-time">Horário de Término*</Label><Select value={endTime} onValueChange={setEndTime}><SelectTrigger id="doc-end-time" className={cn("h-9", timeError && "border-red-500 ring-1 ring-red-500")}><SelectValue/></SelectTrigger><SelectContent>{timeOptions.map(t=><SelectItem key={"det"+t} value={t}>{t}</SelectItem>)}</SelectContent></Select></div>{timeError && <p className="text-red-600 text-xs col-span-1 sm:col-span-2">{timeError}</p>}</div>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-1.5">
-                  <Label htmlFor="doc-state" className="font-semibold text-gray-800 flex items-center"><MapPin className="h-4 w-4 mr-2 text-blue-600"/>Estado de Atuação*</Label>
+                  <Label htmlFor="doc-state">Estado*</Label>
                   <Select value={selectedState} onValueChange={setSelectedState}><SelectTrigger id="doc-state" className="h-9"><SelectValue placeholder="Selecione o UF..."/></SelectTrigger><SelectContent>{brazilianStates.map(s=><SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent></Select>
               </div>
               <div className="space-y-1.5">
-                  <Label className="font-semibold text-gray-800">Cidades de Atuação*</Label>
+                  <Label>Cidades*</Label>
                   <CitySelector
                     selectedState={selectedState}
                     availableCities={availableCities}
@@ -282,10 +304,27 @@ const TimeSlotFormDialog: React.FC<{ onFormSubmitted: () => void; initialData?: 
                   />
               </div>
           </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4"><div className="space-y-1.5"><Label htmlFor="doc-service-type" className="font-semibold text-gray-800 flex items-center"><Briefcase className="h-4 w-4 mr-2 text-blue-600"/>Tipo de Atendimento*</Label><Select value={selectedServiceType} onValueChange={setSelectedServiceType}><SelectTrigger id="doc-service-type" className="h-9"><SelectValue placeholder="Selecione..."/></SelectTrigger><SelectContent>{serviceTypesOptions.map(o=><SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}</SelectContent></Select></div><div className="space-y-1.5"><Label htmlFor="doc-desired-rate" className="font-semibold text-gray-800 flex items-center"><DollarSign className="h-4 w-4 mr-2 text-green-600"/>Valor Hora Pretendido (R$)*</Label><Input id="doc-desired-rate" type="number" min="0.01" step="0.01" placeholder="Ex: 100.00" value={desiredRateInput} onChange={(e)=>setDesiredRateInput(e.target.value)} className="h-9"/></div></div>
-          <div className="space-y-2"><Label className="font-semibold text-gray-800 flex items-center"><ClipboardList className="h-4 w-4 mr-2 text-blue-600"/>Especialidades Atendidas* <span className="text-xs text-gray-500 ml-1 font-normal">(Selecione ao menos uma)</span></Label><Popover open={specialtyPopoverOpen} onOpenChange={setSpecialtyPopoverOpen}><PopoverTrigger asChild><Button variant="outline" className="w-full justify-start font-normal text-muted-foreground h-9 border-dashed hover:border-solid">{selectedSpecialties.length > 0 ? `Selecionadas: ${selectedSpecialties.length}` : "Clique para selecionar especialidades..."}</Button></PopoverTrigger><PopoverContent className="w-[--radix-popover-trigger-width] p-0"><Command filter={(value, search) => medicalSpecialties.find(s => s.toLowerCase() === value.toLowerCase())?.toLowerCase().includes(search.toLowerCase()) ? 1 : 0}><CommandInput placeholder="Buscar especialidade..." value={specialtySearchValue} onValueChange={setSpecialtySearchValue}/><CommandList><CommandEmpty>Nenhuma.</CommandEmpty><CommandGroup heading={`${filteredSpecialties.length} encontradas`}>{filteredSpecialties.map((s) => (<CommandItem key={s} value={s} onSelect={() => handleSelectSpecialty(s)} className="cursor-pointer hover:bg-accent">{s}</CommandItem>))}</CommandGroup></CommandList></Command></PopoverContent></Popover>{selectedSpecialties.length > 0 && ( <div className="flex flex-wrap gap-1.5 mt-2 pt-2 border-t border-dashed"> {selectedSpecialties.map((s) => ( <Badge key={s} variant="secondary" className="bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100 font-normal"> {s} <button type="button" onClick={()=>handleRemoveSpecialty(s)} className="ml-1.5 p-0.5 rounded-full outline-none focus:ring-1 focus:ring-blue-500 hover:bg-blue-200"> <X className="h-3 w-3 text-blue-600 hover:text-blue-800" /> </button> </Badge> ))} </div> )}</div>
-          <div className="space-y-1.5"><Label htmlFor="doc-notes" className="font-semibold text-gray-800 flex items-center"><Info className="h-4 w-4 mr-2 text-blue-600"/>Notas Adicionais <span className="text-xs text-gray-500 ml-1 font-normal">(Opcional)</span></Label><Textarea id="doc-notes" placeholder="Ex: Preferência por plantões mais tranquilos, etc." value={notes} onChange={(e) => setNotes(e.target.value)} className="min-h-[80px]"/></div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                  <Label htmlFor="doc-service-type">Tipo*</Label>
+                  <Select value={selectedServiceType} onValueChange={setSelectedServiceType}><SelectTrigger id="doc-service-type" className="h-9"><SelectValue placeholder="Selecione..."/></SelectTrigger><SelectContent>{serviceTypesOptions.map(o=><SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}</SelectContent></Select>
+              </div>
+              <div className="space-y-1.5">
+                  <Label htmlFor="doc-desired-rate">Valor/Hora (R$)*</Label>
+                  <Input id="doc-desired-rate" type="number" min="0.01" step="0.01" placeholder="Ex: 100.00" value={desiredRateInput} onChange={(e)=>setDesiredRateInput(e.target.value)} className="h-9"/>
+              </div>
+          </div>
+          <div className="space-y-2">
+              <Label>Especialidades*</Label>
+              <Popover open={specialtyPopoverOpen} onOpenChange={setSpecialtyPopoverOpen}><PopoverTrigger asChild><Button variant="outline" className="w-full justify-start font-normal text-muted-foreground h-9 border-dashed hover:border-solid">{selectedSpecialties.length > 0 ? `Selecionadas: ${selectedSpecialties.length}` : "Clique para selecionar especialidades..."}</Button></PopoverTrigger><PopoverContent className="w-[--radix-popover-trigger-width] p-0"><Command filter={(value, search) => medicalSpecialties.find(s => s.toLowerCase() === value.toLowerCase())?.toLowerCase().includes(search.toLowerCase()) ? 1 : 0}><CommandInput placeholder="Buscar especialidade..." value={specialtySearchValue} onValueChange={setSpecialtySearchValue}/><CommandList><CommandEmpty>Nenhuma.</CommandEmpty><CommandGroup heading={`${filteredSpecialties.length} encontradas`}>{filteredSpecialties.map((s) => (<CommandItem key={s} value={s} onSelect={() => handleSelectSpecialty(s)} className="cursor-pointer hover:bg-accent">{s}</CommandItem>))}</CommandGroup></CommandList></Command></PopoverContent></Popover>{selectedSpecialties.length > 0 && ( <div className="flex flex-wrap gap-1.5 mt-2 pt-2 border-t border-dashed"> {selectedSpecialties.map((s) => ( <Badge key={s} variant="secondary" className="bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100 font-normal"> {s} <button type="button" onClick={()=>handleRemoveSpecialty(s)} className="ml-1.5 p-0.5 rounded-full outline-none focus:ring-1 focus:ring-blue-500 hover:bg-blue-200"> <X className="h-3 w-3 text-blue-600 hover:text-blue-800" /> </button> </Badge> ))} </div> )}
+          </div>
+          <div className="space-y-1.5">
+              <Label htmlFor="doc-notes">Notas</Label>
+              <Textarea id="doc-notes" placeholder="Ex: Preferência por plantões mais tranquilos, etc." value={notes} onChange={(e) => setNotes(e.target.value)} className="min-h-[80px]"/>
+          </div>
       </div>
+
+      {/* Footer do Diálogo (sem alterações) */}
       <DialogFooter className="pt-4 border-t bg-slate-50 -m-6 px-6 pb-8 sm:pb-4 rounded-b-lg">
           <DialogClose asChild><Button type="button" variant="outline" disabled={isLoadingSubmit}>Cancelar</Button></DialogClose>
           <Button type="button" onClick={handleSubmit} disabled={isLoadingSubmit || (dates.length === 0 && !isEditing)} className="bg-blue-600 hover:bg-blue-700">{isLoadingSubmit && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}{isLoadingSubmit ? (isEditing ? "Salvando..." : "Adicionando...") : (isEditing ? "Salvar Alterações" : `Adicionar Disponibilidade (${dates.length || 0} Dia(s))`)}</Button>
@@ -295,6 +334,7 @@ const TimeSlotFormDialog: React.FC<{ onFormSubmitted: () => void; initialData?: 
 };
 TimeSlotFormDialog.displayName = 'TimeSlotFormDialog';
 
+// --- Componente Principal da Página (sem alterações) ---
 export default function AvailabilityPage() {
     const { toast } = useToast();
     const [isFormDialogOpen, setIsFormDialogOpen] = useState(false);
