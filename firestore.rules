@@ -4,89 +4,78 @@ service cloud.firestore {
 
     // --- REGRAS MAIS ABERTAS PARA LEITURA PÚBLICA ---
 
-    // Coleção "specialties": Permite que QUALQUER UM leia a lista de especialidades.
+    // Coleção "specialties" (Lista geral de especialidades, se existir)
     match /specialties/{specialtyId} {
-      allow read: if true; // Já estava assim, mas mantemos explícito.
-      allow write: if request.auth != null && request.auth.token.role == 'admin'; // Apenas admins podem modificar.
+      allow read: if true;
+      allow write: if request.auth != null && request.auth.token.role == 'admin';
     }
 
-    // Coleção "settings": Permite que QUALQUER UM leia as configurações gerais.
+    // Coleção "settings" (Configurações gerais)
     match /settings/{settingId} {
-      allow read: if true; // <<<< ALTERADO: Permite leitura pública (antes era só logado)
-      allow write: if request.auth != null && request.auth.token.role == 'admin'; // Apenas admins podem modificar. [cite: 12]
+      allow read: if true;
+      allow write: if request.auth != null && request.auth.token.role == 'admin';
     }
+
+    // ============================================================================
+    // 🔹 CORREÇÃO DEFINITIVA PARA O ERRO DE TELEMEDICINA 🔹
+    // ============================================================================
+    // Coleção "telemedicine": Permite que QUALQUER UM leia o doc de especialidades.
+    match /telemedicine/specialties { // Regra específica para este documento
+        allow read: if true; // Permite leitura pública
+        allow write: if request.auth != null && request.auth.token.role == 'admin'; // Só admin modifica
+    }
+    // (Adicione outras regras para /telemedicine/{outroDoc} se necessário)
+    // ============================================================================
+
 
     // --- REGRAS PARA USUÁRIOS LOGADOS ---
 
-    // Coleção "users": Leitura detalhada por admins/hospitais, o próprio usuário pode ler/atualizar seus dados.
     match /users/{userId} {
-      allow get: if request.auth != null && (request.auth.uid == userId || request.auth.token.role in ['admin', 'hospital']); // Permite ler o próprio perfil ou se for admin/hospital [cite: 3]
-      allow list: if request.auth != null && request.auth.token.role in ['admin', 'hospital']; // Listar usuários só para admin/hospital [cite: 3]
-      allow update: if request.auth != null && request.auth.uid == userId; // Só o próprio usuário pode atualizar [cite: 5]
-      // allow create: if request.auth != null && request.auth.token.role == 'admin'; // Criar usuário via regra é complexo, melhor via Functions [cite: 4]
+      allow get: if request.auth != null && (request.auth.uid == userId || request.auth.token.role in ['admin', 'hospital']);
+      allow list: if request.auth != null && request.auth.token.role in ['admin', 'hospital'];
+      allow update: if request.auth != null && request.auth.uid == userId;
     }
 
-    // Coleção "hospitals" (Se ainda existir separada, senão pode remover)
     match /hospitals/{hospitalId} {
-      allow read, write: if request.auth != null && request.auth.token.role in ['admin', 'hospital']; // [cite: 6]
+      allow read, write: if request.auth != null && request.auth.token.role in ['admin', 'hospital'];
     }
 
-    // Coleção "caravanas"
     match /caravanas/{caravanaId} {
-      allow read, write: if request.auth != null && request.auth.token.role in ['admin', 'caravan_admin']; // [cite: 7]
+      allow read, write: if request.auth != null && request.auth.token.role in ['admin', 'caravan_admin'];
     }
 
-    // Coleção "appointments"
     match /appointments/{appointmentId} {
-      // Permite ler/criar/atualizar se logado e com um dos papéis permitidos.
-      allow read, create, update: if request.auth != null &&
-        request.auth.token.role in ['admin', 'hospital', 'doctor', 'receptionist', 'triage_nurse']; // [cite: 8]
-      allow delete: if request.auth != null && request.auth.token.role == 'admin'; // Só admin deleta. [cite: 9]
+      allow read, create, update: if request.auth != null && request.auth.token.role in ['admin', 'hospital', 'doctor', 'receptionist', 'triage_nurse'];
+      allow delete: if request.auth != null && request.auth.token.role == 'admin';
     }
 
-    // Coleção "metrics" (Se existir)
     match /metrics/{metricId} {
-      allow read, write: if request.auth != null && request.auth.token.role in ['admin', 'hospital']; // [cite: 10]
+      allow read, write: if request.auth != null && request.auth.token.role in ['admin', 'hospital'];
     }
 
-    // Coleção "products" (Para o faturamento)
     match /products/{productId} {
-        allow read: if request.auth != null; // Qualquer usuário logado pode ver o catálogo
-        allow create, update, delete: if request.auth != null && request.auth.token.role == 'admin'; // Apenas admin gerencia o catálogo
+        allow read: if request.auth != null;
+        allow create, update, delete: if request.auth != null && request.auth.token.role == 'admin';
     }
 
-    // Subcoleção "billingItems" dentro de "consultations"
     match /consultations/{consultationId}/billingItems/{itemId} {
-        // Permite ler se for o médico, hospital ou admin relacionado à consulta.
-        // Permite criar (registrar item) se for o médico ou enfermeiro da consulta (verificar consulta.doctorId/triageNurseId).
-        // A lógica exata aqui pode precisar de mais detalhes sobre a estrutura de 'consultations'.
-        // Regra simplificada por enquanto: Permite ler/escrever se logado e com papel relevante.
         allow read, write: if request.auth != null && request.auth.token.role in ['admin', 'hospital', 'doctor', 'triage_nurse'];
     }
 
-    // --- REGRAS MAIS ESPECÍFICAS (MELHOR PRÁTICA) ---
-    // Substitua a regra genérica abaixo por regras específicas para cada coleção
-    // que ainda não foi listada (ex: shiftRequirements, doctorTimeSlots, contracts, etc.)
-
-    // Exemplo para shiftRequirements:
     match /shiftRequirements/{requirementId} {
-        allow read: if request.auth != null; // Todos logados podem ver vagas? Ajuste conforme necessário.
-        allow create: if request.auth != null && request.auth.token.role == 'hospital'; // Só hospital cria.
-        allow update: if request.auth != null && request.auth.token.role == 'hospital' && resource.data.hospitalId == request.auth.uid; // Só o hospital dono atualiza.
-        allow delete: if request.auth != null && request.auth.token.role == 'hospital' && resource.data.hospitalId == request.auth.uid; // Só o hospital dono deleta.
+        allow read: if request.auth != null;
+        allow create: if request.auth != null && request.auth.token.role == 'hospital';
+        allow update: if request.auth != null && request.auth.token.role == 'hospital' && resource.data.hospitalId == request.auth.uid; // Assumindo que hospitalId existe
+        allow delete: if request.auth != null && request.auth.token.role == 'hospital' && resource.data.hospitalId == request.auth.uid; // Assumindo que hospitalId existe
     }
 
-     // Exemplo para doctorTimeSlots:
     match /doctorTimeSlots/{slotId} {
-        allow read: if request.auth != null; // Todos logados podem ver disponibilidades?
-        allow create, update, delete: if request.auth != null && request.auth.token.role == 'doctor' && request.resource.data.doctorId == request.auth.uid; // Só o próprio médico gerencia sua disponibilidade.
+        allow read: if request.auth != null;
+        allow create, update, delete: if request.auth != null && request.auth.token.role == 'doctor' && request.resource.data.doctorId == request.auth.uid;
     }
-
-    // ... Adicione regras específicas para OUTRAS coleções aqui ...
 
     // --- REGRA GENÉRICA (Fallback - Menos Segura) ---
     // Tente evitar depender desta regra. Defina regras explícitas acima.
-    // Esta regra permite que qualquer usuário logado com um dos papéis definidos leia/escreva em QUALQUER LUGAR não coberto acima.
     match /{document=**} {
       allow read, write: if request.auth != null &&
         request.auth.token.role in [
@@ -96,7 +85,7 @@ service cloud.firestore {
           'receptionist',
           'triage_nurse',
           'caravan_admin'
-        ]; // [cite: 13]
+        ];
     }
   }
 }
