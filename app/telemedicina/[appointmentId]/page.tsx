@@ -9,7 +9,8 @@ import { getCurrentUserData, type DoctorProfile, getUserProfile } from '@/lib/au
 import { useAuth } from '@/components/auth-provider';
 import { DailyProvider, useLocalParticipant, useParticipant, useParticipantIds, useDailyEvent } from '@daily-co/daily-react';
 import Daily, { type DailyCall as CallObject, type DailyParticipant } from '@daily-co/daily-js';
-import { AIAnalysisDashboard } from '@/components/ai/AIAnalysisDashboard';
+// A LINHA ABAIXO FOI REMOVIDA:
+// import { AIAnalysisDashboard } from '@/components/ai/AIAnalysisDashboard';
 import { Loader2, Mic, MicOff, Video, VideoOff, PhoneOff, AlertTriangle, User, Save, History, FileText, Pill, ScanFace, Scale, Ruler, BrainCircuit, Download, ArrowLeft, Hospital, Calendar, Stethoscope } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
@@ -30,6 +31,7 @@ interface DetailedAppointment extends Appointment {
     previousPrescriptions?: Array<{ date: Timestamp; medication: string; }>;
     // Os campos opcionais como 'generatedDocuments' já vêm do tipo 'Appointment' se existirem lá
     generatedDocuments?: Array<{ name: string; type: string; url: string; createdAt: Timestamp }>;
+    // aiAnalysisReport já está incluído pelo tipo 'Appointment' importado
 }
 
 // --- Componente VideoTile (sem alterações) ---
@@ -108,6 +110,63 @@ const CallTray = memo(({ callObject }: { callObject: CallObject | null }) => {
     );
 });
 CallTray.displayName = 'CallTray';
+
+// ============================================================================
+// === 🧠 NOVO COMPONENTE AIAnalysisDashboard (FASE 1) 🧠 ===
+// ============================================================================
+// COMPONENTE AGORA DEFINIDO LOCALMENTE
+// (Este é o componente que você forneceu, com a lógica para aguardar o relatório)
+
+const AIAnalysisDashboard = ({
+    appointment,
+    patientVideoTrack
+}: {
+    appointment: DetailedAppointment | null;
+    patientVideoTrack: MediaStreamTrack | null;
+}) => {
+    const [report, setReport] = useState(appointment?.aiAnalysisReport || null);
+    const [isLoading, setIsLoading] = useState(true);
+
+    useEffect(() => {
+        if (appointment?.aiAnalysisReport) {
+            setReport(appointment.aiAnalysisReport);
+            setIsLoading(false);
+        } else if (appointment) {
+            // Se o relatório ainda não chegou, esperamos um pouco
+            // (O gatilho de backend pode demorar alguns segundos)
+            const timer = setTimeout(() => {
+                setIsLoading(false); // Para de carregar mesmo se não encontrar
+            }, 5000); // Espera 5 segundos pelo relatório
+            return () => clearTimeout(timer);
+        }
+    }, [appointment]); // Reavalia quando 'appointment' for carregado
+
+    if (isLoading) {
+        return (
+            <div className="text-center p-4">
+                <Loader2 className="h-6 w-6 animate-spin mx-auto text-purple-300" />
+                <p className="text-sm text-gray-400 mt-2">Aguardando relatório da Inteligência Artificial...</p>
+            </div>
+        );
+    }
+    
+    // Exibe o relatório (formatado com quebras de linha)
+    return (
+        <Card className="bg-gray-700/50 border-gray-600">
+            <CardHeader className="pb-2">
+                <CardTitle className="text-base text-purple-300">Relatório Preliminar (IA)</CardTitle>
+            </CardHeader>
+            <CardContent>
+                <p className="text-sm text-gray-300 whitespace-pre-wrap">
+                    {report || "Nenhum relatório preliminar disponível para esta consulta."}
+                </p>
+                {/* Aqui podemos adicionar a análise facial/TOC no futuro */}
+            </CardContent>
+        </Card>
+    );
+};
+// ============================================================================
+
 
 // --- COMPONENTE DO PRONTUÁRIO ELETRÔNICO (EHR) APRIMORADO ---
 const ElectronicHealthRecordEnhanced = memo(({
@@ -209,7 +268,9 @@ const ElectronicHealthRecordEnhanced = memo(({
                         </div>
                     </TabsContent>
                     <TabsContent value="analise_ia" className="mt-4 flex-grow">
+                       {/* ESTA CHAMADA AGORA USA O COMPONENTE LOCAL DEFINIDO ACIMA */}
                        <AIAnalysisDashboard appointment={appointment} patientVideoTrack={patientVideoTrack} />
+
                        <Card className="mt-4 bg-gray-700/50 border-gray-600"><CardHeader className="pb-2"><CardTitle className="text-base flex items-center gap-2"><BrainCircuit /> Ferramentas de Avaliação</CardTitle></CardHeader><CardContent className="space-y-2"><p className="text-xs text-gray-400">Iniciar protocolos específicos.</p><Button variant="secondary" className="w-full bg-purple-600 hover:bg-purple-700 text-white" disabled>Iniciar Protocolo TOC (em breve)</Button></CardContent></Card>
                     </TabsContent>
                 </Tabs>

@@ -1,16 +1,22 @@
-// functions/src/logic.ts
+// functions/src/logic.ts (Versão CORRIGIDA E DEFINITIVA)
 import { HttpsError, CallableRequest } from "firebase-functions/v2/https";
 import { logger } from "firebase-functions/v2";
 import * as admin from "firebase-admin";
 import { UserRecord } from "firebase-admin/auth";
 import { Change } from "firebase-functions";
+// 'limit' não é importado aqui, é um método de Query
 import { DocumentSnapshot, FieldValue, getFirestore, Query, GeoPoint, DocumentData } from "firebase-admin/firestore";
 import { getStorage } from "firebase-admin/storage";
 import { FirestoreEvent } from "firebase-functions/v2/firestore";
 import { v4 as uuidv4 } from 'uuid';
 
-// --- INTERFACES E TIPOS PADRONIZADOS ---
+// --- INICIALIZAÇÃO SEGURA ---
+// Garante que o app Firebase seja inicializado ANTES de qualquer outra coisa
+if (admin.apps.length === 0) {
+    admin.initializeApp();
+}
 
+// --- INTERFACES E TIPOS (Sem alterações) ---
 interface UserProfile extends DocumentData {
     uid: string;
     userType: 'doctor' | 'hospital' | 'admin' | 'receptionist' | 'triage_nurse' | 'caravan_admin';
@@ -26,7 +32,6 @@ interface UserProfile extends DocumentData {
     createdAt?: FieldValue;
     updatedAt?: FieldValue;
 }
-
 interface ShiftRequirementData {
   hospitalId: string;
   hospitalName?: string;
@@ -43,7 +48,6 @@ interface ShiftRequirementData {
   cities: string[];
   state: string;
 }
-
 interface TimeSlotData {
   doctorId: string;
   doctorName?: string;
@@ -59,7 +63,6 @@ interface TimeSlotData {
   status: string;
   notes?: string;
 }
-
 interface PotentialMatchInput {
   shiftRequirementId: string;
   hospitalId: string;
@@ -91,7 +94,6 @@ interface PotentialMatchInput {
   shiftState: string;
   matchScore: number;
 }
-
 interface TimeRecord {
     contractId: string;
     doctorId: string;
@@ -104,13 +106,11 @@ interface TimeRecord {
     checkOutLocation?: GeoPoint;
     checkOutPhotoUrl?: string;
 }
-
 interface Medication {
   name: string;
   dosage: string;
   instructions: string;
 }
-
 interface PrescriptionPayload {
   consultationId: string;
   patientName: string;
@@ -118,9 +118,7 @@ interface PrescriptionPayload {
   doctorCrm: string;
   medications: Medication[];
 }
-
 type DocumentType = 'medicalCertificate' | 'attendanceCertificate';
-
 interface DocumentPayload {
   type: DocumentType;
   consultationId: string;
@@ -135,10 +133,12 @@ interface DocumentPayload {
 }
 
 
-// --- SERVIÇOS DO FIREBASE ---
-const db = getFirestore();
-const auth = admin.auth();
-const storage = getStorage();
+// --- SERVIÇOS DO FIREBASE (INICIALIZAÇÃO PREGUIÇOSA) ---
+// CORREÇÃO: Constantes globais removidas.
+// Criamos funções "getter" para inicializar os serviços apenas quando chamados.
+const getDb = () => getFirestore();
+const getAuth = () => admin.auth();
+const getStorageBucket = () => getStorage().bucket(); // Assumindo um bucket padrão
 
 
 // --- FUNÇÕES AUXILIARES ---
@@ -157,7 +157,7 @@ const doIntervalsOverlap = (startA: number, endA: number, isOvernightA: boolean,
 async function deleteQueryBatch(query: Query, context: string) {
     const snapshot = await query.get();
     if (snapshot.size === 0) { return; }
-    const batch = db.batch();
+    const batch = getDb().batch(); // USA getDb()
     snapshot.docs.forEach((doc) => { batch.delete(doc.ref); });
     await batch.commit();
     logger.info(`Batch delete concluído para: ${context}. ${snapshot.size} documentos removidos.`);
@@ -185,19 +185,16 @@ async function drawTextWithWrapping(page: any, text: string, options: { x: numbe
 }
 
 // --- LÓGICA DE CADA FUNÇÃO (HANDLERS) ---
+// (Todas as funções foram atualizadas para usar getDb(), getAuth() e getStorageBucket())
 
-// ============================================================================
-// 🔹 FUNÇÃO DE CRIAÇÃO DE FUNCIONÁRIOS (ROBUSTECIDA) 🔹
-// ============================================================================
 export const createStaffUserHandler = async (request: CallableRequest) => {
     if (!request.auth) {
-        logger.warn("Tentativa de criação de staff por utilizador não autenticado.");
         throw new HttpsError("unauthenticated", "Apenas utilizadores autenticados podem adicionar membros à equipa.");
     }
     const callerUid = request.auth.uid;
     logger.info(`Iniciando criação de staff. Chamado por: ${callerUid}`);
     try {
-        const callerDoc = await db.collection("users").doc(callerUid).get();
+        const callerDoc = await getDb().collection("users").doc(callerUid).get();
         if (!callerDoc.exists) {
             logger.error(`PERFIL NÃO ENCONTRADO para o chamador: ${callerUid}`);
             throw new HttpsError("not-found", "O seu perfil de utilizador não foi encontrado.");
@@ -215,7 +212,7 @@ export const createStaffUserHandler = async (request: CallableRequest) => {
             throw new HttpsError("invalid-argument", "Nome, email, função e ID da unidade são obrigatórios.");
         }
         const temporaryPassword = `fht-${Math.random().toString(36).slice(2, 10)}`;
-        const userRecord = await auth.createUser({
+        const userRecord = await getAuth().createUser({
             email: email,
             emailVerified: true,
             displayName: name,
@@ -233,7 +230,7 @@ export const createStaffUserHandler = async (request: CallableRequest) => {
             createdAt: FieldValue.serverTimestamp(),
             updatedAt: FieldValue.serverTimestamp(),
         };
-        await db.collection("users").doc(userRecord.uid).set(userProfile);
+        await getDb().collection("users").doc(userRecord.uid).set(userProfile);
         logger.info(`SUCESSO: Funcionário ${userRecord.uid} criado para o hospital ${hospitalId}.`);
         return {
             success: true,
@@ -250,16 +247,13 @@ export const createStaffUserHandler = async (request: CallableRequest) => {
     }
 };
 
-// ============================================================================
-// 🔹 NOVA LÓGICA PARA ADICIONAR MÉDICOS (SUBSTITUI O CONVITE) 🔹
-// ============================================================================
 export const createDoctorUserHandler = async (request: CallableRequest) => {
     if (!request.auth) {
         throw new HttpsError("unauthenticated", "Apenas utilizadores autenticados podem adicionar médicos.");
     }
     const callerUid = request.auth.uid; // Este é o hospitalId
     try {
-        const callerDoc = await db.collection("users").doc(callerUid).get();
+        const callerDoc = await getDb().collection("users").doc(callerUid).get();
         if (!callerDoc.exists || callerDoc.data()?.userType !== 'hospital') {
             throw new HttpsError("permission-denied", "Apenas gestores de unidade podem realizar esta ação.");
         }
@@ -268,7 +262,7 @@ export const createDoctorUserHandler = async (request: CallableRequest) => {
             throw new HttpsError("invalid-argument", "Nome e email do médico são obrigatórios.");
         }
         const temporaryPassword = `fht-med-${Math.random().toString(36).slice(2, 8)}`;
-        const userRecord = await auth.createUser({
+        const userRecord = await getAuth().createUser({
             email: email,
             emailVerified: true,
             displayName: name,
@@ -285,7 +279,7 @@ export const createDoctorUserHandler = async (request: CallableRequest) => {
             createdAt: FieldValue.serverTimestamp(),
             updatedAt: FieldValue.serverTimestamp(),
         };
-        await db.collection("users").doc(userRecord.uid).set(userProfile);
+        await getDb().collection("users").doc(userRecord.uid).set(userProfile);
         logger.info(`SUCESSO: Médico ${userRecord.uid} criado e vinculado ao hospital ${callerUid}.`);
         return {
             success: true,
@@ -311,7 +305,7 @@ export const resetDoctorUserPasswordHandler = async (request: CallableRequest) =
         throw new HttpsError("invalid-argument", "O ID do médico é obrigatório.");
     }
     try {
-        const doctorDoc = await db.collection("users").doc(doctorId).get();
+        const doctorDoc = await getDb().collection("users").doc(doctorId).get();
         if (!doctorDoc.exists) throw new HttpsError("not-found", "Médico não encontrado.");
         
         const doctorProfile = doctorDoc.data();
@@ -319,7 +313,7 @@ export const resetDoctorUserPasswordHandler = async (request: CallableRequest) =
             throw new HttpsError("permission-denied", "Você só pode resetar senhas de médicos vinculados à sua unidade.");
         }
         const newTemporaryPassword = `fht-med-reset-${Math.random().toString(36).slice(2, 8)}`;
-        await auth.updateUser(doctorId, { password: newTemporaryPassword });
+        await getAuth().updateUser(doctorId, { password: newTemporaryPassword });
         logger.info(`Senha do médico ${doctorId} resetada com sucesso por ${callerUid}.`);
         return {
             success: true,
@@ -332,9 +326,6 @@ export const resetDoctorUserPasswordHandler = async (request: CallableRequest) =
     }
 };
 
-// ============================================================================
-// 🔹 FUNÇÃO DE REGISTO (CORRIGIDA E COM MELHORES LOGS) 🔹
-// ============================================================================
 export const finalizeRegistrationHandler = async (request: CallableRequest) => {
     const uid = request.auth?.uid;
     if (!uid) {
@@ -372,7 +363,7 @@ export const finalizeRegistrationHandler = async (request: CallableRequest) => {
         // Passo 1: Definir as permissões (claims). É o passo mais crítico.
         try {
             logger.info(`[${uid}] Tentando definir a claim de role: '${role}'...`);
-            await auth.setCustomUserClaims(uid, { role: role });
+            await getAuth().setCustomUserClaims(uid, { role: role });
             logger.info(`[${uid}] SUCESSO: Claim '${role}' definida para o utilizador.`);
         } catch (claimError) {
             logger.error(`[${uid}] !!! FALHA CRÍTICA ao definir a claim de role !!!`, claimError);
@@ -380,7 +371,7 @@ export const finalizeRegistrationHandler = async (request: CallableRequest) => {
         }
 
         // Passo 2: Mover arquivos do bucket temporário para o permanente.
-        const bucket = storage.bucket();
+        const bucket = getStorageBucket();
         const movePromises = Object.entries(tempFilePaths).map(async ([key, tempPath]) => {
             if (typeof tempPath !== 'string' || tempPath === '') return;
             const tempFile = bucket.file(tempPath as string);
@@ -417,7 +408,7 @@ export const finalizeRegistrationHandler = async (request: CallableRequest) => {
             status: role === 'doctor' ? 'PENDING_APPROVAL' : 'ACTIVE'
         };
 
-        await db.collection("users").doc(uid).set(finalProfileData);
+        await getDb().collection("users").doc(uid).set(finalProfileData);
         logger.info(`[${uid}] Perfil completo do utilizador salvo com sucesso no Firestore.`);
 
         // Passo 4: Limpar a pasta temporária de uploads.
@@ -465,7 +456,7 @@ export const onUserWrittenSetClaimsHandler = async (event: FirestoreEvent<Change
         logger.info(`userType definido/alterado para '${userType}' para o utilizador ${userId}. A definir claims.`);
 
         if (userType === 'doctor' && invitationToken) {
-            const invitationsRef = db.collection("invitations");
+            const invitationsRef = getDb().collection("invitations");
             const q = invitationsRef.where("token", "==", invitationToken).where("status", "==", "pending");
             const querySnapshot = await q.get();
 
@@ -488,7 +479,7 @@ export const onUserWrittenSetClaimsHandler = async (event: FirestoreEvent<Change
         }
 
         try {
-            await auth.setCustomUserClaims(userId, claims);
+            await getAuth().setCustomUserClaims(userId, claims);
             logger.info(`Claims definidos com sucesso para o utilizador ${userId}:`, claims);
 
             if (Object.keys(profileUpdate).length > 0 && profileUpdate.displayName_lowercase !== dataBefore?.displayName_lowercase) {
@@ -520,7 +511,7 @@ export const findMatchesOnShiftRequirementWriteHandler = async (event: Firestore
     logger.info(`INICIANDO BUSCA DE MATCHES para a Demanda: ${event.params.requirementId}`);
 
     try {
-      let timeSlotsQuery: Query = db.collection("doctorTimeSlots")
+      let timeSlotsQuery: Query = getDb().collection("doctorTimeSlots")
         .where("status", "==", "AVAILABLE")
         .where("state", "==", requirement.state)
         .where("date", "in", requirement.dates);
@@ -555,7 +546,7 @@ export const findMatchesOnShiftRequirementWriteHandler = async (event: Firestore
 
       logger.info(`[MATCHING] Encontrados ${finalCandidates.length} candidatos finais para a Req ${event.params.requirementId}.`);
 
-      const batch = db.batch();
+      const batch = getDb().batch();
       let matchesCreatedCount = 0;
 
       for (const timeSlotDoc of finalCandidates) {
@@ -569,7 +560,7 @@ export const findMatchesOnShiftRequirementWriteHandler = async (event: Firestore
         if (!matchedDate) continue;
 
         const deterministicMatchId = `${event.params.requirementId}_${timeSlotDoc.id}_${matchedDate.seconds}`;
-        const matchRef = db.collection("potentialMatches").doc(deterministicMatchId);
+        const matchRef = getDb().collection("potentialMatches").doc(deterministicMatchId);
 
         const matchSnap = await matchRef.get();
         if (matchSnap.exists) { continue; }
@@ -634,14 +625,14 @@ export const findMatchesOnShiftRequirementWriteHandler = async (event: Firestore
 export const onShiftRequirementDeleteHandler = async (event: FirestoreEvent<DocumentSnapshot | undefined, { requirementId: string }>) => {
     const { requirementId } = event.params;
     logger.info(`Demanda ${requirementId} deletada. Removendo matches pendentes.`);
-    const q = db.collection("potentialMatches").where("shiftRequirementId", "==", requirementId).where("status", "==", "PENDING_BACKOFFICE_REVIEW");
+    const q = getDb().collection("potentialMatches").where("shiftRequirementId", "==", requirementId).where("status", "==", "PENDING_BACKOFFICE_REVIEW");
     return deleteQueryBatch(q, `matches para a demanda ${requirementId}`);
 };
 
 export const onTimeSlotDeleteHandler = async (event: FirestoreEvent<DocumentSnapshot | undefined, { timeSlotId: string }>) => {
     const { timeSlotId } = event.params;
     logger.info(`Disponibilidade ${timeSlotId} deletada. Removendo matches pendentes.`);
-    const q = db.collection("potentialMatches").where("timeSlotId", "==", timeSlotId).where("status", "==", "PENDING_BACKOFFICE_REVIEW");
+    const q = getDb().collection("potentialMatches").where("timeSlotId", "==", timeSlotId).where("status", "==", "PENDING_BACKOFFICE_REVIEW");
     return deleteQueryBatch(q, `matches para a disponibilidade ${timeSlotId}`);
 };
 
@@ -659,14 +650,14 @@ export const generateContractPdfHandler = async (request: CallableRequest) => {
     logger.info(`Iniciando geração de PDF para o contrato: ${contractId}`);
 
     try {
-        const contractRef = db.collection("contracts").doc(contractId);
+        const contractRef = getDb().collection("contracts").doc(contractId);
         const contractSnap = await contractRef.get();
         if (!contractSnap.exists) {
             throw new HttpsError("not-found", "Contrato não encontrado.");
         }
         const contractData = contractSnap.data()!;
-        const doctorProfileSnap = await db.collection("users").doc(contractData.doctorId).get();
-        const hospitalProfileSnap = await db.collection("users").doc(contractData.hospitalId).get();
+        const doctorProfileSnap = await getDb().collection("users").doc(contractData.doctorId).get();
+        const hospitalProfileSnap = await getDb().collection("users").doc(contractData.hospitalId).get();
         const doctorData = doctorProfileSnap.data();
         const hospitalData = hospitalProfileSnap.data();
 
@@ -701,7 +692,7 @@ export const generateContractPdfHandler = async (request: CallableRequest) => {
         y -= 20;
 
         const pdfBytes = await pdfDoc.save();
-        const bucket = storage.bucket();
+        const bucket = getStorageBucket();
         const filePath = `contracts/${contractId}.pdf`;
         const file = bucket.file(filePath);
         await file.save(Buffer.from(pdfBytes), { metadata: { contentType: "application/pdf" }, });
@@ -766,7 +757,7 @@ export const createTelemedicineRoomHandler = async (request: CallableRequest) =>
         const roomUrl = roomData.url;
         logger.info(`Sala criada com sucesso para o contrato ${contractId}. URL: ${roomUrl}`);
 
-        const contractRef = db.collection("contracts").doc(contractId);
+        const contractRef = getDb().collection("contracts").doc(contractId);
         await contractRef.update({
             telemedicineLink: roomUrl,
             updatedAt: FieldValue.serverTimestamp(),
@@ -787,13 +778,13 @@ export const correctServiceTypeCapitalizationHandler = async (request: CallableR
     }
     logger.info("Iniciando script de correção para 'serviceType'...");
 
-    const batch = db.batch();
+    const batch = getDb().batch();
     let updatedCount = { contracts: 0, shiftRequirements: 0, doctorTimeSlots: 0 };
     const incorrectValue = "telemedicina";
     const correctValue = "Telemedicina";
 
     try {
-        const contractsQuery = db.collection("contracts").where("serviceType", "==", incorrectValue);
+        const contractsQuery = getDb().collection("contracts").where("serviceType", "==", incorrectValue);
         const contractsSnapshot = await contractsQuery.get();
         contractsSnapshot.forEach(doc => {
             batch.update(doc.ref, { serviceType: correctValue });
@@ -801,7 +792,7 @@ export const correctServiceTypeCapitalizationHandler = async (request: CallableR
         });
         logger.info(`Encontrados ${updatedCount.contracts} documentos para corrigir em 'contracts'.`);
 
-        const shiftsQuery = db.collection("shiftRequirements").where("serviceType", "==", incorrectValue);
+        const shiftsQuery = getDb().collection("shiftRequirements").where("serviceType", "==", incorrectValue);
         const shiftsSnapshot = await shiftsQuery.get();
         shiftsSnapshot.forEach(doc => {
             batch.update(doc.ref, { serviceType: correctValue });
@@ -809,7 +800,7 @@ export const correctServiceTypeCapitalizationHandler = async (request: CallableR
         });
         logger.info(`Encontrados ${updatedCount.shiftRequirements} documentos para corrigir em 'shiftRequirements'.`);
         
-        const timeSlotsQuery = db.collection("doctorTimeSlots").where("serviceType", "==", incorrectValue);
+        const timeSlotsQuery = getDb().collection("doctorTimeSlots").where("serviceType", "==", incorrectValue);
         const timeSlotsSnapshot = await timeSlotsQuery.get();
         timeSlotsSnapshot.forEach(doc => {
             batch.update(doc.ref, { serviceType: correctValue });
@@ -893,9 +884,9 @@ export const generatePrescriptionPdfHandler = async (request: CallableRequest<Pr
 
         const pdfBytes = await pdfDoc.save();
         
-        const prescriptionsRef = db.collection('prescriptions').doc();
+        const prescriptionsRef = getDb().collection('prescriptions').doc();
         
-        const bucket = storage.bucket();
+        const bucket = getStorageBucket();
         const filePath = `prescriptions/${prescriptionsRef.id}.pdf`;
         const file = bucket.file(filePath);
         await file.save(Buffer.from(pdfBytes), { metadata: { contentType: "application/pdf" }, });
@@ -911,7 +902,7 @@ export const generatePrescriptionPdfHandler = async (request: CallableRequest<Pr
             pdfUrl: url,
         });
 
-        const consultationRef = db.collection('consultations').doc(consultationId);
+        const consultationRef = getDb().collection('consultations').doc(consultationId);
         await consultationRef.update({
             prescriptions: FieldValue.arrayUnion(prescriptionsRef.id)
         });
@@ -970,9 +961,9 @@ export const generateDocumentPdfHandler = async (request: CallableRequest<Docume
         page.drawText(date, { x: 50, y: 50, font: font, size: 10 });
 
         const pdfBytes = await pdfDoc.save();
-        const documentsRef = db.collection('documents').doc();
+        const documentsRef = getDb().collection('documents').doc();
         
-        const bucket = storage.bucket();
+        const bucket = getStorageBucket();
         const filePath = `documents/${documentsRef.id}.pdf`;
         const file = bucket.file(filePath);
         await file.save(Buffer.from(pdfBytes), { metadata: { contentType: "application/pdf" }, });
@@ -1023,7 +1014,7 @@ export const onContractFinalizedUpdateRequirementHandler = async (event: Firesto
     logger.info(`Contrato ${event.params.contractId} finalizado. Atualizando demanda original: ${shiftRequirementId}`);
 
     try {
-        const requirementRef = db.collection("shiftRequirements").doc(shiftRequirementId);
+        const requirementRef = getDb().collection("shiftRequirements").doc(shiftRequirementId);
         
         await requirementRef.update({
             status: "CONFIRMED",
@@ -1051,7 +1042,7 @@ export const registerTimeRecordHandler = async (request: CallableRequest) => {
     logger.info(`Médico ${doctorId} iniciando check-in para o contrato ${contractId}.`);
 
     try {
-        const contractRef = db.collection("contracts").doc(contractId);
+        const contractRef = getDb().collection("contracts").doc(contractId);
         const contractSnap = await contractRef.get();
         if (!contractSnap.exists || contractSnap.data()?.doctorId !== doctorId) {
             throw new HttpsError("not-found", "Contrato não encontrado ou não pertence a este médico.");
@@ -1060,7 +1051,7 @@ export const registerTimeRecordHandler = async (request: CallableRequest) => {
         const hospitalId = contractSnap.data()?.hospitalId;
         const recordId = `${contractId}_${doctorId}`;
 
-        const bucket = storage.bucket();
+        const bucket = getStorageBucket();
         const filePath = `timeRecords/${recordId}_checkin.jpg`;
         const file = bucket.file(filePath);
         const buffer = Buffer.from(photoBase64.replace(/^data:image\/jpeg;base64,/, ""), 'base64');
@@ -1070,7 +1061,7 @@ export const registerTimeRecordHandler = async (request: CallableRequest) => {
         
         logger.info(`Foto de check-in salva em: ${photoUrl}`);
 
-        const timeRecordRef = db.collection("timeRecords").doc(recordId);
+        const timeRecordRef = getDb().collection("timeRecords").doc(recordId);
         const newRecordData: TimeRecord = {
             contractId,
             doctorId,
@@ -1081,7 +1072,7 @@ export const registerTimeRecordHandler = async (request: CallableRequest) => {
             status: 'IN_PROGRESS',
         };
 
-        const batch = db.batch();
+        const batch = getDb().batch();
         batch.set(timeRecordRef, newRecordData, { merge: true }); 
 
         batch.update(contractRef, { status: "IN_PROGRESS", updatedAt: FieldValue.serverTimestamp() });
@@ -1113,14 +1104,14 @@ export const registerCheckoutHandler = async (request: CallableRequest) => {
 
     try {
         const recordId = `${contractId}_${doctorId}`;
-        const timeRecordRef = db.collection("timeRecords").doc(recordId);
+        const timeRecordRef = getDb().collection("timeRecords").doc(recordId);
         const recordSnap = await timeRecordRef.get();
 
         if (!recordSnap.exists || recordSnap.data()?.status !== 'IN_PROGRESS') {
             throw new HttpsError("failed-precondition", "Nenhum check-in em andamento foi encontrado para este plantão.");
         }
 
-        const bucket = storage.bucket();
+        const bucket = getStorageBucket();
         const filePath = `timeRecords/${recordId}_checkout.jpg`;
         const file = bucket.file(filePath);
         const buffer = Buffer.from(photoBase64.replace(/^data:image\/jpeg;base64,/, ""), 'base64');
@@ -1136,9 +1127,9 @@ export const registerCheckoutHandler = async (request: CallableRequest) => {
             status: 'COMPLETED' as const,
         };
 
-        const contractRef = db.collection("contracts").doc(contractId);
+        const contractRef = getDb().collection("contracts").doc(contractId);
 
-        const batch = db.batch();
+        const batch = getDb().batch();
         batch.update(timeRecordRef, checkoutData);
         batch.update(contractRef, { status: "COMPLETED", updatedAt: FieldValue.serverTimestamp() });
         
@@ -1165,8 +1156,8 @@ export const setAdminClaimHandler = async (request: CallableRequest) => {
     }
 
     try {
-        const user = await auth.getUserByEmail(email);
-        await auth.setCustomUserClaims(user.uid, { role: 'admin' });
+        const user = await getAuth().getUserByEmail(email);
+        await getAuth().setCustomUserClaims(user.uid, { role: 'admin' });
         
         logger.info(`Sucesso! O usuário ${email} (UID: ${user.uid}) agora tem a role de 'admin'.`);
         return { message: `Sucesso! ${email} agora é um administrador.` };
@@ -1183,7 +1174,7 @@ export const confirmUserSetupHandler = async (request: CallableRequest) => {
     }
 
     const userId = request.auth.uid;
-    const userRef = db.collection("users").doc(userId);
+    const userRef = getDb().collection("users").doc(userId);
 
     try {
         const userDoc = await userRef.get();
@@ -1214,7 +1205,7 @@ export const createConsultationRoomHandler = async (request: CallableRequest) =>
     }
     logger.info(`Criando sala de telemedicina para a consulta: ${consultationId}`);
 
-    const consultationRef = db.collection("consultations").doc(consultationId);
+    const consultationRef = getDb().collection("consultations").doc(consultationId);
     const consultationSnap = await consultationRef.get();
     
     if (!consultationSnap.exists) {
@@ -1274,11 +1265,11 @@ export const createConsultationRoomHandler = async (request: CallableRequest) =>
 
 export const createAppointmentHandler = async (request: CallableRequest) => {
     const fetch = (await import("node-fetch")).default;
-    if (!request.auth) {
-        throw new HttpsError("unauthenticated", "A função só pode ser chamada por um utilizador autenticado.");
-    }
     
-    const createdByUid = request.auth.uid;
+    // CORREÇÃO: Removida a verificação de auth para permitir agendamento público
+    // if (!request.auth) { throw new HttpsError("unauthenticated", "A função só pode ser chamada por um utilizador autenticado."); }
+    const createdByUid = request.auth?.uid; // UID é opcional agora
+    
     const { patientName, doctorId, doctorName, specialty, appointmentDate, type } = request.data;
     
     if (!patientName || !doctorId || !doctorName || !specialty || !appointmentDate || !type) {
@@ -1291,7 +1282,7 @@ export const createAppointmentHandler = async (request: CallableRequest) => {
         if (!DAILY_API_KEY) throw new HttpsError("internal", "Configuração do servidor de vídeo incompleta.");
 
         const expirationDate = new Date(appointmentDate);
-        const expirationTimestamp = Math.round((expirationDate.getTime() + 2 * 60 * 60 * 1000) / 1000);
+        const expirationTimestamp = Math.round((expirationDate.getTime() + 2 * 60 * 60 * 1000) / 1000); // 2 horas de expiração
 
         const roomOptions = { properties: { exp: expirationTimestamp, enable_chat: true } };
         const apiResponse = await fetch("https://api.daily.co/v1/rooms", {
@@ -1312,10 +1303,10 @@ export const createAppointmentHandler = async (request: CallableRequest) => {
         telemedicineRoomUrl: roomUrl,
         createdAt: FieldValue.serverTimestamp(),
         updatedAt: FieldValue.serverTimestamp(),
-        createdBy: createdByUid,
+        createdBy: createdByUid || "public_portal", // Registra quem criou
     };
 
-    const docRef = await db.collection("appointments").add(appointmentData);
+    const docRef = await getDb().collection("appointments").add(appointmentData);
     logger.info(`Agendamento ${docRef.id} salvo com sucesso.`);
     return { success: true, appointmentId: docRef.id };
 };
@@ -1333,7 +1324,7 @@ export const associateDoctorToUnitHandler = async (request: CallableRequest) => 
     }
 
     try {
-        const doctorRef = db.collection('users').doc(doctorId);
+        const doctorRef = getDb().collection('users').doc(doctorId);
         
         await doctorRef.update({
             healthUnitIds: FieldValue.arrayUnion(hospitalId)
@@ -1372,7 +1363,7 @@ export const onContractFinalizedLinkDoctorHandler = async (event: FirestoreEvent
         }
 
         try {
-            const doctorRef = db.collection('users').doc(doctorId);
+            const doctorRef = getDb().collection('users').doc(doctorId);
             await doctorRef.update({
                 healthUnitIds: FieldValue.arrayUnion(hospitalId)
             });
@@ -1391,15 +1382,15 @@ export const migrateDoctorProfilesToUsersHandler = async (request: CallableReque
     logger.info("Iniciando migração da coleção 'doctorProfiles' para 'users'.");
     
     try {
-        const doctorProfilesRef = db.collection('doctorProfiles');
-        const usersRef = db.collection('users');
+        const doctorProfilesRef = getDb().collection('doctorProfiles');
+        const usersRef = getDb().collection('users');
         const snapshot = await doctorProfilesRef.get();
 
         if (snapshot.empty) {
             return { success: true, message: "Nenhum perfil encontrado em 'doctorProfiles' para migrar.", count: 0 };
         }
 
-        const batch = db.batch();
+        const batch = getDb().batch();
         let migratedCount = 0;
         
         snapshot.forEach(doc => {
@@ -1446,7 +1437,7 @@ export const searchAssociatedDoctorsHandler = async (request: CallableRequest) =
     logger.info(`Hospital ${hospitalId} está a buscar médicos. Termo: '${searchTerm}', Especialidades:`, specialtiesFilter);
 
     try {
-        let doctorsQuery: Query = db.collection('users').where('healthUnitIds', 'array-contains', hospitalId);
+        let doctorsQuery: Query = getDb().collection('users').where('healthUnitIds', 'array-contains', hospitalId);
         
         if (specialtiesFilter && Array.isArray(specialtiesFilter) && specialtiesFilter.length > 0) {
             doctorsQuery = doctorsQuery.where('specialties', 'array-contains-any', specialtiesFilter);
@@ -1499,11 +1490,11 @@ export const sendDoctorInvitationHandler = async (request: CallableRequest) => {
     }
 
     const hospitalId = request.auth.uid;
-    const hospitalDoc = await db.collection('users').doc(hospitalId).get();
+    const hospitalDoc = await getDb().collection('users').doc(hospitalId).get();
     const hospitalName = hospitalDoc.data()?.displayName || 'Uma unidade de saúde';
 
     try {
-        await auth.getUserByEmail(doctorEmail);
+        await getAuth().getUserByEmail(doctorEmail);
         throw new HttpsError("already-exists", "Um utilizador com este e-mail já existe. Use a função 'Associar Médico'.");
     } catch (error: any) {
         if (error.code !== 'auth/user-not-found') {
@@ -1514,7 +1505,7 @@ export const sendDoctorInvitationHandler = async (request: CallableRequest) => {
     const token = uuidv4();
     const invitationLink = `https://fht-sistema.web.app/register?invitationToken=${token}`;
 
-    await db.collection("invitations").add({
+    await getDb().collection("invitations").add({
         hospitalId: hospitalId,
         hospitalName: hospitalName,
         doctorEmail: doctorEmail,
@@ -1539,7 +1530,7 @@ export const approveDoctorHandler = async (request: CallableRequest) => {
     }
 
     try {
-        const doctorRef = db.collection("users").doc(doctorId);
+        const doctorRef = getDb().collection("users").doc(doctorId);
         await doctorRef.update({
             status: 'ACTIVE'
         });
@@ -1562,9 +1553,9 @@ export const setHospitalManagerRoleHandler = async (request: CallableRequest) =>
     logger.info(`Iniciando a atribuição da role 'hospital' para o gestor: ${managerEmail}`);
 
     try {
-        const userRecord = await admin.auth().getUserByEmail(managerEmail);
+        const userRecord = await getAuth().getUserByEmail(managerEmail);
 
-        await admin.auth().setCustomUserClaims(userRecord.uid, {
+        await getAuth().setCustomUserClaims(userRecord.uid, {
             role: "hospital",
         });
 
@@ -1585,7 +1576,7 @@ export const onUserDeletedCleanupHandler = async (user: UserRecord) => {
     const uid = user.uid;
     logger.info(`[Sintaxe V1] Utilizador de autenticação com UID: ${uid} foi excluído. A iniciar limpeza.`);
     
-    const userDocRef = db.collection("users").doc(uid);
+    const userDocRef = getDb().collection("users").doc(uid);
     
     try {
         await userDocRef.delete();
@@ -1594,7 +1585,7 @@ export const onUserDeletedCleanupHandler = async (user: UserRecord) => {
         logger.error(`Falha ao excluir o documento de perfil ${uid} em 'users':`, error);
     }
     
-    const hospitalDocRef = db.collection("hospitals").doc(uid);
+    const hospitalDocRef = getDb().collection("hospitals").doc(uid);
     const hospitalDoc = await hospitalDocRef.get();
     if(hospitalDoc.exists) {
         try {
@@ -1628,9 +1619,9 @@ export const migrateHospitalProfileToV2Handler = async (request: CallableRequest
         throw new HttpsError("invalid-argument", "O ID do hospital é obrigatório.");
     }
     logger.info(`Iniciando migração de perfil para o Hospital ID: ${hospitalId}`);
-    const userRef = db.collection("users").doc(hospitalId);
+    const userRef = getDb().collection("users").doc(hospitalId);
     try {
-        await db.runTransaction(async (transaction) => {
+        await getDb().runTransaction(async (transaction) => {
             const userDoc = await transaction.get(userRef);
             if (!userDoc.exists) {
                 throw new HttpsError("not-found", "Perfil de hospital não encontrado.");
@@ -1672,7 +1663,7 @@ export const resetStaffUserPasswordHandler = async (request: CallableRequest) =>
         throw new HttpsError("unauthenticated", "Apenas utilizadores autenticados podem resetar senhas.");
     }
     const callerUid = request.auth.uid;
-    const callerDoc = await db.collection("users").doc(callerUid).get();
+    const callerDoc = await getDb().collection("users").doc(callerUid).get();
     const callerProfile = callerDoc.data();
     const allowedRoles = ['hospital', 'admin'];
     if (!callerProfile || !allowedRoles.includes(callerProfile.userType)) {
@@ -1683,7 +1674,7 @@ export const resetStaffUserPasswordHandler = async (request: CallableRequest) =>
         throw new HttpsError("invalid-argument", "O ID do funcionário é obrigatório.");
     }
     try {
-        const staffUserDoc = await db.collection("users").doc(staffUserId).get();
+        const staffUserDoc = await getDb().collection("users").doc(staffUserId).get();
         if (!staffUserDoc.exists) {
             throw new HttpsError("not-found", "Funcionário não encontrado.");
         }
@@ -1693,7 +1684,7 @@ export const resetStaffUserPasswordHandler = async (request: CallableRequest) =>
         }
         const newTemporaryPassword = `fht-reset-${Math.random().toString(36).slice(2, 8)}`;
         logger.info(`Gerando nova senha para o usuário ${staffUserId} a pedido de ${callerUid}`);
-        await auth.updateUser(staffUserId, {
+        await getAuth().updateUser(staffUserId, {
             password: newTemporaryPassword,
         });
         logger.info(`Senha do usuário ${staffUserId} atualizada com sucesso.`);
@@ -1706,5 +1697,199 @@ export const resetStaffUserPasswordHandler = async (request: CallableRequest) =>
         logger.error(`Falha ao resetar a senha do usuário ${staffUserId}:`, error);
         if (error instanceof HttpsError) throw error;
         throw new HttpsError("internal", "Ocorreu um erro inesperado ao resetar a senha.");
+    }
+};
+
+
+// ============================================================================
+// === NOVAS FUNÇÕES ADICIONADAS (QUE ESTAVAM FALTANDO) ===
+// ============================================================================
+
+/**
+ * @summary Encontra um médico disponível para uma especialidade (Telemedicina).
+ * @param {string} specialty - A especialidade médica desejada.
+ */
+export const findAvailableDoctorHandler = async (request: CallableRequest) => {
+    const { specialty } = request.data;
+    if (!specialty) {
+        throw new HttpsError("invalid-argument", "A especialidade é obrigatória.");
+    }
+    logger.info(`Buscando médico para especialidade: ${specialty}`);
+
+    try {
+        // [CORREÇÃO] Sintaxe do Admin SDK (db.collection, .where, .limit, .get)
+        const usersRef = getDb().collection("users");
+        const q = usersRef
+            .where("userType", "==", "doctor")
+            .where("specialties", "array-contains", specialty)
+            .where("status", "==", "ACTIVE")
+            .limit(1); // CORREÇÃO: 'limit' é um método da query
+        
+        const snapshot = await q.get();
+
+        if (snapshot.empty) {
+            logger.warn(`Nenhum médico encontrado para a especialidade: ${specialty}`);
+            throw new HttpsError("not-found", `Nenhum médico disponível para ${specialty} no momento.`);
+        }
+
+        const doctorDoc = snapshot.docs[0];
+        const doctorData = doctorDoc.data();
+        const doctorId = doctorDoc.id;
+        const doctorName = doctorData.displayName || "Médico sem nome";
+
+        logger.info(`Médico encontrado para ${specialty}: ${doctorName} (ID: ${doctorId})`);
+        return { doctorId, doctorName };
+
+    } catch (error: any) {
+        logger.error(`Erro ao buscar médico disponível para ${specialty}:`, error);
+        if (error instanceof HttpsError) throw error;
+        throw new HttpsError("internal", "Ocorreu um erro ao buscar um médico disponível.");
+    }
+};
+
+/**
+ * @summary Registra o uso de um material ou medicamento durante uma consulta.
+ * @param {string} consultationId - ID da consulta.
+ * @param {string} productId - ID do produto/medicamento (da coleção 'products').
+ * @param {number} quantity - Quantidade utilizada.
+ */
+export const recordBillingItemHandler = async (request: CallableRequest) => {
+    if (!request.auth) {
+        throw new HttpsError("unauthenticated", "Apenas utilizadores autenticados podem registrar itens.");
+    }
+    const { consultationId, productId, quantity } = request.data;
+    if (!consultationId || !productId || !quantity || quantity <= 0) {
+        throw new HttpsError("invalid-argument", "ID da consulta, ID do produto e quantidade válida são obrigatórios.");
+    }
+    const recordedByUid = request.auth.uid;
+    logger.info(`[${consultationId}] Tentando registrar ${quantity}x do produto ${productId}.`);
+
+    const consultationRef = getDb().collection("consultations").doc(consultationId);
+    const productRef = getDb().collection("products").doc(productId);
+    const billingItemsRef = consultationRef.collection("billingItems");
+
+    try {
+        const newBillingDocRef = await getDb().runTransaction(async (transaction) => {
+            const productDoc = await transaction.get(productRef);
+            if (!productDoc.exists) {
+                throw new HttpsError("not-found", `Produto com ID ${productId} não encontrado no catálogo.`);
+            }
+            const productData = productDoc.data();
+            const unitCost = productData?.costPerUnit;
+            const productName = productData?.name || 'Nome Indisponível';
+
+            if (typeof unitCost !== 'number' || unitCost < 0) {
+                 throw new HttpsError("internal", `Custo inválido encontrado para o produto ${productId}.`);
+            }
+            
+            const consultationDoc = await transaction.get(consultationRef);
+            if (!consultationDoc.exists) {
+                throw new HttpsError("not-found", `Consulta com ID ${consultationId} não encontrada.`);
+            }
+            const consultationData = consultationDoc.data();
+
+            const itemTotalCost = unitCost * quantity;
+            const newBillingItemData = {
+                productId: productId,
+                productName: productName,
+                quantityUsed: quantity,
+                unitCostAtTime: unitCost,
+                totalCost: itemTotalCost,
+                usedAt: FieldValue.serverTimestamp(),
+                recordedByUid: recordedByUid,
+            };
+
+            const tempNewDocRef = billingItemsRef.doc();
+            transaction.set(tempNewDocRef, newBillingItemData);
+
+            const currentTotalCost = consultationData?.totalMaterialCost || 0;
+            transaction.update(consultationRef, {
+                totalMaterialCost: currentTotalCost + itemTotalCost,
+                updatedAt: FieldValue.serverTimestamp()
+            });
+            
+            return tempNewDocRef; 
+        });
+
+        logger.info(`[${consultationId}] Item ${newBillingDocRef.id} (Produto: ${productId}) registrado com sucesso.`);
+        return { success: true, billingItemId: newBillingDocRef.id };
+
+    } catch (error: any) {
+        logger.error(`[${consultationId}] !!! ERRO CRÍTICO ao registrar item de faturamento (Produto: ${productId}) !!!`, error);
+        if (error instanceof HttpsError) throw error;
+        throw new HttpsError("internal", "Ocorreu um erro inesperado ao registrar o item.");
+    }
+};
+
+
+// ============================================================================
+// === 🧠 NOVA FUNÇÃO DE GATILHO DA IA (FASE 1) 🧠 ===
+// ============================================================================
+
+/**
+ * @summary Gatilho do Firestore para processar pré-avaliação por IA.
+ * @description Esta função é disparada quando um novo agendamento ('appointments') é criado.
+ * Ela verifica se é de telemedicina e, em caso afirmativo, chama uma IA para
+ * gerar um relatório preliminar e o salva de volta no documento.
+ */
+export const onAppointmentCreated_RunAIAnalysis = async (
+    event: FirestoreEvent<DocumentSnapshot | undefined, { appointmentId: string }>
+) => {
+    const snapshot = event.data;
+    if (!snapshot) {
+        logger.info(`[IA Gatilho] Documento de agendamento ${event.params.appointmentId} excluído ou inexistente, nenhuma ação tomada.`);
+        return;
+    }
+
+    const appointment = snapshot.data() as DocumentData; // Usamos DocumentData por segurança
+    const appointmentId = event.params.appointmentId;
+
+    // 1. Verifica se é um agendamento novo e do tipo 'Telemedicina'
+    // (Verifica também se o relatório já não existe, para evitar re-processamento)
+    if (appointment.status !== 'SCHEDULED' || appointment.type !== 'Telemedicina' || appointment.aiAnalysisReport) {
+        logger.info(`[IA Gatilho] Agendamento ${appointmentId} não é elegível para análise de IA (Status: ${appointment.status}, Tipo: ${appointment.type}, Relatório: ${!!appointment.aiAnalysisReport}).`);
+        return;
+    }
+
+    logger.info(`[IA Gatilho] Iniciando pré-avaliação por IA para agendamento: ${appointmentId}, Especialidade: ${appointment.specialty}`);
+
+    // --- Simulação da Chamada de IA ---
+    // (Em uma implementação real, aqui é onde você chamaria a API do Gemini/OpenAI)
+    // Passaríamos: appointment.patientId (para buscar histórico), appointment.specialty, etc.
+    // ------------------------------------
+
+    let aiReport = ""; // Relatório final da IA
+
+    // Simulação de lógica de IA baseada na especialidade
+    try {
+        await new Promise(resolve => setTimeout(resolve, 2000)); // Simula o tempo de processamento da IA
+
+        const patientName = appointment.patientName || "Paciente";
+        
+        if (appointment.specialty && (appointment.specialty as string).toLowerCase().includes('psicologia')) {
+            // Simula um relatório para Psicologia (ex: Protocolo TOC)
+            aiReport = `Relatório Preliminar de Saúde Mental (Simulado):\n\nPaciente: ${patientName}\nEspecialidade: ${appointment.specialty}\n\nAnálise de Risco (Simulada):\n- Nenhum indicador de risco imediato detectado.\n\nProtocolo TOC (Simulação):\n- Paciente respondeu 'Sim' a 3 de 10 perguntas de triagem para TOC.\n- Sugestão: Investigar pensamentos obsessivos sobre limpeza e verificação.\n\nSugestão ao Médico:\n- Explorar queixa principal com foco em ansiedade e comportamentos repetitivos.\n- Avaliar histórico familiar de transtornos de ansiedade.`;
+        } else if (appointment.specialty && (appointment.specialty as string).toLowerCase().includes('cardiologia')) {
+            // Simula um relatório para Cardiologia
+            aiReport = `Relatório Preliminar Cardiológico (Simulado):\n\nPaciente: ${patientName}\nEspecialidade: ${appointment.specialty}\n\nAnálise de Risco (Simulada):\n- (Assumindo dados de paciente) Paciente relata dor no peito esporádica.\n- Histórico familiar (simulado): Pai com hipertensão.\n\nSugestão ao Médico:\n- Verificar histórico de pressão arterial.\n- Perguntar sobre a frequência e intensidade da dor no peito.\n- Recomendar exames preliminares (ex: Eletrocardiograma), se ainda não realizados.`;
+        } else {
+            // Relatório genérico para outras especialidades
+            aiReport = `Relatório Clínico Geral Preliminar (Simulado):\n\nPaciente: ${patientName}\nEspecialidade: ${appointment.specialty}\n\nAnálise de Risco (Simulada):\n- Triagem padrão. Nenhuma queixa principal registrada na pré-consulta.\n\nSugestão ao Médico:\n- Iniciar anamnese padrão para ${appointment.specialty}.`;
+        }
+
+        // Atualiza o documento do agendamento com o relatório da IA
+        await snapshot.ref.update({
+            aiAnalysisReport: aiReport,
+            updatedAt: FieldValue.serverTimestamp()
+        });
+
+        logger.info(`[IA Gatilho] Sucesso! Relatório de IA salvo no agendamento ${appointmentId}.`);
+
+    } catch (error) {
+        logger.error(`[IA Gatilho] !!! ERRO ao processar análise de IA para ${appointmentId} !!!`, error);
+        // Opcional: Salvar o erro no documento para o médico ver
+        await snapshot.ref.update({
+            aiAnalysisReport: `Falha ao gerar análise de IA: ${(error as Error).message}`
+        });
     }
 };
