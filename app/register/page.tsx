@@ -611,7 +611,7 @@ function RegisterForm() {
                 targetStateSetter(prev => ({
                     ...prev,
                     cep: cleanedCep,
-                    street: data.logouro || "",
+                    street: data.logradouro || "",
                     neighborhood: data.bairro || "",
                     city: data.localidade || "",
                     state: data.uf || "",

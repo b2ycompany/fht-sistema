@@ -1265,15 +1265,12 @@ export const createConsultationRoomHandler = async (request: CallableRequest) =>
 };
 
 // ============================================================================
-// 🔹 CORREÇÃO 1: `createAppointmentHandler` (Permite Acesso Público) 🔹
+// 🔹 `createAppointmentHandler` (Com retorno do roomUrl) 🔹
 // ============================================================================
 export const createAppointmentHandler = async (request: CallableRequest) => {
     const fetch = (await import("node-fetch")).default;
     
-    // <<< CORREÇÃO CRÍTICA: A VERIFICAÇÃO DE AUTH FOI REMOVIDA DAQUI >>>
-    // if (!request.auth) {
-    //     throw new HttpsError("unauthenticated", "A função só pode ser chamada por um utilizador autenticado.");
-    // }
+    // <<< VERIFICAÇÃO DE AUTH REMOVIDA >>>
     
     const { patientName, patientId, doctorId, doctorName, specialty, appointmentDate, type } = request.data;
     
@@ -1304,16 +1301,17 @@ export const createAppointmentHandler = async (request: CallableRequest) => {
         doctorId, doctorName, specialty, type,
         appointmentDate: admin.firestore.Timestamp.fromDate(new Date(appointmentDate)),
         status: "SCHEDULED",
-        telemedicineRoomUrl: roomUrl,
+        telemedicineRoomUrl: roomUrl, // O link é salvo no documento
         createdAt: FieldValue.serverTimestamp(),
         updatedAt: FieldValue.serverTimestamp(),
-        // Usa o UID do usuário se estiver logado, senão marca como portal público
         createdBy: request.auth?.uid || "public_portal", 
     };
 
     const docRef = await getDb().collection("appointments").add(appointmentData);
     logger.info(`Agendamento ${docRef.id} salvo com sucesso.`);
-    return { success: true, appointmentId: docRef.id };
+    
+    // <<< CORREÇÃO: Retornando o roomUrl para o frontend >>>
+    return { success: true, appointmentId: docRef.id, roomUrl: roomUrl };
 };
 
 export const associateDoctorToUnitHandler = async (request: CallableRequest) => {

@@ -1,14 +1,14 @@
-// app/telemedicina/page.tsx (Versão Completa com Máscaras e Agenda Real)
+// app/telemedicina/page.tsx (Versão Completa com Link da Sala)
 "use client";
 
-import React, { useState, useEffect, useCallback } from 'react'; // <<< IMPORTADO O useCallback
+import React, { useState, useEffect, useCallback } from 'react';
 import Link from "next/link";
 import Image from "next/image";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Stethoscope, Loader2, AlertTriangle, User, Calendar, Clock, ArrowLeft } from "lucide-react";
+import { Stethoscope, Loader2, AlertTriangle, User, Calendar, Clock, ArrowLeft, Video } from "lucide-react"; // <<< Adicionado Ícone de Vídeo
 import Logo from "@/public/logo-fht.svg";
 import { getTelemedicineSpecialties } from '@/lib/telemedicine-service';
 import { useToast } from "@/hooks/use-toast";
@@ -271,11 +271,12 @@ const TimeSelection: React.FC<{
 const ConfirmationStep: React.FC<{
     selectedSpecialty: string;
     patientData: PatientInfoData;
-    selectedSlot: AvailableSlot; // <<< Corrigido
+    selectedSlot: AvailableSlot;
     appointmentId: string | null;
+    roomUrl: string | null; // <<< NOVA PROP: Recebe o link da sala
     isLoading: boolean;
     error: string | null;
-}> = ({ selectedSpecialty, patientData, selectedSlot, appointmentId, isLoading, error }) => {
+}> = ({ selectedSpecialty, patientData, selectedSlot, appointmentId, roomUrl, isLoading, error }) => { // <<< NOVA PROP
     
     // Recria a data/hora selecionada para exibição
     const slotDate = new Date(selectedSlot.date);
@@ -296,8 +297,18 @@ const ConfirmationStep: React.FC<{
                             <p><span className='font-semibold'>Especialidade:</span> <span className="capitalize">{selectedSpecialty.toLowerCase()}</span></p>
                             <p><span className='font-semibold'>Médico(a):</span> {selectedSlot.doctorName}</p>
                             <p><span className='font-semibold'>Data/Hora:</span> {displayTime}</p>
-                             {/* // TODO: Mostrar link da sala se disponível */}
-                             {/* <p><span className='font-semibold'>Link da Sala:</span> <a href="..." target="_blank">Entrar</a></p> */}
+                            
+                             {/* <<< INÍCIO DA CORREÇÃO: Mostrar link da sala >>> */}
+                             {roomUrl && (
+                                <Button asChild className="w-full mt-4 bg-green-600 hover:bg-green-700">
+                                    <a href={roomUrl} target="_blank">
+                                        <Video className="mr-2 h-4 w-4" />
+                                        Entrar na Sala da Consulta
+                                    </a>
+                                </Button>
+                             )}
+                             {/* <<< FIM DA CORREÇÃO >>> */}
+
                             <p className='text-xs text-muted-foreground pt-2'>Você receberá um lembrete por email.</p>
                         </CardContent>
                     </Card>
@@ -321,12 +332,13 @@ export default function TelemedicinePortalPage() {
   const [currentStep, setCurrentStep] = useState<TelemedicineStep>('selectSpecialty');
   const [selectedSpecialty, setSelectedSpecialty] = useState<string>('');
   const [patientData, setPatientData] = useState<PatientInfoData | null>(null);
-  const [patientId, setPatientId] = useState<string | null>(null); // <<< Novo
-  const [selectedSlot, setSelectedSlot] = useState<AvailableSlot | null>(null); // <<< Novo
+  const [patientId, setPatientId] = useState<string | null>(null);
+  const [selectedSlot, setSelectedSlot] = useState<AvailableSlot | null>(null);
   const [selectedTime, setSelectedTime] = useState<Date | null>(null);
   const [isBooking, setIsBooking] = useState(false);
   const [bookingError, setBookingError] = useState<string | null>(null);
   const [createdAppointmentId, setCreatedAppointmentId] = useState<string | null>(null);
+  const [createdRoomUrl, setCreatedRoomUrl] = useState<string | null>(null); // <<< NOVO ESTADO
 
   const { toast } = useToast();
   const router = useRouter();
@@ -374,6 +386,7 @@ export default function TelemedicinePortalPage() {
     setIsBooking(true);
     setBookingError(null);
     setCreatedAppointmentId(null);
+    setCreatedRoomUrl(null); // <<< Limpa o estado anterior
     window.scrollTo({ top: document.getElementById('flow-section')?.offsetTop || 0, behavior: 'smooth' });
 
     if (patientData && patientId && slot) {
@@ -391,10 +404,16 @@ export default function TelemedicinePortalPage() {
             
             const result = await createAppointment(payload);
             
-            const appointmentId = (result.data as any).appointmentId;
+            // <<< CORREÇÃO: Captura o ID e o roomUrl >>>
+            const { appointmentId, roomUrl } = (result.data as any);
+
             if (!appointmentId) throw new Error("ID do agendamento não retornado pelo servidor.");
+            
             setCreatedAppointmentId(appointmentId);
+            setCreatedRoomUrl(roomUrl || null); // Salva o link da sala no estado
+            
             toast({ title: "Agendamento Confirmado!" });
+
         } catch(error: any) {
              console.error("Erro ao criar agendamento:", error);
              setBookingError((error as Error).message || "Não foi possível concluir o agendamento.");
@@ -502,6 +521,7 @@ export default function TelemedicinePortalPage() {
                     patientData={patientData}
                     selectedSlot={selectedSlot}
                     appointmentId={createdAppointmentId}
+                    roomUrl={createdRoomUrl} // <<< Passando o link da sala
                     isLoading={isBooking}
                     error={bookingError}
                 />
