@@ -1,378 +1,500 @@
-// app/telemedicina/[appointmentId]/page.tsx (Versão Final Completa)
+// app/telemedicina/page.tsx (Versão Definitiva com Correção de Tipo)
 "use client";
 
-import React, { useState, useEffect, useCallback, useRef, memo } from 'react';
-import { useParams, useRouter } from 'next/navigation';
-// Importa o tipo correto 'Appointment'
-import { getAppointmentById, saveAppointmentDetails, type Appointment } from '@/lib/appointment-service';
-import { getCurrentUserData, type DoctorProfile, getUserProfile } from '@/lib/auth-service';
-import { useAuth } from '@/components/auth-provider';
-import { DailyProvider, useLocalParticipant, useParticipant, useParticipantIds, useDailyEvent } from '@daily-co/daily-react';
-import Daily, { type DailyCall as CallObject, type DailyParticipant } from '@daily-co/daily-js';
-// A LINHA ABAIXO FOI REMOVIDA:
-// import { AIAnalysisDashboard } from '@/components/ai/AIAnalysisDashboard';
-import { Loader2, Mic, MicOff, Video, VideoOff, PhoneOff, AlertTriangle, User, Save, History, FileText, Pill, ScanFace, Scale, Ruler, BrainCircuit, Download, ArrowLeft, Hospital, Calendar, Stethoscope } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { Textarea } from '@/components/ui/textarea';
+import React, { useState, useEffect } from 'react';
+import Link from "next/link";
+import Image from "next/image";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { useToast } from '@/hooks/use-toast';
-import { Timestamp } from 'firebase/firestore';
-import { PatientHistoryDialog } from '@/components/ui/PatientHistoryDialog';
-import { Badge } from '@/components/ui/badge';
-import Link from 'next/link';
-import { Dialog, DialogContent, DialogTrigger } from '@/components/ui/dialog';
+import { Stethoscope, Loader2, AlertTriangle, User, Calendar, Clock, ArrowLeft } from "lucide-react";
+import Logo from "@/public/logo-fht.svg";
+import { getTelemedicineSpecialties } from '@/lib/telemedicine-service';
+import { useToast } from "@/hooks/use-toast";
+import { useRouter } from 'next/navigation';
+import { httpsCallable } from 'firebase/functions';
+import { functions } from '@/lib/firebase';
+import { IMaskInput } from 'react-imask'; // Importação da máscara
 
-// Define a interface detalhada estendendo o tipo correto 'Appointment'
-interface DetailedAppointment extends Appointment {
-    patientSUSCard?: string;
-    patientMedicalHistorySummary?: string;
-    previousPrescriptions?: Array<{ date: Timestamp; medication: string; }>;
-    // Os campos opcionais como 'generatedDocuments' já vêm do tipo 'Appointment' se existirem lá
-    generatedDocuments?: Array<{ name: string; type: string; url: string; createdAt: Timestamp }>;
-    // aiAnalysisReport já está incluído pelo tipo 'Appointment' importado
+// Tipos
+type TelemedicineStep = 'selectSpecialty' | 'patientInfo' | 'selectTime' | 'confirm';
+interface PatientInfoData {
+    name: string;
+    cpf: string;
+    dob: string;
+    phone: string;
+    email?: string;
+    cep: string;
+    street: string;
+    number: string;
+    neighborhood: string;
+    city: string;
+    state: string;
+}
+interface AvailableSlot {
+    id: string;
+    doctorId: string;
+    doctorName: string;
+    date: string; // ISO String
+    startTime: string;
+    endTime: string;
 }
 
-// --- Componente VideoTile (sem alterações) ---
-const VideoTile = memo(({ id }: { id: string }) => {
-    const participant = useParticipant(id);
-    const videoRef = useRef<HTMLVideoElement>(null);
-    const videoTrack = participant?.tracks.video.persistentTrack;
-    useEffect(() => {
-        if (videoRef.current && videoTrack) {
-            videoRef.current.srcObject = new MediaStream([videoTrack]);
-        } else if (videoRef.current) {
-            videoRef.current.srcObject = null; // Limpa se não houver track
-        }
-    }, [videoTrack]);
-    return (
-        <div className="relative aspect-video bg-gray-800 rounded-lg overflow-hidden shadow-lg h-full w-full"> {/* Garante preenchimento */}
-            <video autoPlay muted={participant?.local} playsInline ref={videoRef} className="w-full h-full object-cover" />
-            {!videoTrack && ( /* Exibe placeholder se vídeo desligado */
-                <div className="absolute inset-0 flex items-center justify-center">
-                    <div className="flex flex-col items-center gap-2 text-gray-400">
-                        <User className="w-16 h-16" />
-                        <p className="font-bold">{participant?.user_name || 'Participante'}</p>
-                        <p className="text-xs">Câmera desligada</p>
-                    </div>
-                </div>
-            )}
-            <div className="absolute bottom-2 left-2 bg-black/50 text-white text-xs px-2 py-1 rounded">
-                {participant?.local ? 'Você' : participant?.user_name || 'Participante'}
-            </div>
-        </div>
-    );
-});
-VideoTile.displayName = 'VideoTile';
-
-// --- Componente CallTray (sem alterações) ---
-const CallTray = memo(({ callObject }: { callObject: CallObject | null }) => {
-    const localParticipant = useLocalParticipant();
-    const router = useRouter();
-    const [isLeaving, setIsLeaving] = useState(false); // Estado para feedback visual
-
-    useDailyEvent('left-meeting', useCallback(() => {
-        console.log("Evento 'left-meeting' recebido.");
-        router.push('/dashboard/agenda'); // Ou outra rota apropriada
-    }, [router]));
-
-    if (!callObject) return null;
-
-    const toggleMic = () => callObject.setLocalAudio(!localParticipant?.audio);
-    const toggleCam = () => callObject.setLocalVideo(!localParticipant?.video);
-
-    const leaveCall = useCallback(async () => {
-        setIsLeaving(true);
-        try {
-            await callObject.leave();
-             // O redirecionamento agora é feito pelo evento 'left-meeting'
-        } catch (error) {
-            console.error("Erro ao tentar sair da chamada:", error);
-             router.push('/dashboard/agenda'); // Fallback de redirecionamento
-        } finally {
-            setIsLeaving(false);
-        }
-    }, [callObject, router]);
-
-    return (
-        <div className="flex justify-center items-center gap-3 p-4 bg-gray-800/80 backdrop-blur-sm border-t border-gray-700 rounded-t-xl">
-            <Button onClick={toggleMic} variant="outline" size="icon" className="bg-gray-700 hover:bg-gray-600 border-gray-600 rounded-full h-12 w-12 text-white">
-                {localParticipant?.audio ? <Mic size={20} /> : <MicOff size={20} className="text-red-500" />}
-            </Button>
-            <Button onClick={toggleCam} variant="outline" size="icon" className="bg-gray-700 hover:bg-gray-600 border-gray-600 rounded-full h-12 w-12 text-white">
-                {localParticipant?.video ? <Video size={20} /> : <VideoOff size={20} className="text-red-500" />}
-            </Button>
-            <Button onClick={leaveCall} variant="destructive" size="icon" className="rounded-full h-14 w-14" disabled={isLeaving}>
-                {isLeaving ? <Loader2 className="animate-spin" /> : <PhoneOff size={24} />}
-            </Button>
-        </div>
-    );
-});
-CallTray.displayName = 'CallTray';
-
-// ============================================================================
-// === 🧠 NOVO COMPONENTE AIAnalysisDashboard (FASE 1) 🧠 ===
-// ============================================================================
-// COMPONENTE AGORA DEFINIDO LOCALMENTE
-// (Este é o componente que você forneceu, com a lógica para aguardar o relatório)
-
-const AIAnalysisDashboard = ({
-    appointment,
-    patientVideoTrack
-}: {
-    appointment: DetailedAppointment | null;
-    patientVideoTrack: MediaStreamTrack | null;
-}) => {
-    const [report, setReport] = useState(appointment?.aiAnalysisReport || null);
-    const [isLoading, setIsLoading] = useState(true);
-
-    useEffect(() => {
-        if (appointment?.aiAnalysisReport) {
-            setReport(appointment.aiAnalysisReport);
-            setIsLoading(false);
-        } else if (appointment) {
-            // Se o relatório ainda não chegou, esperamos um pouco
-            // (O gatilho de backend pode demorar alguns segundos)
-            const timer = setTimeout(() => {
-                setIsLoading(false); // Para de carregar mesmo se não encontrar
-            }, 5000); // Espera 5 segundos pelo relatório
-            return () => clearTimeout(timer);
-        }
-    }, [appointment]); // Reavalia quando 'appointment' for carregado
-
-    if (isLoading) {
-        return (
-            <div className="text-center p-4">
-                <Loader2 className="h-6 w-6 animate-spin mx-auto text-purple-300" />
-                <p className="text-sm text-gray-400 mt-2">Aguardando relatório da Inteligência Artificial...</p>
-            </div>
-        );
-    }
-    
-    // Exibe o relatório (formatado com quebras de linha)
-    return (
-        <Card className="bg-gray-700/50 border-gray-600">
-            <CardHeader className="pb-2">
-                <CardTitle className="text-base text-purple-300">Relatório Preliminar (IA)</CardTitle>
-            </CardHeader>
-            <CardContent>
-                <p className="text-sm text-gray-300 whitespace-pre-wrap">
-                    {report || "Nenhum relatório preliminar disponível para esta consulta."}
-                </p>
-                {/* Aqui podemos adicionar a análise facial/TOC no futuro */}
-            </CardContent>
-        </Card>
-    );
-};
-// ============================================================================
-
-
-// --- COMPONENTE DO PRONTUÁRIO ELETRÔNICO (EHR) APRIMORADO ---
-const ElectronicHealthRecordEnhanced = memo(({
-    appointment,
-    userProfile,
-    patientVideoTrack,
-    refreshData
-}: {
-    appointment: DetailedAppointment | null;
-    userProfile: DoctorProfile | null;
-    patientVideoTrack: MediaStreamTrack | null;
-    refreshData: () => void;
-}) => {
+// --- Componente do Formulário de Paciente (com Máscaras Corrigidas) ---
+const PatientInfoForm: React.FC<{
+    selectedSpecialty: string;
+    onBack: () => void;
+    onConfirm: (patientData: PatientInfoData, patientId: string) => void;
+}> = ({ selectedSpecialty, onBack, onConfirm }) => {
     const { toast } = useToast();
-    const [clinicalEvolution, setClinicalEvolution] = useState(appointment?.clinicalEvolution || '');
-    const [diagnosticHypothesis, setDiagnosticHypothesis] = useState(appointment?.diagnosticHypothesis || '');
-    const [isSaving, setIsSaving] = useState(false);
-    const [isPrescriptionModalOpen, setIsPrescriptionModalOpen] = useState(false);
-    const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
+    const [patientData, setPatientData] = useState<PatientInfoData>({
+        name: '', cpf: '', dob: '', phone: '', email: '',
+        cep: '', street: '', number: '', neighborhood: '', city: '', state: ''
+    });
+    const [isLoading, setIsLoading] = useState(false);
+    const [isCepLoading, setIsCepLoading] = useState(false);
+    const findOrCreatePatient = httpsCallable(functions, 'findOrCreatePatient');
 
-    useEffect(() => {
-        if (appointment) {
-            setClinicalEvolution(appointment.clinicalEvolution || '');
-            setDiagnosticHypothesis(appointment.diagnosticHypothesis || '');
-        }
-    }, [appointment]);
-
-    const handleSave = async () => {
-        if (!appointment) return;
-        setIsSaving(true);
-        try {
-            await saveAppointmentDetails(appointment.id, { clinicalEvolution, diagnosticHypothesis });
-            toast({ title: "Sucesso!", description: "Prontuário salvo." });
-        } catch (error: any) {
-            toast({ title: "Erro ao Salvar", description: error.message, variant: "destructive" });
-        } finally { setIsSaving(false); }
+    const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const { name, value } = e.target;
+        setPatientData(prev => ({ ...prev, [name]: value }));
     };
 
-    if (!appointment || !userProfile) { return <Card className="h-full flex items-center justify-center p-4 bg-gray-800 border-gray-700 text-white"><Loader2 className="h-6 w-6 animate-spin" /></Card>; }
+    const handleCepBlur = async (cep: string) => {
+        const cleanCep = cep.replace(/\D/g, '');
+        if (cleanCep.length !== 8) return;
+        setIsCepLoading(true);
+        try {
+            const response = await fetch(`https://viacep.com.br/ws/${cleanCep}/json/`);
+            if (!response.ok) throw new Error("CEP não encontrado");
+            const data = await response.json();
+            if (data.erro) throw new Error("CEP não encontrado");
+            setPatientData(prev => ({
+                ...prev,
+                street: data.logradouro,
+                neighborhood: data.bairro,
+                city: data.localidade,
+                state: data.uf,
+            }));
+        } catch (error: any) {
+            toast({ title: "Erro ao buscar CEP", description: error.message, variant: "destructive" });
+        } finally {
+            setIsCepLoading(false);
+        }
+    };
+
+    const handleSubmit = async (e: React.FormEvent) => {
+        e.preventDefault();
+        setIsLoading(true);
+        try {
+            const payload = {
+                ...patientData,
+                cpf: patientData.cpf.replace(/\D/g, ''),
+                phone: patientData.phone.replace(/\D/g, ''),
+                cep: patientData.cep.replace(/\D/g, ''),
+            };
+            const result = await findOrCreatePatient(payload);
+            const { patientId } = (result.data as { patientId: string });
+            if (!patientId) throw new Error("Não foi possível obter o ID do paciente.");
+            onConfirm(patientData, patientId);
+        } catch (error: any) {
+            toast({ title: "Erro no Cadastro", description: error.message, variant: "destructive" });
+            setIsLoading(false);
+        }
+    };
 
     return (
-        <Card className="h-full flex flex-col bg-gray-800 border-gray-700 text-white overflow-hidden">
-            <CardHeader className="flex-shrink-0"><CardTitle className="text-lg">Prontuário e Análise</CardTitle></CardHeader>
-            <CardContent className="flex-grow flex flex-col gap-4 overflow-y-auto p-4"> {/* Adicionado padding */}
-                <Tabs defaultValue="atendimento" className="flex-grow flex flex-col">
-                    <TabsList className="grid w-full grid-cols-4 bg-gray-900 sticky top-0 z-10">
-                        <TabsTrigger value="atendimento">Atendimento</TabsTrigger>
-                        <TabsTrigger value="paciente">Paciente</TabsTrigger>
-                        <TabsTrigger value="analise_ia" className="text-purple-400">Análise IA</TabsTrigger>
-                        <TabsTrigger value="documentos">Documentos</TabsTrigger>
-                    </TabsList>
-                    <TabsContent value="atendimento" className="flex-grow flex flex-col gap-4 mt-4">
-                        <div className="space-y-1.5 flex flex-col flex-grow"><Label htmlFor="evolution">Evolução Clínica</Label><Textarea id="evolution" value={clinicalEvolution} onChange={e => setClinicalEvolution(e.target.value)} className="min-h-[150px] flex-grow bg-gray-700 border-gray-600 text-white placeholder-gray-400" placeholder="Descreva a evolução..." /></div>
-                        <div className="space-y-1.5"><Label htmlFor="hypothesis">Hipótese Diagnóstica / Conduta</Label><Textarea id="hypothesis" value={diagnosticHypothesis} onChange={e => setDiagnosticHypothesis(e.target.value)} className="bg-gray-700 border-gray-600 text-white placeholder-gray-400" placeholder="Descreva a hipótese..." /></div>
-                    </TabsContent>
-                    <TabsContent value="paciente" className="text-sm space-y-4 mt-4 flex-grow">
-                        <div className="p-3 bg-gray-700/50 rounded-md"><Label className="text-gray-400 block mb-1">Nome</Label><p className="font-medium text-lg">{appointment.patientName}</p></div>
-                        <div className="p-3 bg-gray-700/50 rounded-md"><Label className="text-gray-400 block mb-1">Nº SUS</Label><p>{appointment.patientSUSCard || <span className='italic text-gray-500'>Não informado</span>}</p></div>
-                        <div className="p-3 bg-gray-700/50 rounded-md"><Label className="text-gray-400 block mb-1">Histórico Resumido</Label><p className="whitespace-pre-wrap">{appointment.patientMedicalHistorySummary || <span className='italic text-gray-500'>Sem resumo</span>}</p></div>
-                        
-                        {/* ============================================================================ */}
-                        {/* 🔹 CORREÇÃO DEFINITIVA DO TYPESCRIPT (patientId) APLICADA AQUI 🔹         */}
-                        {/* ============================================================================ */}
-                        {/* Só renderiza o botão/dialog se patientId existir */}
-                        {appointment.patientId ? (
-                            <Dialog open={isHistoryModalOpen} onOpenChange={setIsHistoryModalOpen}>
-                                <DialogTrigger asChild>
-                                    <Button variant="outline" className="w-full border-gray-600 text-gray-300 hover:bg-gray-700">
-                                        <History className="mr-2 h-4 w-4" />Ver Histórico Detalhado
-                                    </Button>
-                                </DialogTrigger>
-                                {/* Agora temos certeza que appointment.patientId é uma string */}
-                                <PatientHistoryDialog patientId={appointment.patientId} currentConsultationId={appointment.id} />
-                            </Dialog>
-                        ) : (
-                            // Se não houver patientId, exibe um botão desabilitado
-                            <Button variant="outline" className="w-full border-gray-600 text-gray-400" disabled>
-                                <History className="mr-2 h-4 w-4" />Histórico Indisponível (Sem ID do Paciente)
-                            </Button>
-                        )}
-                        {/* ============================================================================ */}
+        <form onSubmit={handleSubmit} className="space-y-6 max-w-2xl mx-auto bg-white p-6 md:p-8 rounded-lg shadow-md border">
+            <Button variant="ghost" onClick={onBack} className="mb-2 text-sm text-gray-600 hover:text-gray-900">
+                <ArrowLeft className="mr-2 h-4 w-4" /> Voltar para Especialidades
+            </Button>
+            <h2 className="text-2xl font-bold text-center text-gray-900 mb-2">Informações do Paciente</h2>
+            <p className="text-center text-muted-foreground mb-6">Consulta para: <span className="font-semibold capitalize">{selectedSpecialty.toLowerCase()}</span></p>
 
-                    </TabsContent>
-                    <TabsContent value="documentos" className="mt-4 space-y-4">
-                        <Dialog open={isPrescriptionModalOpen} onOpenChange={setIsPrescriptionModalOpen}><DialogTrigger asChild><Button variant="outline" className="w-full border-gray-600 text-gray-300 hover:bg-gray-700"><Pill className="mr-2 h-4 w-4"/>Gerar Receita</Button></DialogTrigger><DialogContent><p>Modal de Prescrição (a implementar)</p></DialogContent></Dialog>
-                        <div className="space-y-2 pt-4 border-t border-gray-700"><h3 className="text-sm font-semibold">Documentos Anteriores</h3>
-                             {appointment.generatedDocuments && appointment.generatedDocuments.length > 0 ? (
-                                appointment.generatedDocuments.map((doc, index) => (
-                                    <div key={index} className="flex items-center justify-between p-2 bg-gray-700/50 border border-gray-600 rounded-md">
-                                        <div className="flex items-center gap-2">
-                                            {doc.type === 'prescription' ? <Pill className="h-4 w-4 text-blue-400"/> : <FileText className="h-4 w-4 text-green-400"/>}
-                                            <span className="font-medium text-sm">{doc.name}</span>
-                                            <span className="text-xs text-gray-400">({(doc.createdAt as Timestamp)?.toDate().toLocaleDateString('pt-BR') || 'Data?'})</span>
-                                        </div>
-                                        <Button asChild variant="ghost" size="icon" className="h-7 w-7 text-gray-300 hover:text-white"><Link href={doc.url} target="_blank" rel="noopener noreferrer"><Download className="h-4 w-4"/></Link></Button>
-                                    </div>
-                                ))
-                             ) : (<p className="text-xs text-center text-gray-500 py-4">Nenhum documento.</p>)}
-                        </div>
-                    </TabsContent>
-                    <TabsContent value="analise_ia" className="mt-4 flex-grow">
-                       {/* ESTA CHAMADA AGORA USA O COMPONENTE LOCAL DEFINIDO ACIMA */}
-                       <AIAnalysisDashboard appointment={appointment} patientVideoTrack={patientVideoTrack} />
-
-                       <Card className="mt-4 bg-gray-700/50 border-gray-600"><CardHeader className="pb-2"><CardTitle className="text-base flex items-center gap-2"><BrainCircuit /> Ferramentas de Avaliação</CardTitle></CardHeader><CardContent className="space-y-2"><p className="text-xs text-gray-400">Iniciar protocolos específicos.</p><Button variant="secondary" className="w-full bg-purple-600 hover:bg-purple-700 text-white" disabled>Iniciar Protocolo TOC (em breve)</Button></CardContent></Card>
-                    </TabsContent>
-                </Tabs>
-                <div className="mt-auto pt-4 border-t border-gray-700 flex-shrink-0">
-                    <Button onClick={handleSave} disabled={isSaving} className="w-full bg-blue-600 hover:bg-blue-700">
-                        {isSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
-                        Salvar Anotações
-                    </Button>
+            <Card className="p-4"><CardTitle className="text-lg mb-4">Dados Pessoais</CardTitle><CardContent className="space-y-4">
+                <div className="space-y-1.5"><Label htmlFor="name">Nome Completo</Label><Input id="name" name="name" value={patientData.name} onChange={handleChange} required /></div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="space-y-1.5"><Label htmlFor="cpf">CPF</Label>
+                        {/* CORREÇÃO DE TIPO (as any) */}
+                        <IMaskInput as={Input as any} mask="000.000.000-00" id="cpf" name="cpf" value={patientData.cpf} onAccept={(value) => setPatientData(prev => ({...prev, cpf: value.toString()}))} required placeholder="000.000.000-00" />
+                    </div>
+                    <div className="space-y-1.5"><Label htmlFor="dob">Data de Nascimento</Label>
+                        {/* CORREÇÃO DE TIPO (as any) */}
+                        <IMaskInput as={Input as any} mask="00/00/0000" id="dob" name="dob" value={patientData.dob} onAccept={(value) => setPatientData(prev => ({...prev, dob: value.toString()}))} required placeholder="DD/MM/AAAA" />
+                    </div>
                 </div>
-            </CardContent>
-        </Card>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="space-y-1.5"><Label htmlFor="phone">Telefone (com DDD)</Label>
+                        {/* CORREÇÃO DE TIPO (as any) */}
+                        <IMaskInput as={Input as any} mask="(00) 00000-0000" id="phone" name="phone" value={patientData.phone} onAccept={(value) => setPatientData(prev => ({...prev, phone: value.toString()}))} required placeholder="(11) 99999-9999"/>
+                    </div>
+                    <div className="space-y-1.5"><Label htmlFor="email">Email (Opcional)</Label><Input id="email" name="email" type="email" value={patientData.email} onChange={handleChange} placeholder="email@exemplo.com"/></div>
+                </div>
+            </CardContent></Card>
+
+            <Card className="p-4"><CardTitle className="text-lg mb-4">Endereço</CardTitle><CardContent className="space-y-4">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div className="space-y-1.5 md:col-span-1"><Label htmlFor="cep">CEP</Label>
+                        {/* CORREÇÃO DE TIPO (as any) */}
+                        <IMaskInput as={Input as any} mask="00000-000" id="cep" name="cep" value={patientData.cep} onAccept={(value) => setPatientData(prev => ({...prev, cep: value.toString()}))} onBlur={(e) => handleCepBlur(e.target.value)} required placeholder="00000-000"/>
+                    </div>
+                    {isCepLoading && <div className="md:col-span-2 flex items-end pb-2"><Loader2 className="h-5 w-5 animate-spin" /></div>}
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div className="space-y-1.5 md:col-span-2"><Label htmlFor="street">Rua</Label><Input id="street" name="street" value={patientData.street} onChange={handleChange} required /></div>
+                    <div className="space-y-1.5 md:col-span-1"><Label htmlFor="number">Nº</Label><Input id="number" name="number" value={patientData.number} onChange={handleChange} required /></div>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="space-y-1.5"><Label htmlFor="neighborhood">Bairro</Label><Input id="neighborhood" name="neighborhood" value={patientData.neighborhood} onChange={handleChange} required /></div>
+                    <div className="space-y-1.5"><Label htmlFor="city">Cidade</Label><Input id="city" name="city" value={patientData.city} onChange={handleChange} required /></div>
+                </div>
+            </CardContent></Card>
+
+            <Button type="submit" className="w-full bg-blue-600 hover:bg-blue-700" disabled={isLoading || isCepLoading}>
+                {isLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Calendar className="mr-2 h-4 w-4" />}
+                {isLoading ? "A processar..." : "Ver Horários Disponíveis"}
+            </Button>
+        </form>
     );
-});
-ElectronicHealthRecordEnhanced.displayName = 'ElectronicHealthRecordEnhanced';
-
-// --- Componente ParticipantRenderer (sem alterações) ---
-const ParticipantRenderer = memo(() => {
-    const participantIds = useParticipantIds({ filter: 'remote' });
-    return ( <div className="grid grid-cols-1 gap-4 h-full w-full">{participantIds.map(id => <VideoTile key={id} id={id} />)}</div> ) // Adicionado h-full w-full
-});
-ParticipantRenderer.displayName = 'ParticipantRenderer';
-
-// --- Componente Principal da Sala de Atendimento ---
-const TelemedicineAppointmentRoom = ({ callObject }: { callObject: CallObject | null }) => {
-  const { user } = useAuth();
-  const router = useRouter();
-  const params = useParams();
-  const appointmentId = params.appointmentId as string;
-  const [appointment, setAppointment] = useState<DetailedAppointment | null>(null);
-  const [doctorProfile, setDoctorProfile] = useState<DoctorProfile | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [patientVideoTrack, setPatientVideoTrack] = useState<MediaStreamTrack | null>(null);
-  const remoteParticipantIds = useParticipantIds({ filter: 'remote' });
-  const remoteParticipant = useParticipant(remoteParticipantIds[0]); // Pega o primeiro participante remoto
-
-  useEffect(() => {
-    if(remoteParticipant?.tracks.video.persistentTrack) { setPatientVideoTrack(remoteParticipant.tracks.video.persistentTrack); }
-    else { setPatientVideoTrack(null); }
-  }, [remoteParticipant]);
-
-  const fetchData = useCallback(async () => {
-      if (!appointmentId || !user) return;
-      try {
-        const [appointmentData, profileData] = await Promise.all([
-          getAppointmentById(appointmentId) as Promise<DetailedAppointment | null>,
-          getCurrentUserData() as Promise<DoctorProfile>
-        ]);
-        if (!appointmentData) throw new Error("Agendamento não encontrado.");
-        if (appointmentData.doctorId !== user.uid) throw new Error("Acesso não permitido.");
-        if (!appointmentData.telemedicineRoomUrl) throw new Error("Link inválido.");
-
-        setAppointment(appointmentData);
-        setDoctorProfile(profileData);
-        setError(null);
-
-        if (callObject && callObject.meetingState() === 'new') {
-             await callObject.join({ url: appointmentData.telemedicineRoomUrl, userName: profileData?.displayName || "Médico(a)" });
-        }
-      } catch (err: any) {
-        console.error("Erro ao carregar dados da consulta:", err);
-        setError(err.message || "Falha ao carregar a sala.");
-      } finally { setIsLoading(false); }
-  }, [appointmentId, callObject, user]);
-
-  useEffect(() => { setIsLoading(true); fetchData(); }, [fetchData]);
-
-  if (isLoading) { return <div className="h-screen flex items-center justify-center bg-gray-900 text-white"><Loader2 className="h-12 w-12 animate-spin text-blue-400" /><p className="ml-4">Carregando consulta...</p></div>; }
-  if (error) { return <div className="h-screen flex flex-col items-center justify-center bg-gray-900 text-white p-4"><AlertTriangle className="h-12 w-12 text-red-400" /><p className="mt-4 text-center">{error}</p><Button onClick={() => router.push('/dashboard/agenda')} className="mt-4">Voltar para Agenda</Button></div>; }
-
-  return (
-    <div className="w-full h-screen bg-gray-900 text-white flex flex-col md:flex-row gap-4 p-4 overflow-hidden">
-      <div className="w-full md:w-2/5 xl:w-1/3 h-full overflow-y-auto">
-        <ElectronicHealthRecordEnhanced appointment={appointment} userProfile={doctorProfile} patientVideoTrack={patientVideoTrack} refreshData={fetchData} />
-      </div>
-      <div className="w-full md:w-3/5 xl:w-2/3 h-full flex flex-col gap-4">
-          <header className="flex justify-between items-center flex-shrink-0"><h1 className="text-xl font-bold">Atendimento Telemedicina</h1>{appointment && <p className="text-sm text-gray-400">Paciente: {appointment.patientName}</p>}</header>
-          <main className="flex-grow flex flex-col items-center justify-center overflow-hidden bg-black rounded-lg relative">
-            {remoteParticipantIds.length === 0 ? (
-                <div className="text-center text-gray-400 p-8"><Loader2 className="h-8 w-8 animate-spin mx-auto mb-4" />Aguardando o paciente...</div>
-             ) : (
-                <div className="relative w-full h-full flex items-center justify-center">
-                    <VideoTile key={remoteParticipantIds[0]} id={remoteParticipantIds[0]} />
-                </div>
-             )}
-             <div className="absolute bottom-20 right-4 w-1/4 max-w-[200px] z-20 border-2 border-gray-700 rounded-md shadow-lg">
-                <VideoTile id={useLocalParticipant()?.session_id || 'local'} />
-             </div>
-          </main>
-          <footer className="flex-shrink-0 z-10"><CallTray callObject={callObject} /></footer>
-      </div>
-    </div>
-  );
 };
 
-// --- Wrapper Principal da Página (sem alterações) ---
-export default function TelemedicinePageWrapper() {
-  const [callObject, setCallObject] = useState<CallObject | null>(null);
+// --- Componente de Seleção de Horário (com Agenda Real) ---
+const TimeSelection: React.FC<{
+    selectedSpecialty: string;
+    patientData: PatientInfoData;
+    onBack: () => void;
+    onConfirm: (selectedSlot: AvailableSlot, time: Date) => void;
+}> = ({ selectedSpecialty, patientData, onBack, onConfirm }) => {
+    const { toast } = useToast();
+    const [isLoading, setIsLoading] = useState(true);
+    const [availableSlots, setAvailableSlots] = useState<AvailableSlot[]>([]);
+    const [selectedSlot, setSelectedSlot] = useState<AvailableSlot | null>(null);
+    const [isConfirming, setIsConfirming] = useState(false);
+
+    const getAvailableSlots = httpsCallable(functions, 'getAvailableSlotsForSpecialty');
+
+    useEffect(() => {
+        const fetchSlots = async () => {
+            setIsLoading(true);
+            try {
+                const result = await getAvailableSlots({ specialty: selectedSpecialty });
+                const { slots } = result.data as { slots: AvailableSlot[] };
+                setAvailableSlots(slots);
+            } catch (error: any) {
+                console.error("Erro ao buscar horários:", error);
+                toast({ title: "Erro ao Buscar Horários", description: error.message, variant: "destructive" });
+                if (error.message.includes("precisa de um índice")) {
+                    toast({ title: "Atenção (Admin)", description: "Um índice do Firestore é necessário para buscar horários. Crie-o clicando no link no console do navegador (F12).", variant: "destructive", duration: 10000});
+                }
+            } finally {
+                setIsLoading(false);
+            }
+        };
+        fetchSlots();
+    }, [selectedSpecialty, toast, getAvailableSlots]);
+
+    const handleConfirm = () => {
+        if (!selectedSlot) return;
+        
+        setIsConfirming(true);
+        // Combina a data do slot com a hora de início para criar um objeto Date
+        const dateTimeString = `${selectedSlot.date.split('T')[0]}T${selectedSlot.startTime}:00`;
+        const finalDateTime = new Date(dateTimeString);
+
+        setTimeout(() => {
+            onConfirm(selectedSlot, finalDateTime);
+            setIsConfirming(false);
+        }, 500);
+    };
+
+    return (
+         <div className="space-y-4 max-w-lg mx-auto bg-white p-6 md:p-8 rounded-lg shadow-md border">
+            <Button variant="ghost" onClick={onBack} className="mb-4 text-sm text-gray-600 hover:text-gray-900">
+                <ArrowLeft className="mr-2 h-4 w-4" /> Voltar para Dados do Paciente
+            </Button>
+             <h2 className="text-2xl font-bold text-center text-gray-900 mb-2">Escolha um Horário</h2>
+             <p className="text-center text-muted-foreground mb-6">Disponibilidade para <span className="font-semibold capitalize">{selectedSpecialty.toLowerCase()}</span></p>
+             <p className="text-center text-sm">Paciente: {patientData.name}</p>
+
+             {isLoading ? <div className="flex justify-center py-8"><Loader2 className='mx-auto h-8 w-8 animate-spin' /></div> : (
+                <div className="space-y-3 max-h-64 overflow-y-auto pr-2">
+                    <Label>Próximos horários disponíveis:</Label>
+                    {availableSlots.length > 0 ? (
+                        availableSlots.map((slot) => {
+                            const slotDate = new Date(slot.date);
+                            const displayTime = `${slotDate.toLocaleDateString('pt-BR')} das ${slot.startTime} às ${slot.endTime}`;
+                            const isSelected = selectedSlot?.id === slot.id;
+                            
+                            return (
+                                <Button
+                                    key={slot.id}
+                                    variant={isSelected ? "default" : "outline"}
+                                    className="w-full justify-start h-auto py-3"
+                                    onClick={() => setSelectedSlot(slot)}
+                                >
+                                    <Clock className="mr-3 h-4 w-4" />
+                                    <div className="flex flex-col items-start">
+                                        <span className="font-semibold">{displayTime}</span>
+                                        <span className="text-xs font-normal">{slot.doctorName}</span>
+                                    </div>
+                                </Button>
+                            );
+                        })
+                    ) : (
+                        <p className="text-muted-foreground text-center py-4">Nenhum horário de telemedicina encontrado para esta especialidade no momento.</p>
+                    )}
+                </div>
+             )}
+
+             <Button onClick={handleConfirm} className="w-full" disabled={!selectedSlot || isConfirming}>
+                {isConfirming ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : "Confirmar Agendamento"}
+             </Button>
+         </div>
+    );
+};
+
+// --- Componente de Confirmação (com dados reais) ---
+const ConfirmationStep: React.FC<{
+    selectedSpecialty: string;
+    patientData: PatientInfoData;
+    selectedSlot: AvailableSlot;
+    appointmentId: string | null;
+    isLoading: boolean;
+    error: string | null;
+}> = ({ selectedSpecialty, patientData, selectedSlot, appointmentId, isLoading, error }) => {
+    
+    // Recria o objeto Date a partir da string ISO da data e da hora de início
+    const selectedTime = new Date(`${selectedSlot.date.split('T')[0]}T${selectedSlot.startTime}:00`);
+    
+    return (
+         <div className="space-y-4 max-w-lg mx-auto bg-white p-6 md:p-8 rounded-lg shadow-md border text-center">
+             <h2 className="text-2xl font-bold text-gray-900 mb-6">Agendamento</h2>
+             {isLoading && (
+                <div className="space-y-4">
+                    <Loader2 className="mx-auto h-10 w-10 animate-spin text-blue-600 mb-4" />
+                    <p className="text-muted-foreground">A confirmar o seu agendamento...</p>
+                </div>
+             )}
+             {error && <p className="text-red-600 bg-red-50 p-3 rounded border border-red-200">{error}</p>}
+             {appointmentId && !error && (
+                <div className='space-y-4'>
+                    <p className="text-green-600 font-semibold text-lg">Consulta agendada com sucesso!</p>
+                    <Card className='text-left'>
+                        <CardHeader><CardTitle className='text-base'>Detalhes</CardTitle></CardHeader>
+                        <CardContent className='text-sm space-y-2'>
+                            <p><span className='font-semibold'>Paciente:</span> {patientData.name}</p>
+                            <p><span className='font-semibold'>Especialidade:</span> <span className="capitalize">{selectedSpecialty.toLowerCase()}</span></p>
+                            <p><span className='font-semibold'>Médico:</span> {selectedSlot.doctorName}</p>
+                            <p><span className='font-semibold'>Data/Hora:</span> {selectedTime.toLocaleString('pt-BR', { dateStyle: 'long', timeStyle: 'short' })}</p>
+                            <p className='text-xs text-muted-foreground pt-2'>Você receberá um lembrete e o link de acesso por e-mail/SMS.</p>
+                        </CardContent>
+                    </Card>
+                    <Link href="/">
+                        <Button variant="outline">Voltar para o Início</Button>
+                    </Link>
+                </div>
+             )}
+         </div>
+    );
+};
+
+
+// --- COMPONENTE PRINCIPAL DA PÁGINA DE TELEMEDICINA ---
+export default function TelemedicinePortalPage() {
+  const [specialties, setSpecialties] = useState<string[]>([]);
+  const [isLoadingSpecialties, setIsLoadingSpecialties] = useState(true);
+  const [errorSpecialties, setErrorSpecialties] = useState<string | null>(null);
+
+  // Estados para controlar o fluxo
+  const [currentStep, setCurrentStep] = useState<TelemedicineStep>('selectSpecialty');
+  const [selectedSpecialty, setSelectedSpecialty] = useState<string>('');
+  const [patientData, setPatientData] = useState<PatientInfoData | null>(null);
+  const [patientId, setPatientId] = useState<string | null>(null);
+  const [selectedSlot, setSelectedSlot] = useState<AvailableSlot | null>(null);
+  const [selectedTime, setSelectedTime] = useState<Date | null>(null);
+  const [isBooking, setIsBooking] = useState(false);
+  const [bookingError, setBookingError] = useState<string | null>(null);
+  const [createdAppointmentId, setCreatedAppointmentId] = useState<string | null>(null);
+
+  const { toast } = useToast();
+  const router = useRouter();
+  const createAppointment = httpsCallable(functions, 'createAppointment');
+
+  // Busca especialidades
   useEffect(() => {
-    const dailyCo = Daily.createCallObject(); setCallObject(dailyCo);
-    return () => { dailyCo.leave().finally(() => { dailyCo.destroy(); }); };
+    const fetchSpecialties = async () => {
+      setIsLoadingSpecialties(true);
+      setErrorSpecialties(null);
+      try {
+        const data = await getTelemedicineSpecialties();
+        setSpecialties(data);
+      } catch (err: any) {
+        setErrorSpecialties(err.message || "Não foi possível conectar ao servidor.");
+      } finally {
+        setIsLoadingSpecialties(false);
+      }
+    };
+    fetchSpecialties();
   }, []);
-  if (!callObject) { return <div className="h-screen flex items-center justify-center bg-gray-900 text-white"><Loader2 className="h-12 w-12 animate-spin" /><p className="ml-4">Inicializando vídeo...</p></div>; }
-  return ( <DailyProvider callObject={callObject}><TelemedicineAppointmentRoom callObject={callObject} /></DailyProvider> );
+
+  const handleSpecialtySelect = (specialty: string) => {
+    console.log("Especialidade Selecionada:", specialty);
+    setSelectedSpecialty(specialty);
+    setCurrentStep('patientInfo');
+    window.scrollTo({ top: document.getElementById('flow-section')?.offsetTop || 0, behavior: 'smooth' });
+  };
+
+  const handlePatientInfoConfirm = (data: PatientInfoData, newPatientId: string) => {
+    setPatientData(data);
+    setPatientId(newPatientId);
+    setCurrentStep('selectTime');
+    window.scrollTo({ top: document.getElementById('flow-section')?.offsetTop || 0, behavior: 'smooth' });
+  };
+
+  const handleTimeConfirm = async (slot: AvailableSlot, time: Date) => {
+    setSelectedSlot(slot);
+    setSelectedTime(time);
+    setCurrentStep('confirm');
+    setIsBooking(true);
+    setBookingError(null);
+    setCreatedAppointmentId(null);
+    window.scrollTo({ top: document.getElementById('flow-section')?.offsetTop || 0, behavior: 'smooth' });
+
+    if (patientData && patientId && slot) {
+        try {
+            const payload = {
+                patientName: patientData.name,
+                patientId: patientId,
+                doctorId: slot.doctorId,
+                doctorName: slot.doctorName,
+                specialty: selectedSpecialty,
+                appointmentDate: time.toISOString(),
+                type: 'Telemedicina' as const
+            };
+
+            console.log("Enviando payload para createAppointment:", payload);
+
+            const result = await createAppointment(payload);
+            const appointmentId = (result.data as any).appointmentId;
+
+            if (!appointmentId) throw new Error("ID do agendamento não retornado pelo servidor.");
+
+            setCreatedAppointmentId(appointmentId);
+            toast({ title: "Agendamento Confirmado!" });
+
+        } catch(error: any) {
+             console.error("Erro ao criar agendamento:", error);
+             setBookingError(error.message || "Não foi possível concluir o agendamento.");
+             toast({ title: "Erro no Agendamento", description: error.message, variant: "destructive" });
+        } finally {
+            setIsBooking(false);
+        }
+    } else {
+        setBookingError("Dados do paciente, ID ou horário estão faltando.");
+        setIsBooking(false);
+    }
+  };
+
+  // Funções de "Voltar"
+  const goBackToSpecialties = () => {
+    setSelectedSpecialty('');
+    setPatientData(null);
+    setPatientId(null);
+    setSelectedTime(null);
+    setSelectedSlot(null);
+    setCurrentStep('selectSpecialty');
+  };
+  const goBackToPatientInfo = () => {
+      setSelectedTime(null);
+      setSelectedSlot(null);
+      setCurrentStep('patientInfo');
+  };
+
+  return (
+    <div className="flex flex-col min-h-screen bg-gray-50">
+      <header className="bg-white shadow-md sticky top-0 z-50">
+        <div className="container mx-auto px-6 py-4 flex justify-between items-center">
+          <Link href="/">
+            <Image src={Logo} alt="FHT Soluções Hospitalares" width={160} height={60} />
+          </Link>
+          <nav className="flex gap-4">
+            <Link href="/login"><Button variant="ghost" className="text-blue-600 hover:text-blue-700">Entrar</Button></Link>
+            <Link href="/dashboard"><Button className="bg-blue-600 hover:bg-blue-700 text-white px-6">Área do Médico</Button></Link>
+          </nav>
+        </div>
+      </header>
+
+      <main className="flex-1">
+        <section className="bg-gradient-to-r from-blue-100 via-white to-blue-50 py-20">
+          <div className="container mx-auto px-6 text-center">
+            <h1 className="text-4xl md:text-5xl font-bold text-gray-900 leading-tight mb-4">Portal de Telemedicina FHT</h1>
+            <p className="text-lg text-gray-700 max-w-3xl mx-auto">Cuidado e tecnologia ao seu alcance. Selecione a especialidade desejada para ver os próximos passos.</p>
+          </div>
+        </section>
+
+        <section id="flow-section" className="py-20 bg-white">
+          <div className="container mx-auto px-6">
+
+            {currentStep === 'selectSpecialty' && (
+              <>
+                <h2 className="text-3xl font-bold text-center text-gray-900 mb-12">Nossas Especialidades Disponíveis</h2>
+                {isLoadingSpecialties && <div className="flex justify-center py-8"><Loader2 className="h-12 w-12 animate-spin text-blue-600" /></div>}
+                {errorSpecialties && <div className="text-center py-8 text-red-600 bg-red-50 p-4 rounded-lg border border-red-200"><AlertTriangle className="mx-auto h-8 w-8 mb-2" /><p className="font-semibold">Erro ao carregar especialidades.</p><p className="text-sm">{errorSpecialties}</p></div>}
+                {!isLoadingSpecialties && !errorSpecialties && (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
+                    {specialties.length > 0 ? (
+                        specialties.map((specialty) => (
+                          <Card key={specialty} onClick={() => handleSpecialtySelect(specialty)} className="group hover:border-blue-600 hover:shadow-lg transition-all duration-300 cursor-pointer h-full">
+                            <CardContent className="p-6 flex flex-col items-center text-center">
+                              <div className="bg-blue-100 p-4 rounded-full mb-4 transition-colors duration-300 group-hover:bg-blue-600"><Stethoscope className="h-8 w-8 text-blue-600 transition-colors duration-300 group-hover:text-white" /></div>
+                              <h3 className="text-lg font-semibold text-gray-800 capitalize">{specialty.toLowerCase()}</h3>
+                            </CardContent>
+                          </Card>
+                        ))
+                    ) : (<p className="col-span-full text-center text-muted-foreground">Nenhuma especialidade disponível.</p>)}
+                  </div>
+                )}
+              </>
+            )}
+
+            {currentStep === 'patientInfo' && (
+              <PatientInfoForm
+                selectedSpecialty={selectedSpecialty}
+                onBack={goBackToSpecialties}
+                onConfirm={handlePatientInfoConfirm}
+              />
+            )}
+
+            {currentStep === 'selectTime' && patientData && (
+                 <TimeSelection
+                    selectedSpecialty={selectedSpecialty}
+                    patientData={patientData}
+                    onBack={goBackToPatientInfo}
+                    onConfirm={handleTimeConfirm}
+                 />
+            )}
+
+             {currentStep === 'confirm' && patientData && selectedSlot && (
+                <ConfirmationStep
+                    selectedSpecialty={selectedSpecialty}
+                    patientData={patientData}
+                    selectedSlot={selectedSlot}
+                    appointmentId={createdAppointmentId}
+                    isLoading={isBooking}
+                    error={bookingError}
+                />
+            )}
+
+          </div>
+        </section>
+      </main>
+
+      <footer className="bg-blue-700 text-white py-10 mt-auto">
+        <div className="container mx-auto px-6 text-center">
+          <p className="text-sm">© {new Date().getFullYear()} FHT Soluções Hospitalares. Todos os direitos reservados.</p>
+        </div>
+      </footer>
+    </div>
+  );
 }

@@ -1,11 +1,12 @@
-// functions/src/logic.ts (Versão CORRIGIDA E DEFINITIVA)
+// functions/src/logic.ts (Versão Completa e Corrigida)
 import { HttpsError, CallableRequest } from "firebase-functions/v2/https";
 import { logger } from "firebase-functions/v2";
 import * as admin from "firebase-admin";
 import { UserRecord } from "firebase-admin/auth";
 import { Change } from "firebase-functions";
 // 'limit' não é importado aqui, é um método de Query
-import { DocumentSnapshot, FieldValue, getFirestore, Query, GeoPoint, DocumentData } from "firebase-admin/firestore";
+// 'Timestamp' foi adicionado para a nova função de busca de horários
+import { DocumentSnapshot, FieldValue, getFirestore, Query, GeoPoint, DocumentData, Timestamp } from "firebase-admin/firestore"; 
 import { getStorage } from "firebase-admin/storage";
 import { FirestoreEvent } from "firebase-functions/v2/firestore";
 import { v4 as uuidv4 } from 'uuid';
@@ -819,7 +820,7 @@ export const correctServiceTypeCapitalizationHandler = async (request: CallableR
             details: updatedCount
         };
 
-    } catch (error) {
+    } catch (error: any) {
         logger.error("Erro durante o script de correção de 'serviceType':", error);
         throw new HttpsError("internal", "Ocorreu um erro ao executar o script de correção.");
     }
@@ -1263,17 +1264,22 @@ export const createConsultationRoomHandler = async (request: CallableRequest) =>
     }
 };
 
+// ============================================================================
+// 🔹 CORREÇÃO 1: `createAppointmentHandler` (Permite Acesso Público) 🔹
+// ============================================================================
 export const createAppointmentHandler = async (request: CallableRequest) => {
     const fetch = (await import("node-fetch")).default;
+
+    // <<< REMOVIDA A VERIFICAÇÃO DE AUTENTICAÇÃO >>>
+    // if (!request.auth) {
+    //     throw new HttpsError("unauthenticated", "A função só pode ser chamada por um utilizador autenticado.");
+    // }
+    // const createdByUid = request.auth.uid; // Substituído abaixo
     
-    // CORREÇÃO: Removida a verificação de auth para permitir agendamento público
-    // if (!request.auth) { throw new HttpsError("unauthenticated", "A função só pode ser chamada por um utilizador autenticado."); }
-    const createdByUid = request.auth?.uid; // UID é opcional agora
-    
-    const { patientName, doctorId, doctorName, specialty, appointmentDate, type } = request.data;
+    const { patientName, patientId, doctorId, doctorName, specialty, appointmentDate, type } = request.data;
     
     if (!patientName || !doctorId || !doctorName || !specialty || !appointmentDate || !type) {
-        throw new HttpsError("invalid-argument", "Dados para o agendamento estão incompletos.");
+        throw new HttpsError("invalid-argument", "Dados para o agendamento estão incompletos (faltando patientName, doctorId, etc).");
     }
     
     let roomUrl = null;
@@ -1282,7 +1288,7 @@ export const createAppointmentHandler = async (request: CallableRequest) => {
         if (!DAILY_API_KEY) throw new HttpsError("internal", "Configuração do servidor de vídeo incompleta.");
 
         const expirationDate = new Date(appointmentDate);
-        const expirationTimestamp = Math.round((expirationDate.getTime() + 2 * 60 * 60 * 1000) / 1000); // 2 horas de expiração
+        const expirationTimestamp = Math.round((expirationDate.getTime() + 2 * 60 * 60 * 1000) / 1000); // Expira em 2 horas
 
         const roomOptions = { properties: { exp: expirationTimestamp, enable_chat: true } };
         const apiResponse = await fetch("https://api.daily.co/v1/rooms", {
@@ -1297,13 +1303,15 @@ export const createAppointmentHandler = async (request: CallableRequest) => {
     }
 
     const appointmentData = {
-        patientName, doctorId, doctorName, specialty, type,
+        patientName,
+        patientId: patientId || null, // Salva o ID do paciente (da coleção 'patients')
+        doctorId, doctorName, specialty, type,
         appointmentDate: admin.firestore.Timestamp.fromDate(new Date(appointmentDate)),
         status: "SCHEDULED",
         telemedicineRoomUrl: roomUrl,
         createdAt: FieldValue.serverTimestamp(),
         updatedAt: FieldValue.serverTimestamp(),
-        createdBy: createdByUid || "public_portal", // Registra quem criou
+        createdBy: request.auth?.uid || "public_portal", // Identifica quem criou
     };
 
     const docRef = await getDb().collection("appointments").add(appointmentData);
@@ -1702,7 +1710,7 @@ export const resetStaffUserPasswordHandler = async (request: CallableRequest) =>
 
 
 // ============================================================================
-// === NOVAS FUNÇÕES ADICIONADAS (QUE ESTAVAM FALTANDO) ===
+// === FUNÇÕES EXISTENTES (JÁ CORRIGIDAS NA ETAPA ANTERIOR) ===
 // ============================================================================
 
 /**
@@ -1891,5 +1899,111 @@ export const onAppointmentCreated_RunAIAnalysis = async (
         await snapshot.ref.update({
             aiAnalysisReport: `Falha ao gerar análise de IA: ${(error as Error).message}`
         });
+    }
+};
+
+// ============================================================================
+// 🔹 NOVA FUNÇÃO 1: `findOrCreatePatientHandler` (Cadastro do Paciente) 🔹
+// ============================================================================
+export const findOrCreatePatientHandler = async (request: CallableRequest) => {
+    const { cpf, name, dob, phone, email } = request.data;
+    if (!cpf || !name || !dob || !phone) {
+        throw new HttpsError("invalid-argument", "Nome, CPF, Data de Nasc. e Telefone são obrigatórios.");
+    }
+    
+    const patientsRef = getDb().collection("patients"); // Coleção separada para pacientes
+    
+    try {
+        // 1. Tenta encontrar o paciente pelo CPF
+        // (Sintaxe correta do Admin SDK)
+        const q = patientsRef.where("cpf", "==", cpf).limit(1);
+        const snapshot = await q.get();
+
+        if (!snapshot.empty) {
+            // 2. Paciente encontrado, retorna o ID
+            const existingPatient = snapshot.docs[0];
+            logger.info(`Paciente encontrado (CPF: ${cpf}). ID: ${existingPatient.id}`);
+            // Opcional: Atualizar dados do paciente se necessário
+            await existingPatient.ref.update({
+                name, dob, phone, email: email || null, updatedAt: FieldValue.serverTimestamp()
+            });
+            return { success: true, patientId: existingPatient.id, isNew: false };
+        } else {
+            // 3. Paciente não encontrado, cria um novo
+            logger.info(`Nenhum paciente encontrado com CPF: ${cpf}. Criando novo...`);
+            const newPatientRef = patientsRef.doc(); // Gera um ID automático
+            const newPatientData = {
+                id: newPatientRef.id,
+                name, cpf, dob, phone, email: email || null,
+                createdAt: FieldValue.serverTimestamp(),
+                updatedAt: FieldValue.serverTimestamp()
+            };
+            await newPatientRef.set(newPatientData);
+            logger.info(`Novo paciente criado. ID: ${newPatientRef.id}`);
+            return { success: true, patientId: newPatientRef.id, isNew: true };
+        }
+    } catch (error: any) {
+        logger.error(`Erro ao buscar ou criar paciente (CPF: ${cpf}):`, error);
+        throw new HttpsError("internal", "Ocorreu um erro ao processar o cadastro do paciente.");
+    }
+};
+
+// ============================================================================
+// 🔹 NOVA FUNÇÃO 2: `getAvailableSlotsForSpecialtyHandler` (Agenda Real) 🔹
+// ============================================================================
+export const getAvailableSlotsForSpecialtyHandler = async (request: CallableRequest) => {
+    const { specialty } = request.data;
+    if (!specialty) {
+        throw new HttpsError("invalid-argument", "A especialidade é obrigatória.");
+    }
+
+    logger.info(`Buscando horários reais para: ${specialty}`);
+    
+    try {
+        const now = Timestamp.now();
+        const slotsRef = getDb().collection("doctorTimeSlots");
+        
+        // Busca por horários disponíveis (AVAILABLE)
+        // para a especialidade correta (specialties array-contains)
+        // que ainda não aconteceram (date >= now)
+        // e que são do tipo 'Telemedicina'
+        // (Sintaxe correta do Admin SDK)
+        const q = slotsRef
+            .where("specialties", "array-contains", specialty)
+            .where("status", "==", "AVAILABLE")
+            .where("date", ">=", now)
+            .where("serviceType", "==", "Telemedicina") // Importante!
+            .orderBy("date", "asc")
+            .limit(20); // Limita a 20 resultados por performance
+
+        const snapshot = await q.get();
+
+        if (snapshot.empty) {
+            logger.warn(`Nenhum horário de telemedicina encontrado para: ${specialty}`);
+            return { slots: [] };
+        }
+
+        const slots = snapshot.docs.map(doc => {
+            const data = doc.data();
+            return {
+                id: doc.id,
+                doctorId: data.doctorId,
+                doctorName: data.doctorName || "Médico",
+                date: (data.date as Timestamp).toDate().toISOString(), // Converte para string ISO
+                startTime: data.startTime,
+                endTime: data.endTime,
+            };
+        });
+
+        logger.info(`Encontrados ${slots.length} horários para ${specialty}.`);
+        return { slots };
+
+    } catch (error: any) {
+        logger.error(`Erro ao buscar horários para ${specialty}:`, error);
+        // Este erro é comum se o índice não existir!
+        if (error.code === 'failed-precondition') {
+             throw new HttpsError("failed-precondition", "O banco de dados precisa de um índice para esta consulta. Crie o índice no console do Firebase.");
+        }
+        throw new HttpsError("internal", "Ocorreu um erro ao buscar horários.");
     }
 };

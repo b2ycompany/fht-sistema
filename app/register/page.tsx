@@ -611,7 +611,7 @@ function RegisterForm() {
                 targetStateSetter(prev => ({
                     ...prev,
                     cep: cleanedCep,
-                    street: data.logradouro || "",
+                    street: data.logouro || "",
                     neighborhood: data.bairro || "",
                     city: data.localidade || "",
                     state: data.uf || "",
@@ -780,14 +780,20 @@ function RegisterForm() {
         let user: User | null = null;
 
         try {
-            setLoadingMessage("Etapa 1/4: Criando sua conta...");
+            // ============================================================================
+            // 🔹 CORREÇÃO DE UX 1 🔹
+            // ============================================================================
+            setLoadingMessage("Etapa 1/4: A criar sua conta de acesso...");
             const displayName = role === 'doctor' ? personalInfo.name : hospitalInfo.companyName;
             
             user = await createAuthUser(loginEmail, credentials.password, displayName);
             if (!user) { throw new Error("Não foi possível obter os dados do usuário após a criação."); }
             console.log("Usuário criado e autenticado com sucesso no cliente. UID:", user.uid);
 
-            setLoadingMessage("Etapa 2/4: Enviando seus documentos...");
+            // ============================================================================
+            // 🔹 CORREÇÃO DE UX 2 🔹
+            // ============================================================================
+            setLoadingMessage("Etapa 2/4: A enviar seus documentos de forma segura...");
             const uploadId = uuidv4();
             const tempFilePaths: { [key: string]: string } = {};
             const filesToProcess: { group: string, docKey: string, file: File }[] = [];
@@ -811,7 +817,10 @@ function RegisterForm() {
             });
             await Promise.all(uploadPromises);
 
-            setLoadingMessage("Etapa 3/4: Processando seu registro...");
+            // ============================================================================
+            // 🔹 CORREÇÃO DE UX 3 🔹
+            // ============================================================================
+            setLoadingMessage("Etapa 3/4: A processar seu registro no servidor...");
             let registrationData: any;
             if (role === 'doctor') {
                 const { name, email, ...personalDetails } = personalInfo;
@@ -823,7 +832,7 @@ function RegisterForm() {
                 registrationData = { ...hospitalDetails, displayName: companyName, email: email, address: { ...hospitalAddressInfo, cep: hospitalAddressInfo.cep.replace(/\D/g, "") }, legalRepresentativeInfo: legalRepresentativeInfo };
             }
 
-            setLoadingMessage("Etapa 4/4: Finalizando...");
+            // Removida a "Etapa 4/4" daqui, pois ela virá depois da finalização
             await finalizeRegistration({
                 registrationPayload: registrationData,
                 tempFilePaths: tempFilePaths,
@@ -831,8 +840,9 @@ function RegisterForm() {
             });
             
             // ============================================================================
-            // 🔹 SOLUÇÃO DEFINITIVA APLICADA AQUI 🔹
+            // 🔹 CORREÇÃO DE UX 4 (A MAIS IMPORTANTE) 🔹
             // ============================================================================
+            setLoadingMessage("Etapa 4/4: A finalizar a configuração de segurança..."); 
             if (auth.currentUser) {
               console.log("[RegisterForm] Forçando a atualização do token para carregar a nova 'role'...");
               await new Promise(resolve => setTimeout(resolve, 1500)); 
@@ -841,7 +851,7 @@ function RegisterForm() {
             }
             // ============================================================================
             
-            toast({ title: "Cadastro Realizado com Sucesso!", description: "Aguarde, estamos a redirecioná-lo...", duration: 3000 });
+            toast({ title: "Cadastro Realizado com Sucesso!", description: "A redirecioná-lo...", duration: 3000 });
             
             router.push('/login'); 
 
@@ -859,8 +869,13 @@ function RegisterForm() {
                 }
             }
         } finally {
-            setIsLoading(false);
-            setLoadingMessage("");
+            // ============================================================================
+            // 🔹 CORREÇÃO NO FINALLY 🔹
+            // NÃO DESATIVE O LOADING AQUI para que o usuário veja as mensagens
+            // até que o redirecionamento para /login ocorra.
+            // ============================================================================
+            // setIsLoading(false);
+            // setLoadingMessage("");
             setIsRegistering(false); // <<<<<<<<<<<<<<<<<<<<<<< PASSO 2: AVISA QUE O CADASTRO TERMINOU
         }
     };

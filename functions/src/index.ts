@@ -5,9 +5,13 @@ import {
     onDocumentDeleted,
     onDocumentCreated, // <<< Importado para o gatilho de IA
     FirestoreEvent,
-    Change,
-    DocumentSnapshot
 } from "firebase-functions/v2/firestore";
+// Correção: Importando Change e DocumentSnapshot de "firebase-functions/v1/firestore" ou "firebase-admin/firestore" 
+// não é necessário aqui, pois o FirestoreEvent<T> já lida com isso.
+// Vamos usar os tipos corretos do V2.
+import { Change } from "firebase-functions"; // Para 'Change<DocumentSnapshot>'
+import { DocumentSnapshot } from "firebase-admin/firestore"; // Para 'DocumentSnapshot'
+
 import {
     onCall,
     CallableRequest, // <<< Agora é usado
@@ -61,6 +65,12 @@ export const users = {
     searchAssociatedDoctors: onCall(defaultOnCallOptions, 
         (req: CallableRequest) => logic.searchAssociatedDoctorsHandler(req)
     ),
+    
+    // <<< NOVA FUNÇÃO ADICIONADA A ESTE GRUPO >>>
+    findOrCreatePatient: onCall(defaultOnCallOptions, 
+        (req: CallableRequest) => logic.findOrCreatePatientHandler(req)
+    ),
+
     onWrittenSetClaims: onDocumentWritten({ document: "users/{userId}", memory: "256MiB" }, 
         (event: FirestoreEvent<Change<DocumentSnapshot> | undefined, { userId: string }>) => logic.onUserWrittenSetClaimsHandler(event)
     ),
@@ -107,6 +117,12 @@ export const scheduling = {
     createAppointment: onCall({ ...defaultOnCallOptions, secrets: ["DAILY_APIKEY"] }, 
         (req: CallableRequest) => logic.createAppointmentHandler(req)
     ),
+    
+    // <<< NOVA FUNÇÃO ADICIONADA A ESTE GRUPO >>>
+    getAvailableSlotsForSpecialty: onCall({ ...defaultOnCallOptions, memory: "256MiB" }, 
+        (req: CallableRequest) => logic.getAvailableSlotsForSpecialtyHandler(req)
+    ),
+
     onShiftRequirementWrite: onDocumentWritten({ document: "shiftRequirements/{requirementId}" }, 
         (event: FirestoreEvent<Change<DocumentSnapshot> | undefined, { requirementId: string }>) => logic.findMatchesOnShiftRequirementWriteHandler(event)
     ),
