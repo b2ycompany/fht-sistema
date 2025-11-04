@@ -1269,8 +1269,8 @@ export const createConsultationRoomHandler = async (request: CallableRequest) =>
 // ============================================================================
 export const createAppointmentHandler = async (request: CallableRequest) => {
     const fetch = (await import("node-fetch")).default;
-
-    // <<< CORREÇÃO: Verificação de autenticação removida para permitir agendamento público >>>
+    
+    // <<< CORREÇÃO CRÍTICA: A VERIFICAÇÃO DE AUTH FOI REMOVIDA DAQUI >>>
     // if (!request.auth) {
     //     throw new HttpsError("unauthenticated", "A função só pode ser chamada por um utilizador autenticado.");
     // }
@@ -1278,17 +1278,15 @@ export const createAppointmentHandler = async (request: CallableRequest) => {
     const { patientName, patientId, doctorId, doctorName, specialty, appointmentDate, type } = request.data;
     
     if (!patientName || !doctorId || !doctorName || !specialty || !appointmentDate || !type) {
-        throw new HttpsError("invalid-argument", "Dados para o agendamento estão incompletos (faltando patientName, doctorId, etc).");
+        throw new HttpsError("invalid-argument", "Dados para o agendamento estão incompletos.");
     }
     
     let roomUrl = null;
     if (type === 'Telemedicina') {
         const DAILY_API_KEY = process.env.DAILY_APIKEY;
         if (!DAILY_API_KEY) throw new HttpsError("internal", "Configuração do servidor de vídeo incompleta.");
-
         const expirationDate = new Date(appointmentDate);
         const expirationTimestamp = Math.round((expirationDate.getTime() + 2 * 60 * 60 * 1000) / 1000); // Expira em 2 horas
-
         const roomOptions = { properties: { exp: expirationTimestamp, enable_chat: true } };
         const apiResponse = await fetch("https://api.daily.co/v1/rooms", {
             method: 'POST',
@@ -1298,19 +1296,19 @@ export const createAppointmentHandler = async (request: CallableRequest) => {
         if (!apiResponse.ok) throw new HttpsError("internal", "Falha ao criar a sala de videochamada.");
         const roomData: any = await apiResponse.json();
         roomUrl = roomData.url;
-        logger.info(`Sala de vídeo criada com sucesso: ${roomUrl}`);
     }
 
     const appointmentData = {
-        patientName,
-        patientId: patientId || null, // Salva o ID do paciente (da coleção 'patients')
+        patientName, 
+        patientId: patientId || null,
         doctorId, doctorName, specialty, type,
         appointmentDate: admin.firestore.Timestamp.fromDate(new Date(appointmentDate)),
         status: "SCHEDULED",
         telemedicineRoomUrl: roomUrl,
         createdAt: FieldValue.serverTimestamp(),
         updatedAt: FieldValue.serverTimestamp(),
-        createdBy: request.auth?.uid || "public_portal", // Identifica quem criou
+        // Usa o UID do usuário se estiver logado, senão marca como portal público
+        createdBy: request.auth?.uid || "public_portal", 
     };
 
     const docRef = await getDb().collection("appointments").add(appointmentData);
@@ -1999,9 +1997,10 @@ export const getAvailableSlotsForSpecialtyHandler = async (request: CallableRequ
 
     } catch (error: any) {
         logger.error(`Erro ao buscar horários para ${specialty}:`, error);
-        // Este erro é comum se o índice não existir!
+        // <<< CORREÇÃO: VERIFICAÇÃO DE ERRO DE ÍNDICE >>>
         if (error.code === 'failed-precondition') {
-             throw new HttpsError("failed-precondition", "O banco de dados precisa de um índice para esta consulta. Crie o índice no console do Firebase.");
+             // Esta mensagem de erro será enviada ao frontend, que a exibirá no toast.
+             throw new HttpsError("failed-precondition", "O banco de dados precisa de um índice para esta consulta. Por favor, crie o índice no console do Firebase (o link está no console do navegador, F12).");
         }
         throw new HttpsError("internal", "Ocorreu um erro ao buscar horários.");
     }
