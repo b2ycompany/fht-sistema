@@ -1270,11 +1270,10 @@ export const createConsultationRoomHandler = async (request: CallableRequest) =>
 export const createAppointmentHandler = async (request: CallableRequest) => {
     const fetch = (await import("node-fetch")).default;
 
-    // <<< REMOVIDA A VERIFICAÇÃO DE AUTENTICAÇÃO >>>
+    // <<< CORREÇÃO: Verificação de autenticação removida para permitir agendamento público >>>
     // if (!request.auth) {
     //     throw new HttpsError("unauthenticated", "A função só pode ser chamada por um utilizador autenticado.");
     // }
-    // const createdByUid = request.auth.uid; // Substituído abaixo
     
     const { patientName, patientId, doctorId, doctorName, specialty, appointmentDate, type } = request.data;
     

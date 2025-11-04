@@ -1,10 +1,11 @@
-// app/dashboard/triage/page.tsx
+// app/dashboard/triage/page.tsx (CORRIGIDO E COMPLETO)
 "use client";
 
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '@/components/auth-provider';
 import { useToast } from '@/hooks/use-toast';
 import { listenToServiceQueue, startTriage, submitTriage, type ServiceQueueEntry, type TriageData } from '@/lib/patient-service';
+import { printWristband } from '@/lib/print-service'; // <<< IMPORTA O SERVIÇO DE IMPRESSÃO
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -14,15 +15,17 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '
 import { Loader2, Clock, ShieldAlert, HeartPulse } from 'lucide-react';
 import { type UserType } from '@/lib/auth-service';
 import { Timestamp } from 'firebase/firestore';
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"; 
 
-/**
- * Formulário para preenchimento dos dados de triagem.
- */
+type SeverityLevel = 'vermelho' | 'laranja' | 'amarelo' | 'verde' | 'azul';
+
+// --- FORMULÁRIO DE TRIAGEM (MODIFICADO) ---
 const TriageForm = ({ queueEntry, onTriageSubmit }: { queueEntry: ServiceQueueEntry, onTriageSubmit: () => void }) => {
     const { toast } = useToast();
     const [triageData, setTriageData] = useState<TriageData>({
         chiefComplaint: '', bloodPressure: '', temperature: '', heartRate: '', respiratoryRate: '', oxygenSaturation: '', notes: ''
     });
+    const [severity, setSeverity] = useState<SeverityLevel | null>(null);
     const [isSubmitting, setIsSubmitting] = useState(false);
 
     const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
@@ -30,38 +33,87 @@ const TriageForm = ({ queueEntry, onTriageSubmit }: { queueEntry: ServiceQueueEn
         setTriageData(prev => ({ ...prev, [name]: value }));
     };
 
-    const handleSubmit = async () => {
+    const handleTriageSubmit = async () => {
         if (!triageData.chiefComplaint) {
-            toast({ title: "Campo obrigatório", description: "A queixa principal é necessária.", variant: "destructive" });
+            toast({ title: "Erro", description: "Queixa principal é obrigatória.", variant: "destructive" });
+            return;
+        }
+        if (!severity) {
+            toast({ title: "Erro", description: "Classificação de risco é obrigatória.", variant: "destructive" });
             return;
         }
         setIsSubmitting(true);
         try {
-            await submitTriage(queueEntry.id, triageData);
-            toast({ title: "Triagem Finalizada!", description: `${queueEntry.patientName} foi encaminhado(a) para o atendimento médico.` });
-            onTriageSubmit();
-        } catch(error: any) {
-            toast({ title: "Erro ao Finalizar", description: error.message, variant: "destructive" });
+            const fullTriageData = { ...triageData, severity };
+            await submitTriage(queueEntry.id, fullTriageData); 
+            
+            toast({ title: "Triagem Salva!", description: `Paciente ${queueEntry.patientName} encaminhado para atendimento.` });
+
+            // <<< CORREÇÃO: Fornece 'N/A' como fallback para dob >>>
+            printWristband({
+              patientName: queueEntry.patientName,
+              dob: "N/A", // <<< CORRIGIDO AQUI
+              patientId: queueEntry.patientId,
+              severity: severity 
+            });
+            // <<< FIM DA CORREÇÃO >>>
+
+            onTriageSubmit(); 
+        } catch (error: any) {
+            toast({ title: "Erro ao Salvar Triagem", description: error.message, variant: "destructive" });
         } finally {
             setIsSubmitting(false);
         }
     };
 
     return (
-        <div className="space-y-4">
-            <div className="space-y-1.5"><Label htmlFor="chiefComplaint">Queixa Principal</Label><Textarea id="chiefComplaint" name="chiefComplaint" value={triageData.chiefComplaint} onChange={handleChange} /></div>
-            <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-                <div className="space-y-1.5"><Label htmlFor="bloodPressure">Pressão Arterial</Label><Input id="bloodPressure" name="bloodPressure" value={triageData.bloodPressure} onChange={handleChange} /></div>
-                <div className="space-y-1.5"><Label htmlFor="temperature">Temperatura (°C)</Label><Input id="temperature" name="temperature" value={triageData.temperature} onChange={handleChange} /></div>
-                <div className="space-y-1.5"><Label htmlFor="heartRate">Freq. Cardíaca (bpm)</Label><Input id="heartRate" name="heartRate" value={triageData.heartRate} onChange={handleChange} /></div>
-                <div className="space-y-1.5"><Label htmlFor="respiratoryRate">Freq. Respiratória (rpm)</Label><Input id="respiratoryRate" name="respiratoryRate" value={triageData.respiratoryRate} onChange={handleChange} /></div>
-                <div className="space-y-1.5"><Label htmlFor="oxygenSaturation">Saturação O₂ (%)</Label><Input id="oxygenSaturation" name="oxygenSaturation" value={triageData.oxygenSaturation} onChange={handleChange} /></div>
+        <div className="space-y-4 max-h-[70vh] overflow-y-auto pr-4">
+            <div className="space-y-1.5">
+                <Label htmlFor="chiefComplaint" className="text-base">Queixa Principal</Label>
+                <Textarea id="chiefComplaint" name="chiefComplaint" value={triageData.chiefComplaint} onChange={handleChange} rows={3} />
             </div>
-            <div className="space-y-1.5"><Label htmlFor="notes">Outras Anotações</Label><Textarea id="notes" name="notes" value={triageData.notes} onChange={handleChange} /></div>
-            <DialogFooter className="mt-4">
-                <Button onClick={handleSubmit} disabled={isSubmitting}>
-                    {isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <HeartPulse className="mr-2 h-4 w-4" />}
-                    Finalizar e Encaminhar para Atendimento
+            
+            <Label className="text-base">Sinais Vitais</Label>
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+                <div className="space-y-1.5"><Label htmlFor="bloodPressure">P.A. (mmHg)</Label><Input id="bloodPressure" name="bloodPressure" value={triageData.bloodPressure} onChange={handleChange} /></div>
+                <div className="space-y-1.5"><Label htmlFor="temperature">Temp. (°C)</Label><Input id="temperature" name="temperature" value={triageData.temperature} onChange={handleChange} /></div>
+                <div className="space-y-1.5"><Label htmlFor="heartRate">F.C. (bpm)</Label><Input id="heartRate" name="heartRate" value={triageData.heartRate} onChange={handleChange} /></div>
+                <div className="space-y-1.5"><Label htmlFor="respiratoryRate">F.R. (rpm)</Label><Input id="respiratoryRate" name="respiratoryRate" value={triageData.respiratoryRate} onChange={handleChange} /></div>
+                <div className="space-y-1.5"><Label htmlFor="oxygenSaturation">Sat O₂ (%)</Label><Input id="oxygenSaturation" name="oxygenSaturation" value={triageData.oxygenSaturation} onChange={handleChange} /></div>
+            </div>
+
+            <div className="space-y-2 pt-4 border-t">
+                <Label className="text-base font-semibold">Classificação de Risco (Protocolo de Manchester)</Label>
+                <RadioGroup onValueChange={(value) => setSeverity(value as SeverityLevel)} value={severity || ""}>
+                    <div className="flex items-center space-x-2 p-2 rounded border border-red-300 bg-red-50">
+                        <RadioGroupItem value="vermelho" id="sev-vermelho" />
+                        <Label htmlFor="sev-vermelho" className="font-bold text-red-700">Vermelho (Emergência)</Label>
+                    </div>
+                    <div className="flex items-center space-x-2 p-2 rounded border border-orange-300 bg-orange-50">
+                        <RadioGroupItem value="laranja" id="sev-laranja" />
+                        <Label htmlFor="sev-laranja" className="font-bold text-orange-700">Laranja (Muito Urgente)</Label>
+                    </div>
+                    <div className="flex items-center space-x-2 p-2 rounded border border-yellow-300 bg-yellow-50">
+                        <RadioGroupItem value="amarelo" id="sev-amarelo" />
+                        <Label htmlFor="sev-amarelo" className="font-bold text-yellow-700">Amarelo (Urgente)</Label>
+                    </div>
+                    <div className="flex items-center space-x-2 p-2 rounded border border-green-300 bg-green-50">
+                        <RadioGroupItem value="verde" id="sev-verde" />
+                        <Label htmlFor="sev-verde" className="font-bold text-green-700">Verde (Pouco Urgente)</Label>
+                    </div>
+                     <div className="flex items-center space-x-2 p-2 rounded border border-blue-300 bg-blue-50">
+                        <RadioGroupItem value="azul" id="sev-azul" />
+                        <Label htmlFor="sev-azul" className="font-bold text-blue-700">Azul (Não Urgente)</Label>
+                    </div>
+                </RadioGroup>
+            </div>
+
+            <div className="space-y-1.5"><Label htmlFor="notes">Anotações Adicionais</Label><Textarea id="notes" name="notes" value={triageData.notes} onChange={handleChange} rows={2} /></div>
+            
+            <DialogFooter className="pt-4 border-t">
+                <Button onClick={handleTriageSubmit} disabled={isSubmitting || !severity} className="w-full">
+                    {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                    {isSubmitting ? "A salvar..." : "Salvar Triagem e Imprimir Pulseira"}
                 </Button>
             </DialogFooter>
         </div>
@@ -69,6 +121,7 @@ const TriageForm = ({ queueEntry, onTriageSubmit }: { queueEntry: ServiceQueueEn
 };
 
 
+// --- PÁGINA PRINCIPAL DE TRIAGEM (MODIFICADA) ---
 export default function TriagePage() {
     const { userProfile, loading: authLoading } = useAuth();
     const { toast } = useToast();
@@ -77,31 +130,47 @@ export default function TriagePage() {
     const [triagePatient, setTriagePatient] = useState<ServiceQueueEntry | null>(null);
 
     useEffect(() => {
-        if (userProfile?.hospitalId) {
-            setIsLoading(true);
-            const unsubscribe = listenToServiceQueue(userProfile.hospitalId, 'Aguardando Triagem', (entries) => {
+        if (authLoading) return;
+        if (!userProfile || !userProfile.hospitalId) {
+            setIsLoading(false);
+            return;
+        }
+
+        setIsLoading(true);
+        const unitId = userProfile.hospitalId;
+        
+        const unsubscribe = listenToServiceQueue(
+            unitId, 
+            'Aguardando Triagem', 
+            'Presencial', 
+            (entries) => {
                 setQueue(entries);
                 setIsLoading(false);
-            });
-            return () => unsubscribe();
-        }
-    }, [userProfile]);
+            }
+        );
+        
+        return () => unsubscribe();
+    }, [userProfile, authLoading, toast]);
 
-    const handleCallPatient = async (queueEntry: ServiceQueueEntry) => {
+    const handleCallPatient = async (entry: ServiceQueueEntry) => {
+        if (!userProfile) {
+            toast({ title: "Erro", description: "Perfil do enfermeiro não carregado.", variant: "destructive" });
+            return;
+        }
         try {
-            await startTriage(queueEntry.id, userProfile!.uid);
-            setTriagePatient(queueEntry);
+            await startTriage(entry.id, userProfile.uid); 
+            setTriagePatient(entry);
         } catch (error: any) {
-            toast({ title: "Erro ao Chamar Paciente", description: error.message, variant: "destructive" });
+            toast({ title: "Erro ao chamar paciente", description: error.message, variant: "destructive" });
         }
     };
 
-    if (authLoading || !userProfile) {
+    if (authLoading || isLoading) {
         return <div className="flex h-screen items-center justify-center"><Loader2 className="h-12 w-12 animate-spin text-blue-600" /></div>;
     }
     
     const allowedRoles: UserType[] = ['admin', 'triage_nurse', 'hospital'];
-    if (!allowedRoles.includes(userProfile.userType)) {
+    if (!userProfile || !allowedRoles.includes(userProfile.userType)) {
         return (
             <div className="container mx-auto flex h-screen items-center justify-center p-8 text-center">
                  <Card className="w-full max-w-md border-red-500 bg-red-50"><CardHeader><CardTitle className="flex items-center justify-center gap-2 text-2xl text-red-700"><ShieldAlert className="h-8 w-8" />Acesso Negado</CardTitle></CardHeader></Card>
@@ -111,11 +180,10 @@ export default function TriagePage() {
 
     return (
         <div className="container mx-auto p-4 sm:p-6 space-y-6">
-            <h1 className="text-3xl font-bold">Painel de Triagem</h1>
-            <Card>
+             <Card>
                 <CardHeader>
-                    <CardTitle>Fila de Pacientes Aguardando Triagem</CardTitle>
-                    <CardDescription>Pacientes adicionados pela recepção aparecerão aqui em tempo real.</CardDescription>
+                    <CardTitle className="flex items-center gap-2"><HeartPulse /> Fila de Triagem</CardTitle>
+                    <CardDescription>Pacientes que passaram pela recepção e aguardam a classificação de risco.</CardDescription>
                 </CardHeader>
                 <CardContent>
                     {isLoading ? <div className="text-center p-8"><Loader2 className="h-8 w-8 animate-spin" /></div> : (
@@ -146,7 +214,12 @@ export default function TriagePage() {
                     <DialogHeader>
                         <DialogTitle>Triagem de Paciente: {triagePatient?.patientName} ({triagePatient?.ticketNumber})</DialogTitle>
                     </DialogHeader>
-                    {triagePatient && <TriageForm queueEntry={triagePatient} onTriageSubmit={() => setTriagePatient(null)} />}
+                    {triagePatient && (
+                        <TriageForm 
+                            queueEntry={triagePatient} 
+                            onTriageSubmit={() => setTriagePatient(null)} 
+                        />
+                    )}
                 </DialogContent>
             </Dialog>
         </div>

@@ -5,12 +5,10 @@ import {
     onDocumentDeleted,
     onDocumentCreated, // <<< Importado para o gatilho de IA
     FirestoreEvent,
+    Change, // <<< CORRIGIDO: Importado do V2
+    DocumentSnapshot // <<< CORRIGIDO: Importado do V2
 } from "firebase-functions/v2/firestore";
-// Correção: Importando Change e DocumentSnapshot de "firebase-functions/v1/firestore" ou "firebase-admin/firestore" 
-// não é necessário aqui, pois o FirestoreEvent<T> já lida com isso.
-// Vamos usar os tipos corretos do V2.
-import { Change } from "firebase-functions"; // Para 'Change<DocumentSnapshot>'
-import { DocumentSnapshot } from "firebase-admin/firestore"; // Para 'DocumentSnapshot'
+// Correção: As importações separadas de 'firebase-functions' e 'firebase-admin/firestore' foram removidas.
 
 import {
     onCall,

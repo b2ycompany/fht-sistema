@@ -1,4 +1,4 @@
-// app/hospital/patients/page.tsx
+// app/hospital/patients/page.tsx (CORRIGIDO E COMPLETO)
 "use client";
 
 import React, { useState, useEffect } from 'react';
@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from '@/components/auth-provider';
 import { createPatient, searchPatients, type Patient, type PatientPayload } from "@/lib/patient-service";
+import { printWristband } from '@/lib/print-service'; // <<< IMPORTA O SERVIÇO DE IMPRESSÃO
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, DialogClose, DialogTrigger } from '@/components/ui/dialog';
@@ -13,7 +14,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Loader2, PlusCircle, AlertTriangle } from 'lucide-react';
-import { IMaskInput } from 'react-imask'; // <<< ADICIONADO PARA MÁSCARA
+import { IMaskInput } from 'react-imask'; // <<< MANTIDO DO SEU ORIGINAL
+import { Timestamp } from 'firebase/firestore'; // <<< ADICIONADO PARA CRIAR O OBJETO
 
 // Função para formatar a data de YYYY-MM-DD para DD/MM/YYYY
 const formatDate = (dateStr?: string) => {
@@ -24,7 +26,8 @@ const formatDate = (dateStr?: string) => {
     return `${day}/${month}/${year}`;
 };
 
-const AddPatientDialog: React.FC<{ onPatientAdded: () => void }> = ({ onPatientAdded }) => {
+// --- DIÁLOGO DE ADIÇÃO DE PACIENTE (MODIFICADO) ---
+const AddPatientDialog: React.FC<{ onPatientAdded: (patient: Patient) => void }> = ({ onPatientAdded }) => {
     const [name, setName] = useState('');
     const [cpf, setCpf] = useState('');
     const [dob, setDob] = useState('');
@@ -43,15 +46,35 @@ const AddPatientDialog: React.FC<{ onPatientAdded: () => void }> = ({ onPatientA
         try {
             const payload: PatientPayload = {
                 name,
-                cpf: cpf || undefined,
-                dob: dob || undefined,
-                phone: phone || undefined,
+                cpf: cpf.replace(/\D/g, '') || undefined, // Remove máscara
+                dob: dob || undefined, // Envia 'undefined' se vazio
+                phone: phone.replace(/\D/g, '') || undefined, // Remove máscara
                 unitId: userProfile.hospitalId,
                 createdBy: user.uid,
             };
-            await createPatient(payload);
+            
+            const newPatientId = await createPatient(payload); 
+            
             toast({ title: "Paciente Adicionado!", description: `${name} foi cadastrado com sucesso.`, variant: 'success' });
-            onPatientAdded();
+
+            // <<< CORREÇÃO: Fornece 'N/A' como fallback para dob >>>
+            printWristband({
+                patientName: payload.name,
+                dob: payload.dob || 'N/A', // <<< CORRIGIDO AQUI
+                patientId: newPatientId, 
+                severity: 'branco'
+            });
+            // <<< FIM DA CORREÇÃO >>>
+
+            const newPatientObject: Patient = {
+                id: newPatientId,
+                ...payload,
+                name_lowercase: payload.name.toLowerCase(),
+                createdAt: Timestamp.now() 
+            };
+
+            onPatientAdded(newPatientObject); // Passa o objeto completo
+
         } catch (error: any) {
             toast({ title: "Erro ao Adicionar Paciente", description: error.message, variant: "destructive" });
         } finally {
@@ -73,11 +96,10 @@ const AddPatientDialog: React.FC<{ onPatientAdded: () => void }> = ({ onPatientA
                     </div>
                     <div className="grid grid-cols-4 items-center gap-4">
                         <Label htmlFor="cpf" className="text-right">CPF</Label>
-                        {/* <<< CORREÇÃO: INPUT COM MÁSCARA APLICADA AQUI >>> */}
                         <IMaskInput
                             mask="000.000.000-00"
                             value={cpf}
-                            unmask={true} // Salva o valor sem a máscara
+                            unmask={false}
                             onAccept={(value) => setCpf(value as string)}
                             placeholder="000.000.000-00"
                             className="col-span-3 flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
@@ -89,14 +111,21 @@ const AddPatientDialog: React.FC<{ onPatientAdded: () => void }> = ({ onPatientA
                     </div>
                     <div className="grid grid-cols-4 items-center gap-4">
                         <Label htmlFor="phone" className="text-right">Telefone</Label>
-                        <Input id="phone" value={phone} onChange={e => setPhone(e.target.value)} className="col-span-3" />
+                         <IMaskInput
+                            mask="[(00)] 00000-0000"
+                            value={phone}
+                            unmask={false}
+                            onAccept={(value) => setPhone(value as string)}
+                            placeholder="(11) 99999-9999"
+                            className="col-span-3 flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                        />
                     </div>
                 </div>
                 <DialogFooter>
                     <DialogClose asChild><Button type="button" variant="outline">Cancelar</Button></DialogClose>
                     <Button type="submit" disabled={isSubmitting || !userProfile}>
                         {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                        Salvar Paciente
+                        Salvar e Imprimir Pulseira
                     </Button>
                 </DialogFooter>
             </form>
@@ -104,6 +133,7 @@ const AddPatientDialog: React.FC<{ onPatientAdded: () => void }> = ({ onPatientA
     );
 };
 
+// --- PÁGINA PRINCIPAL DE PACIENTES (MODIFICADA) ---
 export default function PatientsPage() {
     const router = useRouter();
     const { userProfile, profileLoading } = useAuth();
@@ -140,10 +170,10 @@ export default function PatientsPage() {
         return () => clearTimeout(debounceTimer);
     }, [searchTerm, userProfile, toast]);
 
-    const handlePatientAdded = () => {
-        setIsDialogOpen(false);
-        setSearchTerm(''); 
-        setPatients([]);
+    const handlePatientAdded = (patient: Patient) => {
+        setIsDialogOpen(false); 
+        setPatients(prev => [patient, ...prev]); 
+        router.push(`/hospital/patients/${patient.id}`); 
     };
 
     const handleRowClick = (patientId: string) => {
