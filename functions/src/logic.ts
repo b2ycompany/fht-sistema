@@ -1912,7 +1912,7 @@ export const findOrCreatePatientHandler = async (request: CallableRequest) => {
     
     try {
         // 1. Tenta encontrar o paciente pelo CPF
-        // (Sintaxe correta do Admin SDK)
+        // <<< CORREÇÃO: Revertendo para a sintaxe encadeada (v8) do Admin SDK >>>
         const q = patientsRef.where("cpf", "==", cpf).limit(1);
         const snapshot = await q.get();
 
@@ -1960,18 +1960,14 @@ export const getAvailableSlotsForSpecialtyHandler = async (request: CallableRequ
         const now = Timestamp.now();
         const slotsRef = getDb().collection("doctorTimeSlots");
         
-        // Busca por horários disponíveis (AVAILABLE)
-        // para a especialidade correta (specialties array-contains)
-        // que ainda não aconteceram (date >= now)
-        // e que são do tipo 'Telemedicina'
-        // (Sintaxe correta do Admin SDK)
+        // <<< CORREÇÃO: Revertendo para a sintaxe encadeada (v8) do Admin SDK >>>
         const q = slotsRef
             .where("specialties", "array-contains", specialty)
             .where("status", "==", "AVAILABLE")
             .where("date", ">=", now)
             .where("serviceType", "==", "Telemedicina") // Importante!
             .orderBy("date", "asc")
-            .limit(20); // Limita a 20 resultados por performance
+            .limit(20); // limit() é um método
 
         const snapshot = await q.get();
 

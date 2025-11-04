@@ -1,7 +1,7 @@
 // app/telemedicina/page.tsx (Versão Completa com Máscaras e Agenda Real)
 "use client";
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react'; // <<< IMPORTADO O useCallback
 import Link from "next/link";
 import Image from "next/image";
 import { Button } from "@/components/ui/button";
@@ -75,7 +75,7 @@ const PatientInfoForm: React.FC<{
             if (data.erro) throw new Error("CEP não encontrado");
             setPatientData(prev => ({
                 ...prev,
-                street: data.logouro,
+                street: data.logradouro, // <<< CORREÇÃO (era logouro)
                 neighborhood: data.bairro,
                 city: data.localidade,
                 state: data.uf,
@@ -140,7 +140,6 @@ const PatientInfoForm: React.FC<{
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div className="space-y-1.5"><Label htmlFor="phone">Telefone (com DDD) *</Label>
-                        {/* <<< CORREÇÃO DA MÁSCARA DE TELEFONE >>> */}
                         <IMaskInput as={Input as any} mask="[(00)] 00000-0000" id="phone" name="phone" value={patientData.phone} onAccept={(value) => setPatientData(prev => ({...prev, phone: value.toString()}))} required placeholder="(11) 99999-9999"/>
                     </div>
                     <div className="space-y-1.5"><Label htmlFor="email">Email *</Label><Input id="email" name="email" type="email" value={patientData.email} onChange={handleChange} required placeholder="email@exemplo.com"/></div>
@@ -185,14 +184,16 @@ const TimeSelection: React.FC<{
     const [selectedSlot, setSelectedSlot] = useState<AvailableSlot | null>(null);
     const [isConfirming, setIsConfirming] = useState(false);
 
-    // Ajuste para o nome exportado (grupo scheduling)
-    const getAvailableSlots = httpsCallable(functions, 'scheduling-getAvailableSlotsForSpecialty'); 
+    // <<< CORREÇÃO: Função movida para useCallback para evitar recriação e looping infinito >>>
+    const getAvailableSlots = useCallback(
+        httpsCallable(functions, 'scheduling-getAvailableSlotsForSpecialty'),
+        [] // Dependências vazias, a função é criada apenas uma vez
+    );
 
     useEffect(() => {
         const fetchSlots = async () => {
             setIsLoading(true);
             try {
-                // <<< CORREÇÃO: CHAMA A FUNÇÃO DE AGENDA REAL >>>
                 const result = await getAvailableSlots({ specialty: selectedSpecialty });
                 const { slots } = result.data as { slots: AvailableSlot[] };
                 setAvailableSlots(slots);
@@ -207,7 +208,7 @@ const TimeSelection: React.FC<{
             }
         };
         fetchSlots();
-    }, [selectedSpecialty, toast, getAvailableSlots]);
+    }, [selectedSpecialty, toast, getAvailableSlots]); // Agora 'getAvailableSlots' é estável
 
     const handleConfirm = () => {
         if (!selectedSlot) return;
