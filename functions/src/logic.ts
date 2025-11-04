@@ -1960,44 +1960,79 @@ export const getAvailableSlotsForSpecialtyHandler = async (request: CallableRequ
         const now = Timestamp.now();
         const slotsRef = getDb().collection("doctorTimeSlots");
         
-        // <<< CORREÇÃO: Revertendo para a sintaxe encadeada (v8) do Admin SDK >>>
+        // <<< CORREÇÃO CRÍTICA (v3) >>>
+        // O Firestore NÃO permite 'array-contains' e '>= (inequality)' na mesma query.
+        // Vamos buscar todos os horários futuros disponíveis de Telemedicina
+        // e FILTRAR a especialidade no backend (código).
+
         const q = slotsRef
-            .where("specialties", "array-contains", specialty)
             .where("status", "==", "AVAILABLE")
+            .where("serviceType", "==", "Telemedicina") 
             .where("date", ">=", now)
-            .where("serviceType", "==", "Telemedicina") // Importante!
             .orderBy("date", "asc")
-            .limit(20); // limit() é um método
+            .limit(100); // Trazemos 100 para ter uma boa chance de encontrar a especialidade
 
         const snapshot = await q.get();
 
         if (snapshot.empty) {
-            logger.warn(`Nenhum horário de telemedicina encontrado para: ${specialty}`);
+            logger.warn(`Nenhum horário de telemedicina (de QUALQUER especialidade) encontrado.`);
             return { slots: [] };
         }
 
-        const slots = snapshot.docs.map(doc => {
-            const data = doc.data();
+        // Agora, filtramos pela especialidade no código
+        // <<< INÍCIO DA CORREÇÃO DE TIPO >>>
+        const allSlots = snapshot.docs.map(doc => {
             return {
                 id: doc.id,
+                ...(doc.data() as TimeSlotData) // Explicitamente cast o data()
+            };
+        });
+        // <<< FIM DA CORREÇÃO DE TIPO >>>
+
+        // <<< INÍCIO DA CORREÇÃO DE CASE-SENSITIVITY >>>
+        const lowerCaseSpecialty = specialty.toLowerCase();
+
+        const specialtySlots = allSlots.filter(slot => {
+            if (!slot.specialties || slot.specialties.length === 0) {
+                return false;
+            }
+            // Converte o array do DB para minúsculas e verifica se inclui
+            const lowerCaseDbSpecialties = slot.specialties.map(s => s.toLowerCase());
+            return lowerCaseDbSpecialties.includes(lowerCaseSpecialty);
+        });
+        // <<< FIM DA CORREÇÃO DE CASE-SENSITIVITY >>>
+
+
+        // Se filtrarmos tudo e não sobrar nada...
+        if (specialtySlots.length === 0) {
+             logger.warn(`Horários de telemedicina encontrados, mas nenhum para: ${specialty}`);
+             return { slots: [] };
+        }
+
+        // Mapeia para o formato final
+        const slots = specialtySlots.map(data => {
+            return {
+                id: data.id,
                 doctorId: data.doctorId,
                 doctorName: data.doctorName || "Médico",
-                date: (data.date as Timestamp).toDate().toISOString(), // Converte para string ISO
+                date: (data.date as Timestamp).toDate().toISOString(),
                 startTime: data.startTime,
                 endTime: data.endTime,
             };
-        });
+        }).slice(0, 20); // Retorna os 20 primeiros encontrados
 
         logger.info(`Encontrados ${slots.length} horários para ${specialty}.`);
         return { slots };
 
     } catch (error: any) {
         logger.error(`Erro ao buscar horários para ${specialty}:`, error);
-        // <<< CORREÇÃO: VERIFICAÇÃO DE ERRO DE ÍNDICE >>>
+        
         if (error.code === 'failed-precondition') {
-             // Esta mensagem de erro será enviada ao frontend, que a exibirá no toast.
-             throw new HttpsError("failed-precondition", "O banco de dados precisa de um índice para esta consulta. Por favor, crie o índice no console do Firebase (o link está no console do navegador, F12).");
+             // Este é o NOVO índice necessário
+             const newIndexMessage = "O banco de dados precisa de um índice: doctorTimeSlots (status ASC, serviceType ASC, date ASC). Crie-o no link do console (F12).";
+             logger.error(newIndexMessage); // Log no backend
+             throw new HttpsError("failed-precondition", newIndexMessage); // Envia para o frontend
         }
-        throw new HttpsError("internal", "Ocorreu um erro ao buscar horários.");
+        throw new HttpsError("internal", "Ocorreu um erro interno ao buscar horários.");
     }
 };
