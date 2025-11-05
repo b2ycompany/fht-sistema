@@ -1,3 +1,4 @@
+/* app/globals.css (Arquivo Completo e Corrigido) */
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -92,41 +93,68 @@ body {
     @apply bg-background text-foreground;
   }
 }
-/* Adicione estas regras ao final do seu arquivo app/globals.css */
 
-/* Garante que as células do cabeçalho (Dom, Seg, Ter...) ocupem espaço igual e centralizem o texto */
-.rdp-head_cell {
-  text-align: center !important; /* Centraliza o texto (Dom, Seg, etc.) */
-  width: 2.5rem; /* Ajuste se necessário para o tamanho dos dias */
-  padding: 0.5rem 0 !important; /* Espaçamento vertical */
-  font-size: 0.8rem; /* Tamanho da fonte dos dias da semana */
-  color: hsl(var(--muted-foreground)); /* Cor suave para os dias da semana */
+/* ======================================================= */
+/* === CORREÇÃO ALINHAMENTO CALENDÁRIO (react-day-picker) === */
+/* ======================================================= */
+
+/* Define um tamanho base consistente para as células do calendário */
+.rdp {
+  --rdp-cell-size: 40px; 
+  margin: 1em 0;
 }
 
-/* Garante que a linha do cabeçalho (que contém Dom, Seg...) use layout de tabela */
-.rdp-head_row {
-    display: table-row !important;
-    width: 100% !important;
+/* Garante que o container do mês não tenha paddings estranhos */
+.rdp-month {
+  padding: 0;
 }
 
-/* Garante que a tabela principal do calendário ocupe a largura total */
+/* Força o layout de tabela correto */
 .rdp-table {
-    width: 100% !important;
-    table-layout: fixed !important; /* Ajuda a manter as colunas alinhadas */
+  max-width: none; 
+  display: table; 
+  border-collapse: collapse;
 }
 
-/* Ajuste opcional para o tamanho das células dos dias, se necessário */
+/* Células do Cabeçalho (dom, seg, ter...) */
+.rdp-head_cell {
+  width: var(--rdp-cell-size);
+  height: var(--rdp-cell-size);
+  font-size: 0.875rem; /* 14px */
+  color: hsl(var(--muted-foreground));
+  text-align: center; /* <<< Alinhamento central */
+  vertical-align: middle;
+}
+
+/* Células dos Dias (botões 1, 2, 3...) */
 .rdp-cell {
-    width: 2.5rem; /* Deve ser igual ao width do .rdp-head_cell */
-    height: 2.5rem; /* Altura igual à largura para dias quadrados */
-    padding: 0.25rem !important;
+  width: var(--rdp-cell-size);
+  height: var(--rdp-cell-size);
+  padding: 2px; /* Espaçamento entre células */
+  text-align: center; /* <<< Alinhamento central */
+  vertical-align: middle;
 }
 
-/* Ajuste opcional para o botão do dia */
-.rdp-button {
-    width: 100%;
-    height: 100%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
+/* Botão do dia (o número) */
+.rdp-day {
+  width: 100%; /* Ocupa 100% da célula */
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 0.375rem; /* 6px */
+}
+
+/* Garante que o dia selecionado (azul) não quebre o layout */
+.rdp-day_selected,
+.rdp-day_selected:hover {
+  font-weight: 500;
+  background-color: hsl(var(--primary)) !important;
+  color: hsl(var(--primary-foreground)) !important;
+}
+
+/* Remove estilos de fora de foco que podem atrapalhar */
+.rdp-day:focus-visible:not([aria-disabled=true]) {
+    box-shadow: none;
+    border: 2px solid hsl(var(--ring));
 }

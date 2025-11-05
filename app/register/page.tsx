@@ -1,4 +1,4 @@
-// app/register/page.tsx
+// app/register/page.tsx (CORRIGIDO com Melhor UX de Loading)
 "use client";
 
 import React, {
@@ -321,7 +321,7 @@ function RegisterForm() {
     const [loadingMessage, setLoadingMessage] = useState("");
     const router = useRouter();
     const { toast } = useToast();
-    const { user: authUser, loading: authLoading, setIsRegistering } = useAuthHook();
+    const { user: authUser, loading: authLoading, isRegistering, setIsRegistering } = useAuthHook(); // <<< CORREÇÃO: Puxar o 'isRegistering'
     const [doctorObjective, setDoctorObjective] = useState<'caravan' | 'match' | null>(null);
     const [invitationToken, setInvitationToken] = useState<string | null>(null);
     const [availableSpecialties, setAvailableSpecialties] = useState<Specialty[]>([]);
@@ -359,11 +359,15 @@ function RegisterForm() {
         }
     }, [searchParams, toast]);
 
+    // ============================================================================
+    // 🔹 CORREÇÃO DE UX 1 (A MAIS IMPORTANTE) 🔹
+    // ============================================================================
     useEffect(() => {
-        if (!authLoading && authUser) {
+        // Se o auth não estiver a carregar, e o utilizador existir, E NÃO ESTIVERMOS A MEIO DE UM REGISTO...
+        if (!authLoading && authUser && !isRegistering) { 
             router.push('/');  
         }
-    }, [authLoading, authUser, router]);
+    }, [authLoading, authUser, router, isRegistering]); // <<< CORREÇÃO: Adicionar isRegistering
 
     useEffect(() => {
         const fetchSpecialties = async () => {
@@ -771,17 +775,17 @@ function RegisterForm() {
         }
         
         setIsLoading(true);
-        setIsRegistering(true); // <<<<<<<<<<<<<<<<<<<<<<< PASSO 1: AVISA QUE O CADASTRO COMEÇOU
+        setIsRegistering(true); // AVISA O AUTHPROVIDER: "ESTOU A REGISTAR"
 
         const functions = getFunctions();
-        const finalizeRegistration = httpsCallable(functions, 'finalizeRegistration');
+        const finalizeRegistration = httpsCallable(functions, 'users-finalizeRegistration'); // <<< CORRIGIDO PARA USAR O GRUPO
         const loginEmail = role === 'doctor' ? personalInfo.email : legalRepresentativeInfo.email;
         
         let user: User | null = null;
 
         try {
             // ============================================================================
-            // 🔹 CORREÇÃO DE UX 1 🔹
+            // 🔹 ETAPA 1 🔹
             // ============================================================================
             setLoadingMessage("Etapa 1/4: A criar sua conta de acesso...");
             const displayName = role === 'doctor' ? personalInfo.name : hospitalInfo.companyName;
@@ -791,7 +795,7 @@ function RegisterForm() {
             console.log("Usuário criado e autenticado com sucesso no cliente. UID:", user.uid);
 
             // ============================================================================
-            // 🔹 CORREÇÃO DE UX 2 🔹
+            // 🔹 ETAPA 2 🔹
             // ============================================================================
             setLoadingMessage("Etapa 2/4: A enviar seus documentos de forma segura...");
             const uploadId = uuidv4();
@@ -818,7 +822,7 @@ function RegisterForm() {
             await Promise.all(uploadPromises);
 
             // ============================================================================
-            // 🔹 CORREÇÃO DE UX 3 🔹
+            // 🔹 ETAPA 3 🔹
             // ============================================================================
             setLoadingMessage("Etapa 3/4: A processar seu registro no servidor...");
             let registrationData: any;
@@ -832,7 +836,6 @@ function RegisterForm() {
                 registrationData = { ...hospitalDetails, displayName: companyName, email: email, address: { ...hospitalAddressInfo, cep: hospitalAddressInfo.cep.replace(/\D/g, "") }, legalRepresentativeInfo: legalRepresentativeInfo };
             }
 
-            // Removida a "Etapa 4/4" daqui, pois ela virá depois da finalização
             await finalizeRegistration({
                 registrationPayload: registrationData,
                 tempFilePaths: tempFilePaths,
@@ -840,7 +843,7 @@ function RegisterForm() {
             });
             
             // ============================================================================
-            // 🔹 CORREÇÃO DE UX 4 (A MAIS IMPORTANTE) 🔹
+            // 🔹 ETAPA 4 🔹
             // ============================================================================
             setLoadingMessage("Etapa 4/4: A finalizar a configuração de segurança..."); 
             if (auth.currentUser) {
@@ -849,19 +852,30 @@ function RegisterForm() {
               await auth.currentUser.getIdToken(true);
               console.log(`[RegisterForm] Token atualizado com sucesso com a role: '${role}'`);
             }
+            
+            toast({ title: "Cadastro Realizado com Sucesso!", description: "A redirecioná-lo para o seu painel...", duration: 3000 });
+            
             // ============================================================================
-            
-            toast({ title: "Cadastro Realizado com Sucesso!", description: "A redirecioná-lo...", duration: 3000 });
-            
-            router.push('/login'); 
+            // 🔹 CORREÇÃO DE UX 3 (Redirecionamento) 🔹
+            // ============================================================================
+            router.push('/dashboard'); // <<< CORREÇÃO: Enviar para o dashboard, não login
 
         } catch (error: any) {
             console.error("ERRO NO PROCESSO DE CADASTRO:", error);
             toast({ variant: "destructive", title: "Falha no Cadastro", description: error.message || "Ocorreu um erro inesperado.", duration: 8000 });
 
+            // ============================================================================
+            // 🔹 CORREÇÃO DE UX 2 (Parar Loading no Erro) 🔹
+            // ============================================================================
+            setIsLoading(false);
+            setLoadingMessage("");
+            // ============================================================================
+
             if (user) {
                 try {
-                    await user.delete();
+                    // Se o backend falhar, deslogamos e deletamos o usuário órfão
+                    await signOut(auth); // Desloga o usuário
+                    await user.delete(); // Deleta o usuário do Auth
                     toast({ variant: "default", title: "Aviso", description: "Sua conta parcial foi removida. Por favor, tente o cadastro novamente." });
                 } catch (deleteError) {
                     console.error("Falha ao deletar usuário parcial:", deleteError);
@@ -869,14 +883,8 @@ function RegisterForm() {
                 }
             }
         } finally {
-            // ============================================================================
-            // 🔹 CORREÇÃO NO FINALLY 🔹
-            // NÃO DESATIVE O LOADING AQUI para que o usuário veja as mensagens
-            // até que o redirecionamento para /login ocorra.
-            // ============================================================================
-            // setIsLoading(false);
-            // setLoadingMessage("");
-            setIsRegistering(false); // <<<<<<<<<<<<<<<<<<<<<<< PASSO 2: AVISA QUE O CADASTRO TERMINOU
+            // Avisa o AuthProvider que o processo de registo (seja sucesso ou falha) terminou
+            setIsRegistering(false);
         }
     };
 
@@ -1208,7 +1216,7 @@ function RegisterForm() {
         }
     };
 
-    if (authLoading || authUser) {
+    if (authLoading) { // <<< CORREÇÃO: Removido o '|| authUser' daqui
         return <LoadingForm message="A verificar sessão..." />;
     }
 
