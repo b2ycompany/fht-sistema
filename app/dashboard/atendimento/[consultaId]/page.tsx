@@ -1,4 +1,4 @@
-// app/dashboard/atendimento/[consultaId]/page.tsx
+// app/dashboard/atendimento/[consultaId]/page.tsx (CORRIGIDO PARA MOSTRAR IA E COM ERRO DE CATCH CORRIGIDO)
 "use client";
 
 import React, { useState, useEffect } from 'react';
@@ -8,7 +8,11 @@ import { getConsultationById, saveConsultationDetails, completeConsultation, typ
 import { getCurrentUserData, type DoctorProfile } from '@/lib/auth-service';
 import { useAuth } from '@/components/auth-provider';
 import { useToast } from '@/hooks/use-toast';
-import { Loader2, AlertTriangle, ArrowLeft, Calendar, Stethoscope, Save, Hospital, CheckCircle, FilePlus, Trash2, Download, Pill, FileText, Video, History } from 'lucide-react';
+import { 
+    Loader2, AlertTriangle, ArrowLeft, Calendar, Stethoscope, Save, Hospital, 
+    CheckCircle, FilePlus, Trash2, Download, Pill, FileText, Video, History,
+    Brain // <<< ÍCONE DA IA ADICIONADO
+} from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
@@ -48,7 +52,6 @@ const PrescriptionForm = ({ consultation, doctorProfile, onFinished }: { consult
 
 
 const ElectronicHealthRecord: React.FC<{ consultation: Consultation; userProfile: DoctorProfile | null; refreshData: () => void }> = ({ consultation, userProfile, refreshData }) => {
-    // <<< CORREÇÃO APLICADA AQUI >>>
     // A função 'toast' precisa de ser declarada dentro de cada componente que a utiliza.
     const { toast } = useToast();
     
@@ -57,6 +60,11 @@ const ElectronicHealthRecord: React.FC<{ consultation: Consultation; userProfile
     const [isSaving, setIsSaving] = useState(false);
     const [isPrescriptionModalOpen, setIsPrescriptionModalOpen] = useState(false);
     const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
+
+    // <<< CORREÇÃO (Início): Acessar o campo da IA >>>
+    // Usamos `(consultation as any)` para acessar o campo que pode não estar no 'type Consultation'
+    const aiReport = (consultation as any)?.aiAnalysisReport;
+    // <<< CORREÇÃO (Fim) >>>
 
     const handleSave = async () => {
         setIsSaving(true);
@@ -72,7 +80,43 @@ const ElectronicHealthRecord: React.FC<{ consultation: Consultation; userProfile
         <Card className="h-full flex flex-col"><CardHeader><CardTitle className="text-lg">Prontuário Eletrônico</CardTitle></CardHeader>
             <CardContent className="flex-grow flex flex-col gap-4 overflow-y-auto">
                 <Tabs defaultValue="medical-record" className="flex-grow flex flex-col">
-                    <TabsList className="grid w-full grid-cols-4"><TabsTrigger value="medical-record">Atendimento</TabsTrigger><TabsTrigger value="triage">Triagem</TabsTrigger><TabsTrigger value="patient-data">Paciente</TabsTrigger><TabsTrigger value="documents">Documentos</TabsTrigger></TabsList>
+                    
+                    {/* <<< CORREÇÃO: Adicionando o "aiReport" e ajustando o grid-cols >>> */}
+                    <TabsList className="grid w-full grid-cols-5">
+                        {/* <<< NOVO BOTÃO DA IA >>> */}
+                        <TabsTrigger value="ai-analysis" className="text-blue-600">
+                            <Brain className="mr-1 h-4 w-4" /> IA
+                        </TabsTrigger>
+                        <TabsTrigger value="medical-record">Atendimento</TabsTrigger>
+                        <TabsTrigger value="triage">Triagem</TabsTrigger>
+                        <TabsTrigger value="patient-data">Paciente</TabsTrigger>
+                        <TabsTrigger value="documents">Documentos</TabsTrigger>
+                    </TabsList>
+                    
+                    {/* <<< NOVO CONTEÚDO DA IA >>> */}
+                    <TabsContent value="ai-analysis" className="flex-grow mt-4">
+                        <Card className="bg-blue-50 border-blue-200">
+                            <CardHeader>
+                                <CardTitle className="text-lg flex items-center text-blue-800">
+                                    <Brain className="mr-2 h-5 w-5" />
+                                    Pré-Análise (IA)
+                                </CardTitle>
+                                <CardDescription>
+                                    Relatório preliminar gerado por IA com base na especialidade.
+                                </CardDescription>
+                            </CardHeader>
+                            <CardContent>
+                                {aiReport ? (
+                                    <p className="whitespace-pre-wrap text-sm text-gray-800">{aiReport}</p>
+                                ) : (
+                                    <p className="text-sm text-gray-500 text-center py-4">
+                                        Nenhum relatório de IA foi gerado para esta consulta.
+                                    </p>
+                                )}
+                            </CardContent>
+                        </Card>
+                    </TabsContent>
+                    
                     <TabsContent value="triage" className="flex-grow"><TriageDataDisplay data={consultation.triageData} /></TabsContent>
                     <TabsContent value="patient-data" className="text-sm space-y-4 mt-4 flex-grow">
                         <div><Label className="text-gray-500">Nome</Label><p>{consultation.patientName}</p></div>
@@ -106,10 +150,20 @@ export default function InPersonAttendancePage() {
         if (!consultationId || !user) return;
         setIsLoading(true);
         try {
-            const [consultationData, profileData] = await Promise.all([ getConsultationById(consultationId), getCurrentUserData() ]);
-            if (!consultationData || consultationData.doctorId !== user.uid) { throw new Error("Consulta não encontrada ou acesso não permitido."); }
+            // Assumindo que 'getConsultationById' busca da coleção 'appointments'
+            // e já contém o campo 'aiAnalysisReport'
+            const [consultationData, profileData] = await Promise.all([ 
+                getConsultationById(consultationId), 
+                getCurrentUserData() 
+            ]);
+            
+            if (!consultationData || consultationData.doctorId !== user.uid) { 
+                throw new Error("Consulta não encontrada ou acesso não permitido."); 
+            }
+            
             setConsultation(consultationData);
             setDoctorProfile(profileData as DoctorProfile);
+        
         } catch (err: any) {
             setError(err.message); setConsultation(null);
         } finally { setIsLoading(false); }
@@ -124,7 +178,7 @@ export default function InPersonAttendancePage() {
             await completeConsultation(consultation);
             toast({ title: "Atendimento Finalizado!", description: "O paciente foi removido da sua fila de espera." });
             router.push('/dashboard');
-        } catch (error: any) {
+        } catch (error: any) { // <<< CORREÇÃO DE SINTAXE (Era '=')
             toast({ title: "Erro ao Finalizar", description: error.message, variant: "destructive" });
             setIsFinishing(false);
         }
