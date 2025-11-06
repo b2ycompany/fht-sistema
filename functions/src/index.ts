@@ -1,5 +1,4 @@
-// functions/src/index.ts (Versão CORRIGIDA E DEFINITIVA)
-
+// functions/src/index.ts (Versão Completa e Corrigida)
 import {
     onDocumentWritten,
     onDocumentDeleted,
@@ -64,7 +63,6 @@ export const users = {
         (req: CallableRequest) => logic.searchAssociatedDoctorsHandler(req)
     ),
     
-    // <<< NOVA FUNÇÃO ADICIONADA A ESTE GRUPO >>>
     findOrCreatePatient: onCall(defaultOnCallOptions, 
         (req: CallableRequest) => logic.findOrCreatePatientHandler(req)
     ),
@@ -84,7 +82,6 @@ export const users = {
 };
 
 // Grupo 2: Funções de Administração (V2)
-// <<< CORREÇÃO: Renomeado de 'admin' para 'adminTools' para evitar conflito >>>
 export const adminTools = {
     setAdminClaim: onCall(defaultOnCallOptions, 
         (req: CallableRequest) => logic.setAdminClaimHandler(req)
@@ -116,7 +113,6 @@ export const scheduling = {
         (req: CallableRequest) => logic.createAppointmentHandler(req)
     ),
     
-    // <<< NOVA FUNÇÃO ADICIONADA A ESTE GRUPO >>>
     getAvailableSlotsForSpecialty: onCall({ ...defaultOnCallOptions, memory: "256MiB" }, 
         (req: CallableRequest) => logic.getAvailableSlotsForSpecialtyHandler(req)
     ),
@@ -131,7 +127,7 @@ export const scheduling = {
         (event: FirestoreEvent<DocumentSnapshot | undefined, { timeSlotId: string }>) => logic.onTimeSlotDeleteHandler(event)
     ),
     findAvailableDoctor: onCall(defaultOnCallOptions, 
-        (req: CallableRequest) => logic.findAvailableDoctorHandler(req) // <<< CORRIGIDO (Garante que está exportado em logic.ts)
+        (req: CallableRequest) => logic.findAvailableDoctorHandler(req)
     ),
 };
 
@@ -150,7 +146,7 @@ export const operations = {
         (req: CallableRequest) => logic.createConsultationRoomHandler(req)
     ),
     recordBillingItem: onCall(defaultOnCallOptions, 
-        (req: CallableRequest) => logic.recordBillingItemHandler(req) // <<< CORRIGIDO (Garante que está exportado em logic.ts)
+        (req: CallableRequest) => logic.recordBillingItemHandler(req)
     ),
     onContractFinalizedUpdateRequirement: onDocumentWritten("contracts/{contractId}", 
         (event: FirestoreEvent<Change<DocumentSnapshot> | undefined, { contractId: string }>) => logic.onContractFinalizedUpdateRequirementHandler(event)
@@ -174,14 +170,13 @@ export const scripts = {
 };
 
 // Grupo 7: Gatilho de IA (V2)
-// <<< CORREÇÃO: Alterado de onDocumentWritten para onDocumentCreated >>>
 export const analysis = {
-     onAppointmentCreatedRunAIAnalysis: onDocumentCreated( // <<< CORRIGIDO
+     onAppointmentCreatedRunAIAnalysis: onDocumentCreated(
         { 
             document: "appointments/{appointmentId}",
             memory: "256MiB"
         },
-        (event: FirestoreEvent<DocumentSnapshot | undefined, { appointmentId: string }>) => // <<< Tipo de evento correto
+        (event: FirestoreEvent<DocumentSnapshot | undefined, { appointmentId: string }>) => 
             logic.onAppointmentCreated_RunAIAnalysis(event)
     ),
 };

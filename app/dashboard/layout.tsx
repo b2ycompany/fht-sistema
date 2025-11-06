@@ -1,10 +1,15 @@
+// app/dashboard/layout.tsx (CORRIGIDO com Gatekeeper de Segurança e Importações)
 "use client";
 
 import type React from "react";
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { Calendar, FileText, Home, LogOut, Menu, User, X, BookMarked, ClipboardCheck, HeartPulse } from "lucide-react";
+// --- ÍCONES ADICIONADOS ---
+import { 
+    Calendar, FileText, Home, LogOut, Menu, User, X, BookMarked, ClipboardCheck, HeartPulse, 
+    ShieldAlert, FileWarning, BadgeCheck, Loader2 
+} from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useMobile } from "@/hooks/use-mobile";
 import { useAuth } from "@/components/auth-provider";
@@ -12,6 +17,58 @@ import { logoutUser, type UserType } from "@/lib/auth-service";
 import Image from "next/image";
 import Logo from "@/public/logo-fht.svg";
 import { cn } from "@/lib/utils";
+// --- IMPORTAÇÕES ADICIONADAS ---
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
+
+// ============================================================================
+// 🔹 NOVO COMPONENTE: Ecrã de Bloqueio 🔹
+// ============================================================================
+const PendingApprovalScreen = ({ status, profilePagePath }: { status: string, profilePagePath: string }) => {
+    const router = useRouter();
+    
+    let Icon = ShieldAlert;
+    let title = "Perfil em Análise";
+    let message = "O seu cadastro foi recebido e está a ser analisado pela nossa equipa. Você receberá um email assim que for aprovado.";
+    let buttonText = "Ver Meu Perfil";
+    let cardClass = "border-yellow-500 bg-yellow-50";
+    let textClass = "text-yellow-700";
+    let iconClass = "text-yellow-600";
+    let buttonAction = () => router.push(profilePagePath);
+
+    if (status === 'REJECTED_NEEDS_RESUBMISSION') {
+        Icon = FileWarning;
+        title = "Correções Necessárias";
+        message = "A nossa equipa revisou o seu perfil e solicitou correções em alguns documentos. Por favor, aceda ao seu perfil para ver os detalhes e reenviar os arquivos.";
+        cardClass = "border-red-500 bg-red-50";
+        textClass = "text-red-700";
+        iconClass = "text-red-600";
+        buttonText = "Corrigir Meu Perfil";
+    }
+
+    return (
+        <div className="flex min-h-screen items-center justify-center bg-gray-100 p-4">
+            <Card className={cn("w-full max-w-lg text-center shadow-lg", cardClass)}>
+                <CardHeader>
+                    <Icon className={cn("mx-auto h-16 w-16", iconClass)} />
+                    <CardTitle className={cn("text-2xl pt-4", textClass)}>{title}</CardTitle>
+                </CardHeader>
+                <CardContent>
+                    <p className="text-gray-700">{message}</p>
+                </CardContent>
+                <CardFooter className="flex flex-col sm:flex-row gap-2">
+                    <Button onClick={buttonAction} className="w-full sm:w-auto">
+                        {buttonText}
+                    </Button>
+                    <Button variant="outline" className="w-full sm:w-auto" onClick={() => logoutUser().then(() => router.push('/login'))}>
+                        Sair
+                    </Button>
+                </CardFooter>
+            </Card>
+        </div>
+    );
+};
+
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -19,7 +76,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const router = useRouter();
   const { toast } = useToast();
   const isMobile = useMobile(768); 
-  const { user, userProfile, loading } = useAuth();
+  // <<< CORREÇÃO: Puxa o 'documentVerificationStatus' do contexto >>>
+  const { user, userProfile, loading, documentVerificationStatus } = useAuth();
 
   useEffect(() => {
     if (!loading && !user) {
@@ -61,21 +119,35 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     const triageNurseNavItems = [
         { href: "/dashboard/triage", label: "Painel de Triagem", icon: <HeartPulse className="h-5 w-5" /> },
     ];
+    
+    // ============================================================================
+    // 🔹 CORREÇÃO DE FLUXO 🔹
+    // O Hospital também usa este layout, mas não estava na sua lista!
+    // ============================================================================
+    const hospitalNavItems = [
+        { href: "/dashboard", label: "Dashboard", icon: <Home className="h-5 w-5" /> },
+        // Adicione aqui outros links do hospital
+        { href: "/dashboard/profile", label: "Meu Perfil", icon: <User className="h-5 w-5" /> },
+    ];
+
 
     switch (role) {
         case 'doctor':
             return doctorNavItems;
+        case 'hospital': // <<< ADICIONADO
+            return hospitalNavItems;
         case 'receptionist':
         case 'caravan_admin':
             return receptionistNavItems;
         case 'triage_nurse':
             return triageNurseNavItems;
         case 'admin':
-            const allItems = [...receptionistNavItems, ...triageNurseNavItems, ...doctorNavItems];
-            const uniqueItems = allItems.filter((item, index, self) =>
-                index === self.findIndex((t) => t.href === item.href)
-            );
-            return uniqueItems;
+            // Filtra o menu de admin para não incluir itens de médico/hospital se não for relevante
+             const allItems = [...receptionistNavItems, ...triageNurseNavItems, ...doctorNavItems];
+             const uniqueItems = allItems.filter((item, index, self) =>
+                 index === self.findIndex((t) => t.href === item.href)
+             );
+             return uniqueItems; // Admin vê tudo (ou um menu admin dedicado)
         default:
             return [];
     }
@@ -90,6 +162,32 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       </div>
     );
   }
+
+  // ============================================================================
+  // 🔹 CORREÇÃO DE SEGURANÇA (GATEKEEPER) 🔹
+  // Verifica o status de aprovação ANTES de renderizar o dashboard.
+  // ============================================================================
+  
+  // A página de perfil é a ÚNICA exceção. O utilizador DEVE poder aceder
+  // a /dashboard/profile para ver as correções.
+  const isAccessingProfile = pathname.startsWith('/dashboard/profile');
+  const userRole = userProfile?.userType;
+
+  // Se o utilizador não for admin/staff (que não precisam de aprovação)
+  if (userRole === 'doctor' || userRole === 'hospital') {
+      // E se o status NÃO for "Aprovado"
+      if (documentVerificationStatus && documentVerificationStatus !== 'APPROVED') {
+          // E se ele NÃO estiver a tentar aceder à sua página de perfil
+          if (!isAccessingProfile) {
+              // Bloqueia o acesso e mostra a tela de pendência.
+              return <PendingApprovalScreen status={documentVerificationStatus} profilePagePath="/dashboard/profile" />;
+          }
+          // Se ele ESTIVER a aceder ao perfil, permitimos (o 'return' abaixo executa)
+      }
+  }
+  // ============================================================================
+  // Fim da Correção de Segurança
+  // ============================================================================
   
   return (
     <div className="flex min-h-screen bg-gray-50">
@@ -110,7 +208,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         )}
       >
         <div className="p-6 border-b border-blue-100">
-          <Image src={Logo} alt="FHT Soluções Hospitalares" width={150} height={50} className="w-auto h-10" />
+          {/* <<< CORREÇÃO: Link do Logo para a Home >>> */}
+          <Link href="/">
+            <Image src={Logo} alt="FHT Soluções Hospitalares" width={150} height={50} className="w-auto h-10" />
+          </Link>
         </div>
 
         <nav className="px-3 py-4 flex-1">

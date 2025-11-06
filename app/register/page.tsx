@@ -1,4 +1,4 @@
-// app/register/page.tsx (CORRIGIDO com Melhor UX de Loading)
+// app/register/page.tsx (CORRIGIDO com Melhor UX de Loading e Redirecionamento)
 "use client";
 
 import React, {
@@ -321,7 +321,7 @@ function RegisterForm() {
     const [loadingMessage, setLoadingMessage] = useState("");
     const router = useRouter();
     const { toast } = useToast();
-    const { user: authUser, loading: authLoading, isRegistering, setIsRegistering } = useAuthHook(); // <<< CORREÇÃO: Puxar o 'isRegistering'
+    const { user: authUser, loading: authLoading, isRegistering, setIsRegistering } = useAuthHook(); // Puxa 'isRegistering'
     const [doctorObjective, setDoctorObjective] = useState<'caravan' | 'match' | null>(null);
     const [invitationToken, setInvitationToken] = useState<string | null>(null);
     const [availableSpecialties, setAvailableSpecialties] = useState<Specialty[]>([]);
@@ -778,7 +778,7 @@ function RegisterForm() {
         setIsRegistering(true); // AVISA O AUTHPROVIDER: "ESTOU A REGISTAR"
 
         const functions = getFunctions();
-        const finalizeRegistration = httpsCallable(functions, 'users-finalizeRegistration'); // <<< CORRIGIDO PARA USAR O GRUPO
+        const finalizeRegistration = httpsCallable(functions, 'users-finalizeRegistration');
         const loginEmail = role === 'doctor' ? personalInfo.email : legalRepresentativeInfo.email;
         
         let user: User | null = null;
@@ -858,7 +858,7 @@ function RegisterForm() {
             // ============================================================================
             // 🔹 CORREÇÃO DE UX 3 (Redirecionamento) 🔹
             // ============================================================================
-            router.push('/dashboard'); // <<< CORREÇÃO: Enviar para o dashboard, não login
+            router.push('/dashboard'); // <<< CORREÇÃO: Enviar para o dashboard
 
         } catch (error: any) {
             console.error("ERRO NO PROCESSO DE CADASTRO:", error);
@@ -877,7 +877,7 @@ function RegisterForm() {
                     await signOut(auth); // Desloga o usuário
                     await user.delete(); // Deleta o usuário do Auth
                     toast({ variant: "default", title: "Aviso", description: "Sua conta parcial foi removida. Por favor, tente o cadastro novamente." });
-                } catch (deleteError) {
+                } catch (deleteError) { // <<< CORREÇÃO DE SINTAXE
                     console.error("Falha ao deletar usuário parcial:", deleteError);
                     toast({ variant: "destructive", title: "Erro Crítico", description: "Não foi possível remover sua conta parcial. Contate o suporte." });
                 }
@@ -1216,7 +1216,7 @@ function RegisterForm() {
         }
     };
 
-    if (authLoading) { // <<< CORREÇÃO: Removido o '|| authUser' daqui
+    if (authLoading) { 
         return <LoadingForm message="A verificar sessão..." />;
     }
 
@@ -1260,7 +1260,7 @@ function RegisterForm() {
                         className="w-full sm:w-auto bg-green-600 hover:bg-green-700 text-white px-6 py-3 text-sm sm:text-base"
                     >
                         {isLoading ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <Check className="mr-2 h-5 w-5" />}
-                        {isLoading ? 'A finalizar...' : 'Confirmar e Finalizar Cadastro'}
+                        {isLoading ? 'A finalizar...' : 'Confirmar e Finalar Cadastro'}
                     </Button>
                 ) : (
                     <Button

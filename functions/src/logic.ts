@@ -480,7 +480,8 @@ export const onUserWrittenSetClaimsHandler = async (event: FirestoreEvent<Change
                 await change.after.ref.update({
                     healthUnitIds: FieldValue.arrayUnion(invHospitalId),
                     status: 'PENDING_APPROVAL',
-                    documentVerificationStatus: 'PENDING_REVIEW' // <<< CORREÇÃO: Adiciona status de verificação no convite
+                    // <<< CORREÇÃO: Adiciona status de verificação no convite >>>
+                    documentVerificationStatus: 'PENDING_REVIEW' 
                 });
                 await invitationDoc.ref.update({ status: 'completed' });
                 logger.info(`Médico ${userId} vinculado ao hospital ${invHospitalId} via convite.`);
@@ -1550,6 +1551,9 @@ export const approveDoctorHandler = async (request: CallableRequest) => {
         const doctorRef = getDb().collection("users").doc(doctorId);
         await doctorRef.update({
             status: 'ACTIVE'
+            // O gatilho onUserWrittenSetClaimsHandler não é acionado aqui
+            // A função de aprovação no admin/matches/page.tsx deve chamar 'updateUserVerificationStatus'
+            // que atualiza 'documentVerificationStatus' para 'APPROVED' E 'status' para 'ACTIVE'
         });
 
         logger.info(`Médico ${doctorId} foi aprovado por um administrador.`);

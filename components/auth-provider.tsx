@@ -1,4 +1,4 @@
-// components/auth-provider.tsx
+// components/auth-provider.tsx (Código Completo e Corrigido)
 "use client";
 
 import React, { createContext, useContext, useEffect, useState, type ReactNode } from "react";
@@ -11,12 +11,26 @@ const getRedirectPathForProfile = (profile: UserProfile | null): string => {
     if (!profile || !profile.userType) {
         return '/login'; 
     }
+    
+    // ============================================================================
+    // 🔹 CORREÇÃO DE FLUXO (Segurança) 🔹
+    // Se o status não for APROVADO, redireciona para o dashboard (onde será bloqueado)
+    // ============================================================================
+    const verificationStatus = (profile as any).documentVerificationStatus;
+    if (verificationStatus && verificationStatus !== 'APPROVED' && verificationStatus !== 'NOT_APPLICABLE') {
+        // Se estiver pendente ou rejeitado, força o utilizador a ir para o dashboard
+        // onde o layout.tsx irá mostrar a tela de bloqueio.
+        if (profile.userType === 'doctor' || profile.userType === 'hospital') {
+            return '/dashboard';
+        }
+    }
+
     switch (profile.userType) {
         case 'admin':
         case 'backoffice':
-            return '/admin/caravanas';
+            return '/admin/matches'; // <<< CORREÇÃO: Enviando para 'matches' em vez de 'caravanas'
         case 'hospital':
-            return '/hospital/dashboard';
+            return '/dashboard'; // <<< CORREÇÃO: Hospital agora usa o layout /dashboard
         case 'doctor':
             return '/dashboard';
         case 'receptionist':
@@ -37,10 +51,15 @@ const getRedirectPathForProfile = (profile: UserProfile | null): string => {
 interface AuthContextType {
   user: User | null;
   userProfile: UserProfile | null;
+  // ============================================================================
+  // 🔹 CORREÇÃO DE FLUXO (Segurança) 🔹
+  // Adiciona o status de verificação ao contexto global.
+  // ============================================================================
+  documentVerificationStatus: string | null; 
   loading: boolean;
   profileLoading: boolean;
-  isRegistering: boolean; // <-- NOVO ESTADO PARA A CAMADA DE PROTEÇÃO
-  setIsRegistering: (isRegistering: boolean) => void; // <-- FUNÇÃO PARA ATUALIZAR O ESTADO
+  isRegistering: boolean;
+  setIsRegistering: (isRegistering: boolean) => void;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -50,7 +69,11 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [profileLoading, setProfileLoading] = useState(true);
-  const [isRegistering, setIsRegistering] = useState(false); // <-- NOVO ESTADO INICIALIZADO
+  const [isRegistering, setIsRegistering] = useState(false);
+  
+  // <<< CORREÇÃO: Adiciona o estado para o status de verificação >>>
+  const [documentVerificationStatus, setDocumentVerificationStatus] = useState<string | null>(null);
+
   const router = useRouter();
   const pathname = usePathname();
 
@@ -62,26 +85,19 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       
       if (firebaseUser) {
         try {
-          // Não forçamos a atualização do token aqui para não causar requisições desnecessárias.
-          // A página de registro é responsável por forçar a atualização após o cadastro.
           const tokenResult = await firebaseUser.getIdTokenResult(); 
           const userRole = tokenResult.claims.role as string | undefined;
 
           const isPublicRoute = ['/login', '/register', '/reset-password']
             .some(route => pathname.startsWith(route));
 
-          // =================================================================
-          // 🔹 LÓGICA DE PROTEÇÃO CONTRA LOOP APLICADA AQUI 🔹
-          // =================================================================
-          // Agora, só forçamos o logout se o usuário não tiver role, não estiver
-          // numa rota pública E, CRUCIALMENTE, NÃO ESTIVER NO MEIO DE UM CADASTRO.
           if (!userRole && !isPublicRoute && !isRegistering) {
             console.warn(
               `[AuthProvider] Usuário ${firebaseUser.uid} autenticado mas sem role válida. Forçando logout para segurança. Pathname: ${pathname}`
             );
             await signOut(auth);
-            // Resetar estados e sair da função para evitar processamento adicional
             setUserProfile(null);
+            setDocumentVerificationStatus(null); // <<< CORREÇÃO: Limpa o status
             setProfileLoading(false);
             setLoading(false);
             return;
@@ -89,24 +105,29 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
           
           if (userRole) {
             console.log("[AuthProvider] Role válida encontrada. Carregando perfil do usuário...");
-            const profile = await getCurrentUserData();
+            let profile = await getCurrentUserData();
             
             if (profile && profile.status === 'INVITED') {
               await confirmFirstLogin();
-              const updatedProfile = { ...profile, status: 'ACTIVE' as const };
-              setUserProfile(updatedProfile);
-            } else {
-              setUserProfile(profile);
+              profile = { ...profile, status: 'ACTIVE' as const };
             }
-  
+            
+            setUserProfile(profile);
+
+            // ============================================================================
+            // 🔹 CORREÇÃO DE FLUXO (Segurança) 🔹
+            // Armazena o status de verificação no estado do AuthProvider
+            // ============================================================================
+            const verificationStatus = (profile as any)?.documentVerificationStatus || null;
+            setDocumentVerificationStatus(verificationStatus);
+            // ============================================================================
+
             const targetPath = getRedirectPathForProfile(profile);
             
-            // Se o usuário está em uma rota pública (login/registro) mas já tem perfil, redireciona.
             if (isPublicRoute) {
               router.replace(targetPath);
             }
           } else if (isPublicRoute || isRegistering) {
-            // Permite que o usuário permaneça em rotas públicas ou durante o registro mesmo sem role
             console.log(`[AuthProvider] Usuário ${firebaseUser.uid} sem role, mas fluxo de registro/público permitido. Pathname: ${pathname}`);
           }
 
@@ -119,6 +140,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       } else {
         // Se não há usuário Firebase, limpa tudo
         setUserProfile(null);
+        setDocumentVerificationStatus(null); // <<< CORREÇÃO: Limpa o status
         setProfileLoading(false);
       }
       setLoading(false);
@@ -127,7 +149,15 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     return () => unsubscribe();
   }, [router, pathname, isRegistering]); // Adicionado isRegistering às dependências
 
-  const contextValue = { user, userProfile, loading, profileLoading, isRegistering, setIsRegistering };
+  const contextValue = { 
+    user, 
+    userProfile, 
+    loading, 
+    profileLoading, 
+    isRegistering, 
+    setIsRegistering,
+    documentVerificationStatus // <<< CORREÇÃO: Passa o status para o contexto
+  };
 
   return (
     <AuthContext.Provider value={contextValue}>

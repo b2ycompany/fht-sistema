@@ -17,7 +17,6 @@ import { useRouter } from "next/navigation"; // Importa useRouter
 
 export default function LoginPage() {
   const { toast } = useToast();
-  // <<< CORREÇÃO: Usa o 'user' e 'loading' do AuthProvider >>>
   const { user, loading: authLoading } = useAuth();
   const router = useRouter();
 
@@ -28,12 +27,7 @@ export default function LoginPage() {
 
   // Efeito para lidar com usuários já logados
   useEffect(() => {
-    // Se a autenticação não está a carregar e já temos um usuário,
-    // o AuthProvider já deve ter iniciado o redirecionamento.
-    // Esta é uma segurança extra.
     if (!authLoading && user) {
-      // Não precisamos redirecionar daqui, o AuthProvider faz isso.
-      // Apenas garantimos que o formulário permaneça desabilitado.
       console.log("[LoginPage] Usuário já está logado. Aguardando redirecionamento do AuthProvider.");
     }
   }, [user, authLoading, router]);
@@ -43,10 +37,9 @@ export default function LoginPage() {
     setError(null);
     setIsSubmitting(true);
 
-    // <<< CORREÇÃO: Não tenta logar se já estiver logado >>>
     if (user) {
       setIsSubmitting(false);
-      return; // Já está logado, não faz nada
+      return; 
     }
 
     try {
@@ -61,11 +54,10 @@ export default function LoginPage() {
             errorMessage = "Muitas tentativas de login. Tente novamente mais tarde.";
         }
         setError(errorMessage);
-        setIsSubmitting(false); // Só define como falso em caso de erro
+        setIsSubmitting(false); 
     }
   };
   
-  // Define o estado de carregamento combinado
   const isLoading = authLoading || isSubmitting;
 
   return (
@@ -84,9 +76,6 @@ export default function LoginPage() {
           <CardDescription>Use seu email e senha para continuar.</CardDescription>
         </CardHeader>
         <CardContent>
-          {/* Se o authLoading for true (verificando usuário) ou user for true (usuário logado),
-            mostramos um estado de carregamento em vez do formulário.
-          */}
           {authLoading || user ? (
             <div className="flex flex-col items-center justify-center h-48">
               <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
