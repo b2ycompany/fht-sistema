@@ -1,4 +1,4 @@
-// app/dashboard/availability/page.tsx (CORRIGIDO COM table-fixed)
+// app/dashboard/availability/page.tsx (CORRIGIDO COM table-fixed E TEXTO DE TESTE)
 "use client";
 
 import React, { useState, useEffect, useMemo, useCallback, ChangeEvent, ReactNode } from "react";
@@ -234,7 +234,10 @@ const TimeSlotFormDialog: React.FC<{ onFormSubmitted: () => void; initialData?: 
   return (
     <DialogContent className="sm:max-w-lg">
       <DialogHeader>
-        <DialogTitle className="text-xl">{isEditing ? "Editar Disponibilidade" : "Adicionar Nova Disponibilidade"}</DialogTitle>
+        {/* ================================================================= */}
+        {/* 🔹 CORREÇÃO 1: O "CATCH" (Prova visível da mudança) 🔹            */}
+        {/* ================================================================= */}
+        <DialogTitle className="text-xl">{isEditing ? "Editar Disponibilidade" : "(TESTE) Adicionar Nova Disponibilidade"}</DialogTitle>
         <DialogDescription>
           {isEditing ? "Altere os detalhes da sua disponibilidade. A data original não pode ser alterada." : "Selecione as datas e preencha os detalhes. Uma entrada será criada para cada data selecionada."}
         </DialogDescription>
@@ -264,7 +267,7 @@ const TimeSlotFormDialog: React.FC<{ onFormSubmitted: () => void; initialData?: 
                     </PopoverTrigger>
                     <PopoverContent className="w-auto p-0">
                         {/* ================================================================= */}
-                        {/* 🔹 CORREÇÃO DEFINITIVA (table-fixed) 🔹                           */}
+                        {/* 🔹 CORREÇÃO 2: A MUDANÇA (table-fixed) 🔹                         */}
                         {/* ================================================================= */}
                         <Calendar
                             locale={ptBR} // Tradução para Português

@@ -72,7 +72,14 @@ export default function LoginPage() {
     <div className="flex min-h-screen items-center justify-center bg-gray-100 p-4">
       <Card className="w-full max-w-md shadow-lg">
         <CardHeader className="items-center text-center">
-          <Image src={LogoPath} alt="FHT Logo" width={150} height={60} priority />
+          
+          {/* ============================================================================ */}
+          {/* 🔹 CORREÇÃO: Adicionado Link ao Logo para voltar à Home "/" 🔹             */}
+          {/* ============================================================================ */}
+          <Link href="/">
+            <Image src={LogoPath} alt="FHT Logo" width={150} height={60} priority />
+          </Link>
+
           <CardTitle className="text-2xl font-bold pt-4">Aceder à Plataforma</CardTitle>
           <CardDescription>Use seu email e senha para continuar.</CardDescription>
         </CardHeader>

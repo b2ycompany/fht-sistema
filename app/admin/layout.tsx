@@ -1,4 +1,4 @@
-// app/admin/layout.tsx
+// app/admin/layout.tsx (Código Completo e Corrigido)
 "use client";
 
 import React, { useEffect, useState, type ReactNode, type FC, type SVGProps } from "react";
@@ -89,7 +89,16 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
     <div className="flex min-h-screen bg-slate-100">
       <button className="md:hidden fixed top-4 right-4 z-50 p-2 bg-white rounded-full shadow-lg text-slate-700 hover:bg-slate-100" onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}>{isMobileMenuOpen ? <IconX size={20}/> : <Menu size={20}/>}</button>
       <aside className={cn("bg-slate-800 text-slate-100 fixed inset-y-0 left-0 z-40 w-60 lg:w-64 transition-transform duration-300 ease-in-out md:static md:translate-x-0", isMobile && !isMobileMenuOpen ? "-translate-x-full" : "translate-x-0" )}>
-        <div className="p-5 border-b border-slate-700 flex justify-center"><Link href="/admin/dashboard" onClick={() => isMobile && setIsMobileMenuOpen(false)}><Image src={Logo} alt="FHT Admin Panel" width={130} priority /></Link></div>
+        
+        {/* ============================================================================ */}
+        {/* 🔹 CORREÇÃO DE FLUXO (Link do Logo) 🔹                                   */}
+        {/* ============================================================================ */}
+        <div className="p-5 border-b border-slate-700 flex justify-center">
+            <Link href="/" onClick={() => isMobile && setIsMobileMenuOpen(false)}>
+                <Image src={Logo} alt="FHT Admin Panel" width={130} priority />
+            </Link>
+        </div>
+
         <div className="p-3 mt-2 text-center text-sm"><p>Bem-vindo(a),</p><p className="font-semibold">{userProfile.displayName}</p></div>
         
         {/* --- ESTRUTURA DE NAVEGAÇÃO ATUALIZADA --- */}

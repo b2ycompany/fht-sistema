@@ -279,6 +279,12 @@ export const createDoctorUserHandler = async (request: CallableRequest) => {
             status: 'PENDING_APPROVAL' as const, // Médicos precisam de aprovação do admin
             createdAt: FieldValue.serverTimestamp(),
             updatedAt: FieldValue.serverTimestamp(),
+            
+            // ============================================================================
+            // 🔹 CORREÇÃO DE FLUXO (Criação Rápida) 🔹
+            // Adiciona o campo que o painel de admin está a procurar!
+            // ============================================================================
+            documentVerificationStatus: 'PENDING_REVIEW'
         };
         await getDb().collection("users").doc(userRecord.uid).set(userProfile);
         logger.info(`SUCESSO: Médico ${userRecord.uid} criado e vinculado ao hospital ${callerUid}.`);
@@ -406,7 +412,14 @@ export const finalizeRegistrationHandler = async (request: CallableRequest) => {
             userType: role,
             createdAt: FieldValue.serverTimestamp(),
             updatedAt: FieldValue.serverTimestamp(),
-            status: role === 'doctor' ? 'PENDING_APPROVAL' : 'ACTIVE'
+            // <<< CORREÇÃO DE FLUXO (1/2): Hospitais também devem aguardar aprovação >>>
+            status: (role === 'doctor' || role === 'hospital') ? 'PENDING_APPROVAL' : 'ACTIVE',
+            
+            // ============================================================================
+            // 🔹 CORREÇÃO DE FLUXO (2/2) 🔹
+            // Adiciona o campo que o painel de admin (matches/page.tsx) está a procurar!
+            // ============================================================================
+            documentVerificationStatus: (role === 'doctor' || role === 'hospital') ? 'PENDING_REVIEW' : 'NOT_APPLICABLE'
         };
 
         await getDb().collection("users").doc(uid).set(finalProfileData);
@@ -466,7 +479,8 @@ export const onUserWrittenSetClaimsHandler = async (event: FirestoreEvent<Change
                 const invHospitalId = invitationDoc.data().hospitalId;
                 await change.after.ref.update({
                     healthUnitIds: FieldValue.arrayUnion(invHospitalId),
-                    status: 'PENDING_APPROVAL'
+                    status: 'PENDING_APPROVAL',
+                    documentVerificationStatus: 'PENDING_REVIEW' // <<< CORREÇÃO: Adiciona status de verificação no convite
                 });
                 await invitationDoc.ref.update({ status: 'completed' });
                 logger.info(`Médico ${userId} vinculado ao hospital ${invHospitalId} via convite.`);

@@ -1,4 +1,4 @@
-// app/admin/matches/page.tsx
+// app/admin/matches/page.tsx (Código Completo e Corrigido)
 "use client";
 
 import React, { useState, useEffect, useRef } from 'react';
@@ -24,7 +24,6 @@ import { Badge } from "@/components/ui/badge";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 
 // Serviços e Tipos
-// [CORREÇÃO]: Adicionado getMatchChatMessages ao import.
 import { approveMatchAndCreateContract, rejectMatchByBackoffice, type PotentialMatch, sendMessageInMatchChat, getMatchChatMessages, type ChatMessage, type ChatTarget } from "@/lib/match-service";
 import { updateUserVerificationStatus, type UserProfile, type ProfileStatus } from "@/lib/auth-service";
 import { type Contract } from "@/lib/contract-service";
@@ -93,18 +92,29 @@ const UserVerificationCard: React.FC<{ user: UserProfile; onAction: (userId: str
         );
     };
 
-    // [CORREÇÃO]: Trocado 'user.role' por 'user.userType'
     const isHospital = user.userType === 'hospital';
+    
+    // <<< CORREÇÃO: Lê o status correto para exibir o Badge >>>
+    const currentStatus = (user as any).documentVerificationStatus || user.status; 
 
     return (
-      <Card className="border-l-4 border-yellow-500">
+      <Card className={cn("border-l-4", 
+        currentStatus === 'PENDING_REVIEW' && "border-yellow-500",
+        currentStatus === 'REJECTED_NEEDS_RESUBMISSION' && "border-red-500"
+      )}>
         <CardHeader>
             <div className="flex justify-between items-start">
                 <div>
                     <CardTitle className="flex items-center gap-2">{isHospital ? <Building size={20}/> : <User size={20}/>} {user.displayName}</CardTitle>
                     <CardDescription>{isHospital ? 'Hospital/Empresa' : 'Médico(a)'} - {user.email}</CardDescription>
                 </div>
-                <Badge variant="outline">Pendente de Revisão</Badge>
+                {/* <<< CORREÇÃO: Badge dinâmico baseado no status >>> */}
+                <Badge variant="outline" className={cn(
+                    currentStatus === 'PENDING_REVIEW' && "text-yellow-700 border-yellow-500",
+                    currentStatus === 'REJECTED_NEEDS_RESUBMISSION' && "text-red-700 border-red-500"
+                )}>
+                    {currentStatus === 'REJECTED_NEEDS_RESUBMISSION' ? 'Correção Pendente' : 'Pendente de Revisão'}
+                </Badge>
             </div>
         </CardHeader>
         <CardContent className="space-y-6">
@@ -333,7 +343,26 @@ export default function AdminUnifiedPage() {
     const [isLoadingContracts, setIsLoadingContracts] = useState(true);
 
     useEffect(() => {
-        const unsubUsers = onSnapshot(query(collection(db, "users"), where("documentVerificationStatus", "==", "PENDING_REVIEW")), (snapshot) => { setPendingUsers(snapshot.docs.map(doc => ({ uid: doc.id, ...doc.data() } as UserProfile))); setIsLoadingUsers(false); });
+        // ============================================================================
+        // 🔹 CORREÇÃO DE FLUXO (Query) 🔹
+        // Agora procura por AMBOS os status pendentes.
+        // ============================================================================
+        const unsubUsers = onSnapshot(query(
+            collection(db, "users"), 
+            where("documentVerificationStatus", "in", ["PENDING_REVIEW", "REJECTED_NEEDS_RESUBMISSION"])
+        ), (snapshot) => { 
+            setPendingUsers(snapshot.docs.map(doc => ({ uid: doc.id, ...doc.data() } as UserProfile))); 
+            setIsLoadingUsers(false); 
+        }, (error) => {
+            console.error("Erro ao buscar usuários pendentes (verifique o índice do Firestore):", error);
+            toast({
+                title: "Erro de Consulta de Usuários",
+                description: "Pode ser necessário criar um índice para 'documentVerificationStatus'. Verifique o console.",
+                variant: "destructive",
+                duration: 10000,
+            });
+            setIsLoadingUsers(false);
+        });
         
         const matchesQuery = query(
             collection(db, "potentialMatches"), 
@@ -347,7 +376,7 @@ export default function AdminUnifiedPage() {
         }, (error) => {
             console.error("Erro ao buscar matches (verifique o índice do Firestore):", error);
             toast({
-                title: "Erro de Consulta",
+                title: "Erro de Consulta de Matches",
                 description: "Falha ao buscar matches. Pode ser necessário criar um índice no Firestore. Verifique o console para o link.",
                 variant: "destructive",
                 duration: 10000,

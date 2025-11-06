@@ -1,21 +1,46 @@
-// app/dashboard/page.tsx
+// app/dashboard/page.tsx (Código Completo e Corrigido)
 "use client";
 
 import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { useRouter } from 'next/navigation';
-import { Loader2, Hospital, Monitor, Users } from 'lucide-react';
+import { Loader2, Hospital, Monitor, Users, LogIn, Video } from 'lucide-react';
 import { useAuth } from '@/components/auth-provider';
 import { useToast } from "@/hooks/use-toast";
-import { type DoctorProfile, getUserProfile } from '@/lib/auth-service';
+import { type DoctorProfile } from '@/lib/auth-service';
 import ProfileStatusAlert, { type ProfileStatus } from '@/components/ui/ProfileStatusAlert';
-import { listenToServiceQueue, type ServiceQueueEntry } from '@/lib/patient-service';
-import { createConsultationFromQueue } from '@/lib/consultation-service';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Label } from '@/components/ui/label';
 
-type HealthUnitInfo = { id: string; name: string; };
+// --- Importações Corrigidas ---
+import { db } from '@/lib/firebase';
+import { collection, query, where, onSnapshot, orderBy, Timestamp, doc, updateDoc } from 'firebase/firestore';
+import { format } from 'date-fns'; // <<< CORREÇÃO: Importa 'format'
+import { ptBR } from 'date-fns/locale'; // <<< CORREÇÃO: Importa 'ptBR'
+import { Badge } from "@/components/ui/badge"; // <<< CORREÇÃO: Importa 'Badge'
+
+// ===================================================================
+// 🔹 CORREÇÃO: Definição da interface 'Appointment' 🔹
+// Esta interface estava em falta, causando os erros de tipo.
+// Ela é baseada no que é criado no logic.ts (telemedicina) e agendamento/page.tsx (presencial).
+// ===================================================================
+export interface Appointment {
+  id: string;
+  patientId: string;
+  patientName: string;
+  doctorId: string;
+  doctorName: string;
+  specialty: string;
+  status: 'SCHEDULED' | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED';
+  type: 'Presencial' | 'Telemedicina';
+  appointmentDate: Timestamp; // Usando o tipo Timestamp do Firebase
+  createdAt: Timestamp;
+  createdBy: string;
+  telemedicineRoomUrl?: string;
+  aiAnalysisReport?: string; // O relatório da IA que já está a ser gerado
+}
+// ===================================================================
 
 /**
  * COMPONENTE REUTILIZÁVEL para exibir uma fila de atendimento.
@@ -32,56 +57,80 @@ const AttendanceQueueCard = ({
     attendanceType: 'Presencial' | 'Telemedicina',
     icon: React.ElementType
 }) => {
-    const { userProfile } = useAuth();
+    const { user, userProfile } = useAuth();
     const router = useRouter();
     const { toast } = useToast();
-    const [queue, setQueue] = useState<ServiceQueueEntry[]>([]);
+    const [queue, setQueue] = useState<Appointment[]>([]); // <<< CORREÇÃO: Usa a interface Appointment
     const [isLoading, setIsLoading] = useState(true);
     const [isStartingConsultation, setIsStartingConsultation] = useState<string | null>(null);
-    const [associatedUnits, setAssociatedUnits] = useState<HealthUnitInfo[]>([]);
-    const [selectedUnitId, setSelectedUnitId] = useState<string | null>(null);
 
     useEffect(() => {
-        const fetchAssociatedUnits = async () => {
-            const doctorProfile = userProfile as DoctorProfile;
-            if (doctorProfile?.healthUnitIds && doctorProfile.healthUnitIds.length > 0) {
-                const unitPromises = doctorProfile.healthUnitIds.map(async (unitId) => {
-                    const unitProfile = await getUserProfile(unitId);
-                    return { id: unitId, name: unitProfile?.displayName || 'Unidade Desconhecida' };
-                });
-                const units = await Promise.all(unitPromises);
-                setAssociatedUnits(units);
-                if (units.length > 0) {
-                    setSelectedUnitId(units[0].id);
-                }
-            }
-        };
-        fetchAssociatedUnits();
-    }, [userProfile]);
-
-    useEffect(() => {
-        if (selectedUnitId) {
-            setIsLoading(true);
-            // Chama o serviço de escuta passando o TIPO de atendimento
-            const unsubscribe = listenToServiceQueue(selectedUnitId, 'Aguardando Atendimento', attendanceType, (entries) => {
-                setQueue(entries);
-                setIsLoading(false);
-            });
-            return () => unsubscribe();
-        } else {
-            setQueue([]);
+        if (!user?.uid || !userProfile) {
             setIsLoading(false);
+            return;
         }
-    }, [selectedUnitId, attendanceType]);
 
-    const handleStartConsultation = async (queueEntry: ServiceQueueEntry) => {
+        let q;
+        const doctorProfile = userProfile as DoctorProfile;
+
+        // Lógica de query baseada no tipo de atendimento
+        if (attendanceType === 'Telemedicina') {
+            // FILA DE TELEMEDICINA: Puxa pelas especialidades do médico
+            if (!doctorProfile.specialties || doctorProfile.specialties.length === 0) {
+                setIsLoading(false);
+                return; // Médico não tem especialidades, a fila ficará vazia
+            }
+            q = query(
+                collection(db, "appointments"),
+                where("specialty", "in", doctorProfile.specialties),
+                where("type", "==", "Telemedicina"),
+                where("status", "==", "SCHEDULED"),
+                orderBy("appointmentDate", "asc")
+            );
+        } else {
+            // FILA PRESENCIAL: Puxa pelo ID do médico
+            q = query(
+                collection(db, "appointments"),
+                where("doctorId", "==", user.uid),
+                where("type", "==", "Presencial"),
+                where("status", "==", "SCHEDULED"),
+                orderBy("appointmentDate", "asc")
+            );
+        }
+
+        const unsubscribe = onSnapshot(q, (snapshot) => {
+            const entries = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Appointment));
+            setQueue(entries);
+            setIsLoading(false);
+        }, (error) => {
+            console.error(`Erro ao buscar fila ${attendanceType}:`, error);
+            toast({ title: "Erro na Fila", description: `Não foi possível carregar a fila de ${attendanceType}.`, variant: "destructive"});
+            setIsLoading(false);
+        });
+
+        return () => unsubscribe();
+    }, [user, userProfile, attendanceType, toast]);
+
+    // ===================================================================
+    // 🔹 CORREÇÃO: Fluxo de Atendimento 🔹
+    // Esta função agora atualiza o status e redireciona para o prontuário.
+    // ===================================================================
+    const handleStartConsultation = async (appointment: Appointment) => {
         if (!userProfile) return;
-        setIsStartingConsultation(queueEntry.id);
+        setIsStartingConsultation(appointment.id);
+        
         try {
-            const doctorInfo = { uid: userProfile.uid, displayName: userProfile.displayName };
-            // Passa o nome da unidade para a função de criação da consulta
-            const consultationId = await createConsultationFromQueue(queueEntry, doctorInfo, queueEntry.hospitalName);
-            router.push(`/dashboard/atendimento/${consultationId}`);
+            // 1. Atualiza o status do agendamento para "Em Andamento"
+            const appRef = doc(db, "appointments", appointment.id);
+            await updateDoc(appRef, {
+                status: "IN_PROGRESS",
+                doctorId: userProfile.uid // Garante que o médico seja atribuído (especialmente em telemedicina)
+            });
+            
+            // 2. Redireciona o médico para a TELA DE ATENDIMENTO (Prontuário)
+            // É nesta tela que ele verá o Relatório da IA e o link do Daily.co
+            router.push(`/dashboard/atendimento/${appointment.id}`);
+
         } catch(error: any) {
             toast({ title: "Erro ao iniciar consulta", description: error.message, variant: "destructive" });
             setIsStartingConsultation(null);
@@ -95,23 +144,29 @@ const AttendanceQueueCard = ({
                 <CardDescription>{description}</CardDescription>
             </CardHeader>
             <CardContent className="flex-grow">
-                {associatedUnits.length > 1 && (
-                    <div className="mb-4 space-y-1.5"><Label htmlFor={`unit-selector-${attendanceType}`}>A trabalhar na unidade:</Label>
-                        <Select value={selectedUnitId ?? ""} onValueChange={setSelectedUnitId}>
-                            <SelectTrigger id={`unit-selector-${attendanceType}`} className="w-full"><SelectValue placeholder="Selecione a unidade..." /></SelectTrigger>
-                            <SelectContent>{associatedUnits.map(unit => (<SelectItem key={unit.id} value={unit.id}><div className="flex items-center gap-2"><Hospital className="h-4 w-4 text-muted-foreground" />{unit.name}</div></SelectItem>))}</SelectContent>
-                        </Select>
-                    </div>
-                )}
+                {/* O seletor de Unidade foi removido pois a query agora cuida disso */}
                 {isLoading ? <div className="flex justify-center pt-8"><Loader2 className="h-6 w-6 animate-spin" /></div> : 
                  queue.length > 0 ? (
                     <div className="space-y-2">{queue.map(entry => (
                         <div key={entry.id} className="flex items-center justify-between p-3 bg-blue-50 rounded-md border border-blue-200">
-                            <div><p className="font-bold text-xl text-blue-800">{entry.ticketNumber}</p><p className="text-sm font-semibold">{entry.patientName}</p></div>
-                            <Button size="sm" onClick={() => handleStartConsultation(entry)} disabled={!!isStartingConsultation} className="bg-blue-600 hover:bg-blue-700">{isStartingConsultation === entry.id ? <Loader2 className="h-4 w-4 animate-spin" /> : "Iniciar Atendimento"}</Button>
+                            <div>
+                                <p className="text-sm font-semibold">{entry.patientName}</p>
+                                <p className="text-xs text-gray-600">
+                                    {/* <<< CORREÇÃO: 'format' e 'ptBR' agora estão importados >>> */}
+                                    Agendado para: {format(entry.appointmentDate.toDate(), "dd/MM 'às' HH:mm", { locale: ptBR })}
+                                </p>
+                                {/* <<< CORREÇÃO: 'Badge' agora está importado >>> */}
+                                <Badge variant="secondary" className="mt-1">{entry.specialty}</Badge>
+                            </div>
+                            <Button size="sm" onClick={() => handleStartConsultation(entry)} disabled={!!isStartingConsultation} className="bg-blue-600 hover:bg-blue-700">
+                                {isStartingConsultation === entry.id ? <Loader2 className="h-4 w-4 animate-spin" /> : 
+                                 (attendanceType === 'Telemedicina' ? <Video className="h-4 w-4 mr-2"/> : <LogIn className="h-4 w-4 mr-2"/>)
+                                }
+                                Iniciar
+                            </Button>
                         </div>))}
                     </div>
-                 ) : <p className="text-center text-sm text-muted-foreground pt-8">Nenhum paciente na fila desta unidade no momento.</p>
+                 ) : <p className="text-center text-sm text-muted-foreground pt-8">Nenhum paciente na fila no momento.</p>
                 }
             </CardContent>
         </Card>
