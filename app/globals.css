@@ -1,4 +1,4 @@
-/* app/globals.css (Arquivo Completo com a CORREÇÃO FINAL) */
+/* app/globals.css (LIMPO - sem o CSS do calendário que falhou) */
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -94,16 +94,4 @@ body {
   }
 }
 
-/* =================================================================== */
-/* === CORREÇÃO ALINHAMENTO CALENDÁRIO (v2 - table-layout: fixed) ===  */
-/* =================================================================== */
-
-/* Isto força a tabela do calendário a usar um layout fixo.
-  Isto obriga as colunas (dias da semana) a respeitarem 
-  a largura definida pelo shadcn/ui (classe w-9 ou similar), 
-  em vez de se ajustarem ao conteúdo ("dom", "seg", "ter").
-*/
-.rdp-table {
-  table-layout: fixed !important;
-  width: 100% !important;
-}
+/* O BLOCO .rdp FOI REMOVIDO DAQUI */

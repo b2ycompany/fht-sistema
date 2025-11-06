@@ -1,4 +1,4 @@
-// app/dashboard/availability/page.tsx
+// app/dashboard/availability/page.tsx (CORRIGIDO COM table-fixed)
 "use client";
 
 import React, { useState, useEffect, useMemo, useCallback, ChangeEvent, ReactNode } from "react";
@@ -244,9 +244,6 @@ const TimeSlotFormDialog: React.FC<{ onFormSubmitted: () => void; initialData?: 
       {/* Scrollable content area */}
       <div className="grid gap-5 py-4 max-h-[70vh] overflow-y-auto px-1 pr-3 md:pr-4 pb-12">
           
-          {/* ================================================================= */}
-          {/* 🔹 CORREÇÃO DEFINITIVA DO CALENDÁRIO (Popover + Tradução) 🔹      */}
-          {/* ================================================================= */}
           <div className="space-y-2">
             <Label className="font-semibold text-gray-800 flex items-center"><CalendarDays className="h-4 w-4 mr-2 text-blue-600"/>Data(s) da Disponibilidade*</Label>
             <p className="text-xs text-gray-500">{isEditing ? "Data original (não pode ser alterada)." : "Selecione um ou mais dias no calendário."}</p>
@@ -266,6 +263,9 @@ const TimeSlotFormDialog: React.FC<{ onFormSubmitted: () => void; initialData?: 
                         </Button>
                     </PopoverTrigger>
                     <PopoverContent className="w-auto p-0">
+                        {/* ================================================================= */}
+                        {/* 🔹 CORREÇÃO DEFINITIVA (table-fixed) 🔹                           */}
+                        {/* ================================================================= */}
                         <Calendar
                             locale={ptBR} // Tradução para Português
                             mode="multiple"
@@ -275,7 +275,7 @@ const TimeSlotFormDialog: React.FC<{ onFormSubmitted: () => void; initialData?: 
                             disabled={{ before: new Date(new Date().setHours(0, 0, 0, 0)) }}
                             modifiers={modifiers}
                             modifiersStyles={modifiersStyles}
-                            // As regras CSS no globals.css cuidarão do alinhamento interno
+                            className="table-fixed" // <<< APLICA A CORREÇÃO DE LAYOUT DIRETAMENTE
                         />
                     </PopoverContent>
                 </Popover>
@@ -283,7 +283,6 @@ const TimeSlotFormDialog: React.FC<{ onFormSubmitted: () => void; initialData?: 
           </div>
 
           {/* --- Restante do formulário (Horário, Localização, Tipo, Valor, Especialidades, Notas) --- */}
-          {/* CORREÇÃO: Labels simplificadas */}
           <div className="space-y-2">
               <Label className="font-semibold text-gray-800 flex items-center"><Clock className="h-4 w-4 mr-2 text-blue-600"/>Horário*</Label>
               <div className="flex flex-wrap gap-2 mb-3"><Button variant="outline" size="sm" onClick={() => applyQuickTime("07:00", "19:00")} className="text-xs">Diurno (07-19h)</Button><Button variant="outline" size="sm" onClick={() => applyQuickTime("19:00", "07:00")} className="text-xs">Noturno (19-07h)</Button><Button variant="outline" size="sm" onClick={() => applyQuickTime("08:00", "12:00")} className="text-xs">Manhã (08-12h)</Button><Button variant="outline" size="sm" onClick={() => applyQuickTime("13:00", "18:00")} className="text-xs">Tarde (13-18h)</Button></div>
